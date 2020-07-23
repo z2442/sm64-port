@@ -21,12 +21,15 @@ NON_MATCHING ?= 0
 TARGET_N64 ?= 0
 # Build for Emscripten/WebGL
 TARGET_WEB ?= 0
+# Build for PSP
+TARGET_PSP ?= 0
 # Compiler to use (ido or gcc)
 COMPILER ?= ido
 
 # Automatic settings only for ports
 ifeq ($(TARGET_N64),0)
 
+ifeq ($(TARGET_PSP), 0)
   NON_MATCHING := 1
   GRUCODE := f3dex2e
   TARGET_WINDOWS := 0
@@ -74,6 +77,12 @@ ifeq ($(TARGET_N64),0)
       $(error Cannot specify multiple graphics backends)
     endif
   endif
+
+  endif
+
+#PSP DEFS
+ifeq($(TARGET_PSP),1)
+endif
 
 endif
 
