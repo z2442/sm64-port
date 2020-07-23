@@ -29,10 +29,10 @@ COMPILER ?= ido
 # Automatic settings only for ports
 ifeq ($(TARGET_N64),0)
 
-ifeq ($(TARGET_PSP), 0)
   NON_MATCHING := 1
   GRUCODE := f3dex2e
   TARGET_WINDOWS := 0
+  ifeq ($(TARGET_PSP), 0)
   ifeq ($(TARGET_WEB),0)
     ifeq ($(OS),Windows_NT)
       TARGET_WINDOWS := 1
@@ -200,15 +200,12 @@ endif
 BUILD_DIR_BASE := build
 ifeq ($(TARGET_N64),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)
-else
-ifeq ($(TARGET_PSP),1)
+else ifeq ($(TARGET_PSP),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_psp
-else
-ifeq ($(TARGET_WEB),1)
+else ifeq ($(TARGET_WEB),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_web
 else
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_pc
-endif
 endif
 
 LIBULTRA := $(BUILD_DIR)/libultra.a
@@ -405,6 +402,13 @@ ifeq ($(TARGET_N64),1)
 endif
 
 INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
+
+ifeq ($(TARGET_PSP),1)
+  CC := psp-gcc
+  AS := psp-as
+  CXX := psp-g++
+  OPT_FLAGS += -march=mips32
+endif
 
 # Check code syntax with host compiler
 CC_CHECK := gcc
