@@ -81,7 +81,8 @@ ifeq ($(TARGET_PSP), 0)
   endif
 
 #PSP DEFS
-ifeq($(TARGET_PSP),1)
+ifeq ($(TARGET_PSP), 1)
+
 endif
 
 endif
@@ -200,7 +201,7 @@ BUILD_DIR_BASE := build
 ifeq ($(TARGET_N64),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)
 else
-else ifeq ($(TARGET_PSP),1)
+ifeq ($(TARGET_PSP),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_psp
 else
 ifeq ($(TARGET_WEB),1)
