@@ -24,7 +24,7 @@ TARGET_WEB ?= 0
 # Build for PSP
 TARGET_PSP ?= 0
 # Compiler to use (ido or gcc)
-COMPILER ?= ido
+#COMPILER ?= ido
 
 # Automatic settings only for ports
 ifeq ($(TARGET_N64),0)
@@ -82,7 +82,6 @@ ifeq ($(TARGET_N64),0)
 
 #PSP DEFS
 ifeq ($(TARGET_PSP), 1)
-
 endif
 
 endif
@@ -198,14 +197,8 @@ endif
 
 # BUILD_DIR is location where all build artifacts are placed
 BUILD_DIR_BASE := build
-ifeq ($(TARGET_N64),1)
-  BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)
-else ifeq ($(TARGET_PSP),1)
+ifeq ($(TARGET_PSP),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_psp
-else ifeq ($(TARGET_WEB),1)
-  BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_web
-else
-  BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_pc
 endif
 
 LIBULTRA := $(BUILD_DIR)/libultra.a
@@ -461,6 +454,10 @@ PYTHON := python3
 ifeq ($(TARGET_WINDOWS),1)
   PLATFORM_CFLAGS  := -DTARGET_WINDOWS
   PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -no-pie -mwindows
+endif
+ifeq ($(TARGET_PSP),1)
+CC_CHECK := $(CC) -fsyntax-only -fsigned-char $(BACKEND_CFLAGS) $(INCLUDE_CFLAGS) -Wall -Wno-format-security $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fsigned-char -DTARGET_PSP -D__PSP__
+CFLAGS := $(OPT_FLAGS) $(INCLUDE_CFLAGS) $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fno-strict-aliasing -fwrapv -Wfatal-errors -fsigned-char -DTARGET_PSP -D__PSP__
 endif
 ifeq ($(TARGET_LINUX),1)
   PLATFORM_CFLAGS  := -DTARGET_LINUX `pkg-config --cflags libusb-1.0`
