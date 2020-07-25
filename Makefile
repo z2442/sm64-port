@@ -463,7 +463,7 @@ endif
 ifeq ($(TARGET_PSP),1)
   PSP_PREFIX = $(shell psp-config -p)
   CC_CHECK := $(CC) -I$(PSP_PREFIX)/include  -D_PSP_FW_VERSION=500 -DPSP -Wall -Wextra -Wshadow -Wstack-protector -Wstrict-prototypes -Wwrite-strings -Wformat=0  -std=gnu11 -fsingle-precision-constant -fdiagnostics-color -DNDEBUG -Os -ffast-math -funsafe-math-optimizations -fomit-frame-pointer   -fsyntax-only -fsigned-char $(BACKEND_CFLAGS) $(INCLUDE_CFLAGS) $(MATCH_CFLAGS)  -Wall -Wno-format-security $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fsigned-char -DTARGET_PSP -D__PSP__
-  CFLAGS := -I$(PSP_PREFIX)/include  -D_PSP_FW_VERSION=500 -DPSP -Wall -Wextra -Wshadow -Wstack-protector -Wstrict-prototypes -Wwrite-strings -Wformat=0  -std=gnu11 -fsingle-precision-constant -fdiagnostics-color -DNDEBUG -Os -ffast-math -funsafe-math-optimizations -fomit-frame-pointer   $(OPT_FLAGS) $(INCLUDE_CFLAGS) $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) $(MATCH_CFLAGS)  -fno-strict-aliasing -fwrapv -Wfatal-errors -fsigned-char -DTARGET_PSP -D__PSP__
+  CFLAGS := -I$(PSP_PREFIX)/include  -D_PSP_FW_VERSION=500 -DPSP -Wall -Wextra -Wshadow -Wstack-protector -Wstrict-prototypes -Wwrite-strings -Wformat=0  -std=gnu11 -fsingle-precision-constant -fdiagnostics-color -DNDEBUG -Os -ffast-math -funsafe-math-optimizations -fomit-frame-pointer   $(OPT_FLAGS) $(INCLUDE_CFLAGS) $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) $(MATCH_CFLAGS)  -fno-strict-aliasing -fwrapv -Wfatal-errors -fsigned-char -DTARGET_PSP -D__PSP__ -G 0
 endif
 ifeq ($(TARGET_LINUX),1)
   PLATFORM_CFLAGS  := -DTARGET_LINUX `pkg-config --cflags libusb-1.0`
@@ -838,7 +838,7 @@ $(BUILD_DIR)/$(TARGET).objdump: $(ELF)
 else
 $(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES)
 # $(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
-	psp-gcc -O2 -G0 -L$(PSP_PREFIX)/lib -specs=$(PSP_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSP_PREFIX)/lib/linkfile.prx -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS) $(PSP_PREFIX)/lib/prxexports.o -lpspgum -lpspgu -lpng -lz -lm -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpspsdk -lc -lpspnet -lpspnet_inet -lpspnet_apctl -lpspnet_resolver -lpsputility -lpspuser -lpspkernel
+	psp-gcc -O2 -G0 -L$(PSP_PREFIX)/lib -specs=$(PSP_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSP_PREFIX)/lib/linkfile.prx -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS) $(PSP_PREFIX)/lib/prxexports.o -lSDL2 -lpspvram -lGL -lpspvfpu -lpspaudio -lpsprtc -lpspirkeyb -lpsppower -lpsphprm -lpspgum -lpspgu -lpng -lz -lm -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpspsdk -lc -lpspnet -lpspnet_inet -lpspnet_apctl -lpspnet_resolver -lpsputility -lpspuser -lpspkernel 
 	psp-fixup-imports $@
 	psp-prxgen $@ $@.prx
 endif
