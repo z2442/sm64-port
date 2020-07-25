@@ -153,11 +153,23 @@ static size_t buf_vbo_num_tris;
 static struct GfxWindowManagerAPI *gfx_wapi;
 static struct GfxRenderingAPI *gfx_rapi;
 
+#ifdef __PSP__ 
+#include <sys/time.h>
+#else
 #include <time.h>
+#endif
 static unsigned long get_time(void) {
+    /*
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (unsigned long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+    */
+    struct timeval tp;
+    struct timezone tzp;
+
+    gettimeofday(&tp, &tzp);
+
+    return (unsigned long)(tp.tv_sec * 1000000 ) + tp.tv_usec;
 }
 
 static void gfx_flush(void) {
