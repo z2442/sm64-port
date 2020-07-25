@@ -22,7 +22,7 @@ TARGET_N64 ?= 0
 # Build for Emscripten/WebGL
 TARGET_WEB ?= 0
 # Build for PSP
-TARGET_PSP ?= 0
+TARGET_PSP ?= 1
 # Compiler to use (ido or gcc)
 #COMPILER ?= ido
 
@@ -33,55 +33,56 @@ ifeq ($(TARGET_N64),0)
   GRUCODE := f3dex2e
   TARGET_WINDOWS := 0
   ifeq ($(TARGET_PSP), 0)
-  ifeq ($(TARGET_WEB),0)
-    ifeq ($(OS),Windows_NT)
-      TARGET_WINDOWS := 1
-    else
-      # TODO: Detect Mac OS X, BSD, etc. For now, assume Linux
-      TARGET_LINUX := 1
-    endif
-  endif
-
-  ifeq ($(TARGET_WINDOWS),1)
-    # On Windows, default to DirectX 11
-    ifneq ($(ENABLE_OPENGL),1)
-      ifneq ($(ENABLE_DX12),1)
-        ENABLE_DX11 ?= 1
+    ifeq ($(TARGET_WEB),0)
+      ifeq ($(OS),Windows_NT)
+        TARGET_WINDOWS := 1
+      else
+        # TODO: Detect Mac OS X, BSD, etc. For now, assume Linux
+        TARGET_LINUX := 1
       endif
     endif
-  else
-    # On others, default to OpenGL
-    ENABLE_OPENGL ?= 1
-  endif
 
-  # Sanity checks
-  ifeq ($(ENABLE_DX11),1)
-    ifneq ($(TARGET_WINDOWS),1)
-      $(error The DirectX 11 backend is only supported on Windows)
+    ifeq ($(TARGET_WINDOWS),1)
+      # On Windows, default to DirectX 11
+      ifneq ($(ENABLE_OPENGL),1)
+        ifneq ($(ENABLE_DX12),1)
+          ENABLE_DX11 ?= 1
+        endif
+      endif
+    else
+      # On others, default to OpenGL
+      ENABLE_OPENGL ?= 1
     endif
-    ifeq ($(ENABLE_OPENGL),1)
-      $(error Cannot specify multiple graphics backends)
+
+    # Sanity checks
+    ifeq ($(ENABLE_DX11),1)
+      ifneq ($(TARGET_WINDOWS),1)
+        $(error The DirectX 11 backend is only supported on Windows)
+      endif
+      ifeq ($(ENABLE_OPENGL),1)
+        $(error Cannot specify multiple graphics backends)
+      endif
+      ifeq ($(ENABLE_DX12),1)
+        $(error Cannot specify multiple graphics backends)
+      endif
     endif
     ifeq ($(ENABLE_DX12),1)
-      $(error Cannot specify multiple graphics backends)
+      ifneq ($(TARGET_WINDOWS),1)
+        $(error The DirectX 12 backend is only supported on Windows)
+      endif
+      ifeq ($(ENABLE_OPENGL),1)
+        $(error Cannot specify multiple graphics backends)
+      endif
+      ifeq ($(ENABLE_DX11),1)
+        $(error Cannot specify multiple graphics backends)
+      endif
     endif
-  endif
-  ifeq ($(ENABLE_DX12),1)
-    ifneq ($(TARGET_WINDOWS),1)
-      $(error The DirectX 12 backend is only supported on Windows)
-    endif
-    ifeq ($(ENABLE_OPENGL),1)
-      $(error Cannot specify multiple graphics backends)
-    endif
-    ifeq ($(ENABLE_DX11),1)
-      $(error Cannot specify multiple graphics backends)
-    endif
-  endif
-
   endif
 
 #PSP DEFS
 ifeq ($(TARGET_PSP), 1)
+  ENABLE_OPENGL:= 1
+  NON_MATCHING := 1
 endif
 
 endif
@@ -375,6 +376,11 @@ ifeq ($(COMPILER),ido)
   endif
 endif
 
+CC = psp-gcc
+LD = psp-ld
+AS = psp-as
+CXX = psp-g++
+
 AS        := $(CROSS)as
 CC        := $(QEMU_IRIX) -silent -L $(IRIX_ROOT) $(IRIX_ROOT)/usr/bin/cc
 CPP       := cpp -P -Wno-trigraphs
@@ -395,13 +401,6 @@ ifeq ($(TARGET_N64),1)
 endif
 
 INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
-
-ifeq ($(TARGET_PSP),1)
-  CC := psp-gcc
-  AS := psp-as
-  CXX := psp-g++
-  OPT_FLAGS += -march=mips32
-endif
 
 # Check code syntax with host compiler
 CC_CHECK := gcc
@@ -434,10 +433,7 @@ export LANG := C
 else # TARGET_N64
 
 AS := as
-ifneq ($(TARGET_WEB),1)
-  CC := gcc
-  CXX := g++
-else
+ifeq ($(TARGET_WEB),1)
   CC := emcc
 endif
 ifeq ($(TARGET_WINDOWS),1)
@@ -445,10 +441,19 @@ ifeq ($(TARGET_WINDOWS),1)
 else
   LD := $(CC)
 endif
-CPP := cpp -P
-OBJDUMP := objdump
-OBJCOPY := objcopy
+
+#CPP := cpp -P
+#OBJDUMP := objdump
+#OBJCOPY := objcopy
 PYTHON := python3
+
+CC = psp-gcc
+AS = psp-as
+CXX = psp-g++
+CPP := psp-cpp -P
+LD = psp-ld
+OBJDUMP := psp-objdump
+OBJCOPY := psp-objcopy
 
 # Platform-specific compiler and linker flags
 ifeq ($(TARGET_WINDOWS),1)
@@ -456,8 +461,8 @@ ifeq ($(TARGET_WINDOWS),1)
   PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -no-pie -mwindows
 endif
 ifeq ($(TARGET_PSP),1)
-CC_CHECK := $(CC) -fsyntax-only -fsigned-char $(BACKEND_CFLAGS) $(INCLUDE_CFLAGS) -Wall -Wno-format-security $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fsigned-char -DTARGET_PSP -D__PSP__
-CFLAGS := $(OPT_FLAGS) $(INCLUDE_CFLAGS) $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fno-strict-aliasing -fwrapv -Wfatal-errors -fsigned-char -DTARGET_PSP -D__PSP__
+  CC_CHECK := $(CC) -I/usr/local/pspdev/psp/sdk/include  -D_PSP_FW_VERSION=500 -DPSP -Wall -Wextra -Wshadow -Wstack-protector -Wstrict-prototypes -Wwrite-strings -Wformat=0  -std=gnu11 -fsingle-precision-constant -fdiagnostics-color -DNDEBUG -Os -ffast-math -funsafe-math-optimizations -fomit-frame-pointer   -fsyntax-only -fsigned-char $(BACKEND_CFLAGS) $(INCLUDE_CFLAGS) $(MATCH_CFLAGS)  -Wall -Wno-format-security $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fsigned-char -DTARGET_PSP -D__PSP__
+  CFLAGS := -I/usr/local/pspdev/psp/sdk/include  -D_PSP_FW_VERSION=500 -DPSP -Wall -Wextra -Wshadow -Wstack-protector -Wstrict-prototypes -Wwrite-strings -Wformat=0  -std=gnu11 -fsingle-precision-constant -fdiagnostics-color -DNDEBUG -Os -ffast-math -funsafe-math-optimizations -fomit-frame-pointer   $(OPT_FLAGS) $(INCLUDE_CFLAGS) $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) $(MATCH_CFLAGS)  -fno-strict-aliasing -fwrapv -Wfatal-errors -fsigned-char -DTARGET_PSP -D__PSP__
 endif
 ifeq ($(TARGET_LINUX),1)
   PLATFORM_CFLAGS  := -DTARGET_LINUX `pkg-config --cflags libusb-1.0`
@@ -498,8 +503,8 @@ endif
 
 GFX_CFLAGS += -DWIDESCREEN
 
-CC_CHECK := $(CC) -fsyntax-only -fsigned-char $(INCLUDE_CFLAGS) -Wall -Wextra -Wno-format-security -D_LANGUAGE_C $(VERSION_CFLAGS) $(MATCH_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) $(GRUCODE_CFLAGS)
-CFLAGS := $(OPT_FLAGS) $(INCLUDE_CFLAGS) -D_LANGUAGE_C $(VERSION_CFLAGS) $(MATCH_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) $(GRUCODE_CFLAGS) -fno-strict-aliasing -fwrapv -march=native
+CC_CHECK ?= $(CC) -fsyntax-only -fsigned-char $(INCLUDE_CFLAGS) -Wall -Wextra -Wno-format-security -D_LANGUAGE_C $(VERSION_CFLAGS) $(MATCH_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) $(GRUCODE_CFLAGS)
+CFLAGS ?= $(OPT_FLAGS) $(INCLUDE_CFLAGS) -D_LANGUAGE_C $(VERSION_CFLAGS) $(MATCH_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) $(GRUCODE_CFLAGS) -fno-strict-aliasing -fwrapv
 
 ASFLAGS := -I include -I $(BUILD_DIR) $(VERSION_ASFLAGS)
 
@@ -542,7 +547,7 @@ endif
 ifeq ($(TARGET_N64),1)
 all: $(ROM)
 ifeq ($(COMPARE),1)
-	@$(SHA1SUM) -c $(TARGET).sha1 || (echo 'The build succeeded, but did not match the official ROM. This is expected if you are making changes to the game.\nTo silence this message, use "make COMPARE=0"'. && false)
+	@$(SHA1SUM) -c $(TARTGET).sha1 || (echo 'The build succeeded, but did not match the official ROM. This is expected if you are making changes to the game.\nTo silence this message, use "make COMPARE=0"'. && false)
 endif
 else
 all: $(EXE)
@@ -629,7 +634,7 @@ $(BUILD_DIR)/%: %.png
 	$(N64GRAPHICS) -i $@ -g $< -f $(lastword $(subst ., ,$@))
 
 $(BUILD_DIR)/%.inc.c: $(BUILD_DIR)/% %.png
-	hexdump -v -e '1/1 "0x%X,"' $< > $@
+	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
 	echo >> $@
 
 # Color Index CI8
@@ -716,7 +721,7 @@ $(SOUND_BIN_DIR)/%.o: $(SOUND_BIN_DIR)/%.s
 	$(AS) $(ASFLAGS) -o $@ $<
 
 $(SOUND_BIN_DIR)/%.inc.c: $(SOUND_BIN_DIR)/%
-	hexdump -v -e '1/1 "0x%X,"' $< > $@
+	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
 	echo >> $@
 
 $(SOUND_BIN_DIR)/sound_data.o: $(SOUND_BIN_DIR)/sound_data.ctl.inc.c $(SOUND_BIN_DIR)/sound_data.tbl.inc.c $(SOUND_BIN_DIR)/sequences.bin.inc.c $(SOUND_BIN_DIR)/bank_sets.inc.c
@@ -797,7 +802,7 @@ $(BUILD_DIR)/%.o: %.cpp
 	$(CXX) -c $(CFLAGS) -o $@ $<
 
 $(BUILD_DIR)/%.o: %.c
-	@$(CC_CHECK) $(CC_CHECK_CFLAGS) -MMD -MP -MT $@ -MF $(BUILD_DIR)/$*.d $<
+	$(CC_CHECK) $(CC_CHECK_CFLAGS) -MMD -MP -MT $@ -MF $(BUILD_DIR)/$*.d $<
 	$(CC) -c $(CFLAGS) -o $@ $<
 
 
@@ -831,7 +836,10 @@ $(BUILD_DIR)/$(TARGET).objdump: $(ELF)
 
 else
 $(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES)
-	$(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
+# $(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
+	psp-gcc -O2 -G0 -L/usr/local/pspdev/psp/sdk/lib -specs=/usr/local/pspdev/psp/sdk/lib/prxspecs -Wl,-q,-T/usr/local/pspdev/psp/sdk/lib/linkfile.prx -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS) /usr/local/pspdev/psp/sdk/lib/prxexports.o -lpspgum -lpspgu -lpng -lz -lm -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpspsdk -lc -lpspnet -lpspnet_inet -lpspnet_apctl -lpspnet_resolver -lpsputility -lpspuser -lpspkernel
+	psp-fixup-imports $@
+	psp-prxgen $@ $@.prx
 endif
 
 
@@ -846,3 +854,5 @@ MAKEFLAGS += --no-builtin-rules
 -include $(DEP_FILES)
 
 print-% : ; $(info $* is a $(flavor $*) variable set to [$($*)]) @true
+
+HEXDUMP ?= ./hexdump
