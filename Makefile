@@ -463,7 +463,7 @@ endif
 ifeq ($(TARGET_PSP),1)
   PSP_PREFIX = $(shell psp-config -p)
   CC_CHECK := $(CC) -I$(PSP_PREFIX)/include  -D_PSP_FW_VERSION=500 -DPSP -Wall -Wextra -Wshadow -Wstack-protector -Wstrict-prototypes -Wwrite-strings -Wformat=0  -std=gnu11 -fsingle-precision-constant -fdiagnostics-color -DNDEBUG -Os -ffast-math -funsafe-math-optimizations -fomit-frame-pointer   -fsyntax-only -fsigned-char $(BACKEND_CFLAGS) $(INCLUDE_CFLAGS) $(MATCH_CFLAGS)  -Wall -Wno-format-security $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fsigned-char -DTARGET_PSP -D__PSP__
-  CFLAGS := -I$(PSP_PREFIX)/include  -D_PSP_FW_VERSION=500 -DPSP -Wall -Wextra -Wshadow -Wstack-protector -Wstrict-prototypes -Wwrite-strings -Wformat=0  -std=gnu11 -fsingle-precision-constant -fdiagnostics-color -DNDEBUG -Os -ffast-math -funsafe-math-optimizations -fomit-frame-pointer   $(OPT_FLAGS) $(INCLUDE_CFLAGS) $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) $(MATCH_CFLAGS)  -fno-strict-aliasing -fwrapv -Wfatal-errors -fsigned-char -DTARGET_PSP -D__PSP__ -G 0
+  CFLAGS := -I$(PSP_PREFIX)/include  -D_PSP_FW_VERSION=500 -DPSP -Wall -Wextra -Wshadow -Wstack-protector -Wstrict-prototypes -Wwrite-strings -Wformat=0  -std=gnu11 -fsingle-precision-constant -fdiagnostics-color -DNDEBUG -Os -ffast-math -funsafe-math-optimizations -fomit-frame-pointer   $(OPT_FLAGS) $(INCLUDE_CFLAGS) $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) $(MATCH_CFLAGS)  -fno-strict-aliasing -fwrapv -Wfatal-errors -fsigned-char -DTARGET_PSP -D__PSP__ -G 0 -DNO_SEGMENTED_MEMORY
 endif
 ifeq ($(TARGET_LINUX),1)
   PLATFORM_CFLAGS  := -DTARGET_LINUX `pkg-config --cflags libusb-1.0`
