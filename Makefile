@@ -35,7 +35,9 @@ ifeq ($(TARGET_N64),0)
       TARGET_WINDOWS := 1
     else
       # TODO: Detect Mac OS X, BSD, etc. For now, assume Linux
-      TARGET_LINUX := 1
+      ifneq ($(TARGET_PSP), 1)
+        TARGET_LINUX := 1
+      endif
     endif
   endif
 
@@ -190,12 +192,12 @@ endif
 BUILD_DIR_BASE := build
 ifeq ($(TARGET_N64),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)
-else
-ifeq ($(TARGET_WEB),1)
+else ifeq ($(TARGET_WEB),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_web
+else ifeq ($(TARGET_PSP),1)
+  BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_psp
 else
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_pc
-endif
 endif
 
 LIBULTRA := $(BUILD_DIR)/libultra.a
@@ -424,6 +426,10 @@ export LANG := C
 else # TARGET_N64
 
 AS := as
+# HOST_ tools are for building sound/sequences/00_sound_player.s on PSP
+# as psp-as errors out due to relocation issues with the 'assembly'
+HOST_AS      := as
+HOST_OBJCOPY := objcopy
 ifneq ($(TARGET_WEB),1)
   CC := gcc
   CXX := g++
@@ -439,6 +445,14 @@ CPP := cpp -P
 OBJDUMP := objdump
 OBJCOPY := objcopy
 PYTHON := python3
+ifeq ($(TARGET_PSP),1)
+  CC  := psp-gcc
+  CXX := psp-g++
+  AS  := psp-as
+  LD  := $(CC)
+  OBJDUMP := psp-objdump
+  OBJCOPY := psp-objcopy
+endif
 
 # Platform-specific compiler and linker flags
 ifeq ($(TARGET_WINDOWS),1)
@@ -448,6 +462,12 @@ endif
 ifeq ($(TARGET_LINUX),1)
   PLATFORM_CFLAGS  := -DTARGET_LINUX `pkg-config --cflags libusb-1.0`
   PLATFORM_LDFLAGS := -lm -lpthread `pkg-config --libs libusb-1.0` -lasound -lpulse -no-pie
+endif
+ifeq ($(TARGET_PSP),1)
+  PSPSDK_PREFIX = $(shell psp-config -p)
+  PSP_PREFIX    = $(shell psp-config -P)
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -I$(PSPSDK_PREFIX)/include -G 0 -D_PSP_FW_VERSION=500
+  PLATFORM_LDFLAGS := -I$(PSPSDK_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx $(PSPSDK_PREFIX)/lib/prxexports.o
 endif
 ifeq ($(TARGET_WEB),1)
   PLATFORM_CFLAGS  := -DTARGET_WEB
@@ -472,6 +492,10 @@ ifeq ($(ENABLE_OPENGL),1)
     GFX_CFLAGS  += -s USE_SDL=2
     GFX_LDFLAGS += -lGL -lSDL2
   endif
+  ifeq ($(TARGET_PSP),1)
+    GFX_CFLAGS  := -I$(PSP_PREFIX)/include/SDL2 -D_GNU_SOURCE=1 -Dmain=SDL_main
+    GFX_LDFLAGS += -L$(PSP_PREFIX)/lib -lSDLmain -lSDL2 -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
+  endif
 endif
 ifeq ($(ENABLE_DX11),1)
   GFX_CFLAGS := -DENABLE_DX11
@@ -485,12 +509,15 @@ endif
 GFX_CFLAGS += -DWIDESCREEN
 
 CC_CHECK := $(CC) -fsyntax-only -fsigned-char $(INCLUDE_CFLAGS) -Wall -Wextra -Wno-format-security -D_LANGUAGE_C $(VERSION_CFLAGS) $(MATCH_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) $(GRUCODE_CFLAGS)
-CFLAGS := $(OPT_FLAGS) $(INCLUDE_CFLAGS) -D_LANGUAGE_C $(VERSION_CFLAGS) $(MATCH_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) $(GRUCODE_CFLAGS) -fno-strict-aliasing -fwrapv -march=native
+CFLAGS := $(OPT_FLAGS) $(INCLUDE_CFLAGS) -D_LANGUAGE_C $(VERSION_CFLAGS) $(MATCH_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) $(GRUCODE_CFLAGS) -fno-strict-aliasing -fwrapv
 
 ASFLAGS := -I include -I $(BUILD_DIR) $(VERSION_ASFLAGS)
 
 LDFLAGS := $(PLATFORM_LDFLAGS) $(GFX_LDFLAGS)
 
+ifneq ($(TARGET_PSP), 1)
+CFLAGS+=-march=native
+endif
 endif
 
 ####################### Other Tools #########################
@@ -696,10 +723,10 @@ $(SOUND_BIN_DIR)/bank_sets: $(SOUND_BIN_DIR)/sequences.bin
 	@true
 
 $(SOUND_BIN_DIR)/%.m64: $(SOUND_BIN_DIR)/%.o
-	$(OBJCOPY) -j .rodata $< -O binary $@
+	$(HOST_OBJCOPY) -j .rodata $< -O binary $@
 
 $(SOUND_BIN_DIR)/%.o: $(SOUND_BIN_DIR)/%.s
-	$(AS) $(ASFLAGS) -o $@ $<
+	$(HOST_AS) $(ASFLAGS) -o $@ $<
 
 $(SOUND_BIN_DIR)/%.inc.c: $(SOUND_BIN_DIR)/%
 	hexdump -v -e '1/1 "0x%X,"' $< > $@
@@ -792,7 +819,7 @@ $(BUILD_DIR)/%.o: $(BUILD_DIR)/%.c
 	$(CC) -c $(CFLAGS) -o $@ $<
 
 $(BUILD_DIR)/%.o: %.s
-	$(AS) $(ASFLAGS) -MD $(BUILD_DIR)/$*.d -o $@ $<
+	$(HOST_AS) $(ASFLAGS) -MD $(BUILD_DIR)/$*.d -o $@ $<
 
 ifeq ($(TARGET_N64),1)
 $(BUILD_DIR)/$(LD_SCRIPT): $(LD_SCRIPT)
@@ -818,6 +845,10 @@ $(BUILD_DIR)/$(TARGET).objdump: $(ELF)
 else
 $(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES)
 	$(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
+ifeq ($(TARGET_PSP),1)
+	psp-fixup-imports $@
+	psp-prxgen $@ $@.prx
+endif
 endif
 
 
