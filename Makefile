@@ -493,8 +493,7 @@ ifeq ($(ENABLE_OPENGL),1)
     GFX_LDFLAGS += -lGL -lSDL2
   endif
   ifeq ($(TARGET_PSP),1)
-    GFX_CFLAGS  := -I$(PSP_PREFIX)/include/SDL2 -D_GNU_SOURCE=1 -Dmain=SDL_main
-    GFX_LDFLAGS += -L$(PSP_PREFIX)/lib -lSDLmain -lSDL2 -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
+    GFX_LDFLAGS += -L$(PSP_PREFIX)/lib -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
   endif
 endif
 ifeq ($(ENABLE_DX11),1)
