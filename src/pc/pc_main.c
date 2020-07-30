@@ -31,7 +31,13 @@
 
 #include "compat.h"
 
-#define CONFIG_FILE "sm64config.txt"
+#if defined(TARGET_PSP)
+#define CONFIG_FILE_PREFIX "ms0:/"
+#else
+#define CONFIG_FILE_PREFIX ""
+#endif
+
+#define CONFIG_FILE CONFIG_FILE_PREFIX"sm64config.txt"
 
 OSMesg D_80339BEC;
 OSMesgQueue gSIEventMesgQueue;
