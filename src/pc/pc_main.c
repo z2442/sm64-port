@@ -16,6 +16,7 @@
 #include "gfx/gfx_direct3d12.h"
 #include "gfx/gfx_dxgi.h"
 #include "gfx/gfx_glx.h"
+#include "gfx/gfx_psp.h"
 #include "gfx/gfx_sdl.h"
 
 #include "audio/audio_api.h"
@@ -32,6 +33,9 @@
 #include "compat.h"
 
 #if defined(TARGET_PSP)
+#include <pspsdk.h>
+PSP_MODULE_INFO("SM64 for PSP", 0, 1, 1);
+PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
 #define CONFIG_FILE_PREFIX "ms0:/"
 #else
 #define CONFIG_FILE_PREFIX ""
@@ -168,6 +172,8 @@ void main_func(void) {
     rendering_api = &gfx_opengl_api;
     #if defined(__linux__) || defined(__BSD__)
         wm_api = &gfx_glx;
+    #elif defined(TARGET_PSP)
+        wm_api = &gfx_psp;
     #else
         wm_api = &gfx_sdl;
     #endif
