@@ -24,6 +24,20 @@ TARGET_WEB ?= 0
 # Compiler to use (ido or gcc)
 COMPILER ?= ido
 
+# Checks for local vs system hexdump
+ifeq (, $(shell which hexdump))
+$(warning "system hexdump is not available please provide a binary")
+  HEXD_2 := $(shell ./hexdump -h 2> /dev/null)
+  ifndef HEXD_2
+    $(error "local hexdump is not available please install or provide a binary")
+  endif
+  HEXDUMP := ./hexdump
+else
+$(warning "System hexdump Found")
+HEXDUMP := hexdump
+endif
+
+
 # Automatic settings only for ports
 ifeq ($(TARGET_N64),0)
 
@@ -864,17 +878,4 @@ MAKEFLAGS += --no-builtin-rules
 
 print-% : ; $(info $* is a $(flavor $*) variable set to [$($*)]) @true
 
-HEXD := $(shell hexdump -h 2> /dev/null)
 
-all:
-ifndef HEXD
-  $(warning "system hexdump is not available please provide a binary")
-  HEXD_2 := $(shell ./hexdump -h 2> /dev/null)
-  ifndef HEXD_2
-    $(error "local hexdump is not available please install or provide a binary")
-  endif
-  HEXDUMP := ./hexdump
-endif
-ifndef HEXDUMP
-HEXDUMP := hexdump
-endif
