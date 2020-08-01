@@ -23,13 +23,22 @@ static void controller_psp_init(void) {
 //  Analog   -> Move
 //  Start    -> Start
 //  DPad     -> Camera buttons
+/*
+#include <string.h>
+*/
 static void controller_psp_read(OSContPad *pad) {
-    SceCtrlData data;
+    static SceCtrlData data;
 
-    sceCtrlReadBufferPositive(&data, 1);
-    
-    pad->stick_x = data.Lx;
-    pad->stick_y = data.Ly;
+    /*@Note: should we reset everything? */
+    //memset(pad, 0, sizeof(OSContPad));
+    //memset(&sce_pad, 0, sizeof(SceCtrlData));
+
+    if (!sceCtrlPeekBufferPositive(&data, 1))
+        return;
+
+    /* flip and scale */
+    pad->stick_x = (char)((((float)data.Lx)*0.625f)-80);
+    pad->stick_y = (char)((((float)data.Ly)*0.625f)-80)*-1;
 
     if (data.Buttons & PSP_CTRL_START)
         pad->button |= START_BUTTON;
