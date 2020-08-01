@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,10 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
 #include "gfx_screen_config.h"
+
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+#define INFO_MSG(x) printf("%s %s\n", __FILE__ ":" TOSTRING(__LINE__), x)
 
 #define SUPPORT_CHECK(x) assert(x)
 
@@ -40,18 +45,18 @@
 
 struct RGBA {
     uint8_t r, g, b, a;
-};
+} __attribute__((packed, aligned(4)));
 
 struct XYWidthHeight {
     uint16_t x, y, width, height;
-};
+} __attribute__((packed, aligned(4)));
 
 struct LoadedVertex {
     float x, y, z, w;
     float u, v;
     struct RGBA color;
     uint8_t clip_rej;
-};
+} __attribute__((packed, aligned(4)));
 
 struct TextureHashmapNode {
     struct TextureHashmapNode *next;
@@ -62,7 +67,7 @@ struct TextureHashmapNode {
     uint32_t texture_id;
     uint8_t cms, cmt;
     bool linear_filter;
-};
+} __attribute__((packed, aligned(4)));
 static struct {
     struct TextureHashmapNode *hashmap[1024];
     struct TextureHashmapNode pool[512];
@@ -73,7 +78,7 @@ struct ColorCombiner {
     uint32_t cc_id;
     struct ShaderProgram *prg;
     uint8_t shader_input_mapping[2][4];
-};
+} __attribute__((packed, aligned(4)));
 
 static struct ColorCombiner color_combiner_pool[64];
 static uint8_t color_combiner_pool_size;
@@ -100,7 +105,7 @@ static struct RSP {
     } texture_scaling_factor;
     
     struct LoadedVertex loaded_vertices[MAX_VERTICES + 4];
-} rsp;
+} rsp  __attribute__((aligned(4)));
 
 static struct RDP {
     const uint8_t *palette;
@@ -130,7 +135,7 @@ static struct RDP {
     bool viewport_or_scissor_changed;
     void *z_buf_address;
     void *color_image_address;
-} rdp;
+} rdp  __attribute__((aligned(4)));
 
 static struct RenderingState {
     bool depth_test;
@@ -146,7 +151,7 @@ struct GfxDimensions gfx_current_dimensions;
 
 static bool dropped_frame;
 
-static float buf_vbo[MAX_BUFFERED * (26 * 3)]; // 3 vertices in a triangle and 26 floats per vtx
+static float buf_vbo[MAX_BUFFERED * (26 * 3)] __attribute__ ((aligned (8))); // 3 vertices in a triangle and 26 floats per vtx
 static size_t buf_vbo_len;
 static size_t buf_vbo_num_tris;
 
@@ -154,13 +159,9 @@ static struct GfxWindowManagerAPI *gfx_wapi;
 static struct GfxRenderingAPI *gfx_rapi;
 
 #if defined(TARGET_PSP)
-#include <sys/time.h>
+#include <pspthreadman.h>
 static unsigned long get_time(void) {
-	struct timeval tp;
-
-	gettimeofday(&tp, NULL);
-
-	return (unsigned long)(tp.tv_sec * 1000000) + tp.tv_usec;
+    return sceKernelGetSystemTimeWide();
 }
 #else
 #include <time.h>
@@ -174,11 +175,11 @@ static unsigned long get_time(void) {
 static void gfx_flush(void) {
     if (buf_vbo_len > 0) {
         int num = buf_vbo_num_tris;
-        unsigned long t0 = get_time();
+        //unsigned long t0 = get_time();
         gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
         buf_vbo_len = 0;
         buf_vbo_num_tris = 0;
-        unsigned long t1 = get_time();
+        //unsigned long t1 = get_time();
         /*if (t1 - t0 > 1000) {
             printf("f: %d %d\n", num, (int)(t1 - t0));
         }*/
@@ -295,7 +296,7 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, co
 }
 
 static void import_texture_rgba16(int tile) {
-    uint8_t rgba32_buf[8192];
+    uint8_t rgba32_buf[8192] __attribute__ ((aligned(4)));
     
     for (uint32_t i = 0; i < rdp.loaded_texture[tile].size_bytes / 2; i++) {
         uint16_t col16 = (rdp.loaded_texture[tile].addr[2 * i] << 8) | rdp.loaded_texture[tile].addr[2 * i + 1];
@@ -322,7 +323,7 @@ static void import_texture_rgba32(int tile) {
 }
 
 static void import_texture_ia4(int tile) {
-    uint8_t rgba32_buf[32768];
+    uint8_t rgba32_buf[32768] __attribute__ ((aligned(4)));
     
     for (uint32_t i = 0; i < rdp.loaded_texture[tile].size_bytes * 2; i++) {
         uint8_t byte = rdp.loaded_texture[tile].addr[i / 2];
@@ -345,7 +346,7 @@ static void import_texture_ia4(int tile) {
 }
 
 static void import_texture_ia8(int tile) {
-    uint8_t rgba32_buf[16384];
+    uint8_t rgba32_buf[16384]__attribute__ ((aligned(4)));
     
     for (uint32_t i = 0; i < rdp.loaded_texture[tile].size_bytes; i++) {
         uint8_t intensity = rdp.loaded_texture[tile].addr[i] >> 4;
@@ -482,7 +483,7 @@ static void import_texture(int tile) {
         return;
     }
     
-    int t0 = get_time();
+    //int t0 = get_time();
     if (fmt == G_IM_FMT_RGBA) {
         if (siz == G_IM_SIZ_16b) {
             import_texture_rgba16(tile);
@@ -520,15 +521,18 @@ static void import_texture(int tile) {
     } else {
         abort();
     }
-    int t1 = get_time();
+    //int t1 = get_time();
     //printf("Time diff: %d\n", t1 - t0);
 }
 
 static void gfx_normalize_vector(float v[3]) {
     float s = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-    v[0] /= s;
-    v[1] /= s;
-    v[2] /= s;
+    //@Note: check for div/0
+    if(s > 0.0f){
+        v[0] /= s;
+        v[1] /= s;
+        v[2] /= s;
+    }
 }
 
 static void gfx_transposed_matrix_mul(float res[3], const float a[3], const float b[4][4]) {
@@ -538,6 +542,8 @@ static void gfx_transposed_matrix_mul(float res[3], const float a[3], const floa
 }
 
 static void calculate_normal_dir(const Light_t *light, float coeffs[3]) {
+//@Note: nopped for now, bad!
+#if !defined(TARGET_PSP)
     float light_dir[3] = {
         light->dir[0] / 127.0f,
         light->dir[1] / 127.0f,
@@ -545,6 +551,7 @@ static void calculate_normal_dir(const Light_t *light, float coeffs[3]) {
     };
     gfx_transposed_matrix_mul(coeffs, light_dir, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
     gfx_normalize_vector(coeffs);
+#endif
 }
 
 static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4][4]) {
@@ -1640,7 +1647,7 @@ void gfx_start_frame(void) {
 void gfx_run(Gfx *commands) {
     gfx_sp_reset();
     
-    //puts("New frame");
+    //INFO_MSG("New frame");
     
     if (!gfx_wapi->start_frame()) {
         dropped_frame = true;
@@ -1648,11 +1655,11 @@ void gfx_run(Gfx *commands) {
     }
     dropped_frame = false;
     
-    double t0 = gfx_wapi->get_time();
+    //double t0 = gfx_wapi->get_time();
     gfx_rapi->start_frame();
     gfx_run_dl(commands);
     gfx_flush();
-    double t1 = gfx_wapi->get_time();
+    //double t1 = gfx_wapi->get_time();
     //printf("Process %f %f\n", t1, t1 - t0);
     gfx_rapi->end_frame();
     gfx_wapi->swap_buffers_begin();

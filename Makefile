@@ -466,7 +466,7 @@ endif
 ifeq ($(TARGET_PSP),1)
   PSPSDK_PREFIX = $(shell psp-config -p)
   PSP_PREFIX    = $(shell psp-config -P)
-  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -I$(PSPSDK_PREFIX)/include -G 0 -D_PSP_FW_VERSION=500
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -isystem src/pc/gfx/pspgl/include -I$(PSPSDK_PREFIX)/include -G 0 -D_PSP_FW_VERSION=500 -O2 -g -ffast-math 
   PLATFORM_LDFLAGS := -I$(PSPSDK_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx $(PSPSDK_PREFIX)/lib/prxexports.o
 endif
 ifeq ($(TARGET_WEB),1)
@@ -493,7 +493,8 @@ ifeq ($(ENABLE_OPENGL),1)
     GFX_LDFLAGS += -lGL -lSDL2
   endif
   ifeq ($(TARGET_PSP),1)
-    GFX_LDFLAGS += -L$(PSP_PREFIX)/lib -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
+#    GFX_LDFLAGS += src/pc/gfx/pspgl/libGL.a -L$(PSP_PREFIX)/lib -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
+    GFX_LDFLAGS +=  -L$(PSP_PREFIX)/lib -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
   endif
 endif
 ifeq ($(ENABLE_DX11),1)
@@ -641,7 +642,7 @@ $(BUILD_DIR)/%: %.png
 	$(N64GRAPHICS) -i $@ -g $< -f $(lastword $(subst ., ,$@))
 
 $(BUILD_DIR)/%.inc.c: $(BUILD_DIR)/% %.png
-	hexdump -v -e '1/1 "0x%X,"' $< > $@
+	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
 	echo >> $@
 
 # Color Index CI8
@@ -725,10 +726,10 @@ $(SOUND_BIN_DIR)/%.m64: $(SOUND_BIN_DIR)/%.o
 	$(HOST_OBJCOPY) -j .rodata $< -O binary $@
 
 $(SOUND_BIN_DIR)/%.o: $(SOUND_BIN_DIR)/%.s
-	$(HOST_AS) $(ASFLAGS) -o $@ $<
+	$(HOST_AS) $(ASFLAGS) -o $@ $< -Z  2> /dev/null
 
 $(SOUND_BIN_DIR)/%.inc.c: $(SOUND_BIN_DIR)/%
-	hexdump -v -e '1/1 "0x%X,"' $< > $@
+	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
 	echo >> $@
 
 $(SOUND_BIN_DIR)/sound_data.o: $(SOUND_BIN_DIR)/sound_data.ctl.inc.c $(SOUND_BIN_DIR)/sound_data.tbl.inc.c $(SOUND_BIN_DIR)/sequences.bin.inc.c $(SOUND_BIN_DIR)/bank_sets.inc.c
@@ -862,3 +863,18 @@ MAKEFLAGS += --no-builtin-rules
 -include $(DEP_FILES)
 
 print-% : ; $(info $* is a $(flavor $*) variable set to [$($*)]) @true
+
+HEXD := $(shell hexdump -h 2> /dev/null)
+
+all:
+ifndef HEXD
+  $(warning "system hexdump is not available please provide a binary")
+  HEXD_2 := $(shell ./hexdump -h 2> /dev/null)
+  ifndef HEXD_2
+    $(error "local hexdump is not available please install or provide a binary")
+  endif
+  HEXDUMP := ./hexdump
+endif
+ifndef HEXDUMP
+HEXDUMP := hexdump
+endif
