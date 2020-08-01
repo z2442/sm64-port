@@ -428,8 +428,8 @@ else # TARGET_N64
 AS := as
 # HOST_ tools are for building sound/sequences/00_sound_player.s on PSP
 # as psp-as errors out due to relocation issues with the 'assembly'
-HOST_AS      := psp-as
-HOST_OBJCOPY := psp-objcopy
+HOST_AS      := as
+HOST_OBJCOPY := objcopy
 ifneq ($(TARGET_WEB),1)
   CC := gcc
   CXX := g++
@@ -466,7 +466,7 @@ endif
 ifeq ($(TARGET_PSP),1)
   PSPSDK_PREFIX = $(shell psp-config -p)
   PSP_PREFIX    = $(shell psp-config -P)
-  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -I$(PSPSDK_PREFIX)/include -G 0 -D_PSP_FW_VERSION=500
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -isystem src/pc/gfx/pspgl/include -I$(PSPSDK_PREFIX)/include -G 0 -D_PSP_FW_VERSION=500 -O2 -g -ffast-math 
   PLATFORM_LDFLAGS := -I$(PSPSDK_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx $(PSPSDK_PREFIX)/lib/prxexports.o
 endif
 ifeq ($(TARGET_WEB),1)
@@ -493,7 +493,8 @@ ifeq ($(ENABLE_OPENGL),1)
     GFX_LDFLAGS += -lGL -lSDL2
   endif
   ifeq ($(TARGET_PSP),1)
-    GFX_LDFLAGS += -L$(PSP_PREFIX)/lib -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
+#    GFX_LDFLAGS += src/pc/gfx/pspgl/libGL.a -L$(PSP_PREFIX)/lib -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
+    GFX_LDFLAGS +=  -L$(PSP_PREFIX)/lib -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
   endif
 endif
 ifeq ($(ENABLE_DX11),1)
@@ -725,7 +726,7 @@ $(SOUND_BIN_DIR)/%.m64: $(SOUND_BIN_DIR)/%.o
 	$(HOST_OBJCOPY) -j .rodata $< -O binary $@
 
 $(SOUND_BIN_DIR)/%.o: $(SOUND_BIN_DIR)/%.s
-	$(HOST_AS) $(ASFLAGS) -o $@ $<
+	$(HOST_AS) $(ASFLAGS) -o $@ $< -Z  2> /dev/null
 
 $(SOUND_BIN_DIR)/%.inc.c: $(SOUND_BIN_DIR)/%
 	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
