@@ -82,8 +82,13 @@ static bool gfx_opengl_z_is_from_0_to_1(void) {
     return false;
 }
 
-#define TEXENV_COMBINE_ON() glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE)
+#if defined(TARGET_PSP)
+#define TEXENV_COMBINE_ON()
+#define TEXENV_COMBINE_OFF()
+#else
+#define TEXENV_COMBINE_ON() glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE)#define TEXENV_COMBINE_OFF() glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
 #define TEXENV_COMBINE_OFF() glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE)
+#endif
 
 #define TEXENV_COMBINE_OP(num, cval, aval) \
     do { \
@@ -132,21 +137,29 @@ static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
         if (prg->mix_flags & SH_MF_SINGLE_ALPHA) {
             if (prg->mix_flags & SH_MF_MULTIPLY) {
                 // keep the alpha but modulate the color
+                /*@Note: no combiners!
                 const GLenum alphasrc = (prg->mix_flags & SH_MF_INPUT_ALPHA) ? GL_PRIMARY_COLOR : GL_TEXTURE;
                 TEXENV_COMBINE_SET2(RGB, GL_MODULATE, GL_TEXTURE, GL_PRIMARY_COLOR);
                 TEXENV_COMBINE_SET1(ALPHA, GL_REPLACE, alphasrc);
+                */
             } else {
                 // somehow makes it keep the color while taking the alpha from primary color
+                /*@Note: no combiners!
                 TEXENV_COMBINE_SET1(RGB, GL_REPLACE, GL_TEXTURE);
+                */
             }
         } else { // if (prg->mix_flags & SH_MF_SINGLE) {
             if (prg->mix_flags & SH_MF_MULTIPLY_ALPHA) {
                 // modulate the alpha but keep the color
+                /*@Note: no combiners!
                 TEXENV_COMBINE_SET2(ALPHA, GL_MODULATE, GL_TEXTURE, GL_PRIMARY_COLOR);
                 TEXENV_COMBINE_SET1(RGB, GL_REPLACE, GL_TEXTURE);
+                */
             } else {
                 // somehow makes it keep the alpha
+                /*@Note: no combiners!
                 TEXENV_COMBINE_SET1(ALPHA, GL_REPLACE, GL_TEXTURE);
+                */
             }
         }
         // TODO: MIX and the other one
@@ -159,13 +172,17 @@ static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
         if (prg->num_inputs > 1) {
             // out.rgb = mix(color0.rgb, color1.rgb, texel0.rgb);
             // no color1 tho, so mix with white (texenv color is set in init())
+            /*@Note: no combiners!
             TEXENV_COMBINE_OP(2, GL_SRC_COLOR, GL_SRC_ALPHA);
             TEXENV_COMBINE_SET3(RGB, GL_INTERPOLATE, GL_CONSTANT, GL_PRIMARY_COLOR, GL_TEXTURE);
             TEXENV_COMBINE_SET1(ALPHA, GL_REPLACE, GL_CONSTANT);
+            */
         } else {
             // out.rgb = mix(color0.rgb, texel0.rgb, texel0.a);
+            /*@Note: no combiners!
             TEXENV_COMBINE_OP(2, GL_SRC_ALPHA, GL_SRC_ALPHA);
             TEXENV_COMBINE_SET3(RGB, GL_INTERPOLATE, GL_TEXTURE, GL_PRIMARY_COLOR, GL_TEXTURE);
+            */
         }
     } else {
         TEXENV_COMBINE_OFF();
@@ -173,6 +190,8 @@ static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
 }
 
 static inline void texenv_set_texture_texture(UNUSED struct ShaderProgram *prg) {
+    /*@Note: no combiners!*/
+#if !defined(TARGET_PSP)
     glActiveTexture(GL_TEXTURE0);
     TEXENV_COMBINE_OFF();
     glActiveTexture(GL_TEXTURE1);
@@ -182,6 +201,7 @@ static inline void texenv_set_texture_texture(UNUSED struct ShaderProgram *prg) 
     TEXENV_COMBINE_SET3(RGB, GL_INTERPOLATE, GL_PREVIOUS, GL_TEXTURE, GL_PRIMARY_COLOR);
     // out.a = texel0.a;
     TEXENV_COMBINE_SET1(ALPHA, GL_REPLACE, GL_PREVIOUS);
+#endif
 }
 
 static void gfx_opengl_apply_shader(struct ShaderProgram *prg) {
@@ -192,6 +212,18 @@ static void gfx_opengl_apply_shader(struct ShaderProgram *prg) {
     ofs += 4;
 
     // have texture(s), specify same texcoords for every active texture
+    #if defined(TARGET_PSP)
+    for (int i = 0; i < 2; ++i) {
+        if (prg->texture_used[i]) {
+            if(i==0){
+                glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+                glTexCoordPointer(2, GL_FLOAT, cur_buf_stride, ofs);
+                glEnable(GL_TEXTURE_2D);
+            }
+            ofs += 2;
+        }
+    }
+    #else 
     for (int i = 0; i < 2; ++i) {
         if (prg->texture_used[i]) {
             glEnable(GL_TEXTURE0 + i);
@@ -203,7 +235,13 @@ static void gfx_opengl_apply_shader(struct ShaderProgram *prg) {
             ofs += 2;
         }
     }
+    #endif
 
+    #if defined(TARGET_PSP)
+    if (prg->shader_id & SHADER_OPT_FOG) {
+        ofs += 4;
+    }
+    #else
     if (prg->shader_id & SHADER_OPT_FOG) {
         // fog requested, we can deal with it in one of two ways
         if (gl_adv_fog) {
@@ -219,6 +257,7 @@ static void gfx_opengl_apply_shader(struct ShaderProgram *prg) {
         }
         ofs += 4;
     }
+    #endif
 
     if (prg->num_inputs) {
         // have colors
@@ -261,6 +300,7 @@ static void gfx_opengl_unload_shader(struct ShaderProgram *old_prg) {
     if (cur_shader == old_prg || old_prg == NULL)
         cur_shader = NULL;
 
+#if !defined(TARGET_PSP)
     glClientActiveTexture(GL_TEXTURE0);
     glActiveTexture(GL_TEXTURE0);
     glDisable(GL_TEXTURE_2D);
@@ -270,16 +310,18 @@ static void gfx_opengl_unload_shader(struct ShaderProgram *old_prg) {
     glActiveTexture(GL_TEXTURE1);
     glDisable(GL_TEXTURE_2D);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
     glDisable(GL_TEXTURE1);
     glDisable(GL_TEXTURE0);
+#endif
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_ALPHA_TEST);
     glDisable(GL_FOG);
     cur_fog_ofs = NULL; // clear fog colors
 
     glDisableClientState(GL_COLOR_ARRAY);
+#if !defined(TARGET_PSP)
     if (gl_adv_fog) glDisableClientState(GL_FOG_COORD_ARRAY);
+#endif
 }
 
 static void gfx_opengl_load_shader(struct ShaderProgram *new_prg) {
@@ -378,8 +420,86 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id) {
     glBindTexture(GL_TEXTURE_2D, texture_id);
 }
 
+/* Used for rescaling textures ROUGHLY into pow2 dims */
+static unsigned int scaled[256 * 256]; /* 256kb */
+void GL_ResampleTexture(unsigned *in, int inwidth, int inheight, unsigned *out, int outwidth, int outheight) {
+  int i, j;
+  unsigned int *inrow;
+  unsigned int frac, fracstep;
+
+  fracstep = inwidth * 0x10000 / outwidth;
+  for (i = 0; i < outheight; i++, out += outwidth) {
+    inrow = in + inwidth * (i * inheight / outheight);
+    frac = fracstep >> 1;
+    for (j = 0; j < outwidth; j += 4) {
+      out[j] = inrow[frac >> 16];
+      frac += fracstep;
+      out[j + 1] = inrow[frac >> 16];
+      frac += fracstep;
+      out[j + 2] = inrow[frac >> 16];
+      frac += fracstep;
+      out[j + 3] = inrow[frac >> 16];
+      frac += fracstep;
+    }
+  }
+}
+
+void GL_Resample8BitTexture(unsigned char *in, int inwidth, int inheight, unsigned char *out, int outwidth, int outheight) {
+  int i, j;
+  unsigned char *inrow;
+  unsigned int frac, fracstep;
+
+  fracstep = inwidth * 0x10000 / outwidth;
+  for (i = 0; i < outheight; i++, out += outwidth) {
+    inrow = in + inwidth * (i * inheight / outheight);
+    frac = fracstep >> 1;
+    for (j = 0; j < outwidth; j += 4) {
+      out[j] = inrow[frac >> 16];
+      frac += fracstep;
+      out[j + 1] = inrow[frac >> 16];
+      frac += fracstep;
+      out[j + 2] = inrow[frac >> 16];
+      frac += fracstep;
+      out[j + 3] = inrow[frac >> 16];
+      frac += fracstep;
+    }
+  }
+}
+
+static inline int ispow2(uint32_t x)
+{
+	return (x & (x - 1)) == 0;
+}
+
 static void gfx_opengl_upload_texture(const unsigned char *rgba32_buf, int width, int height) {
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
+    if(ispow2(width) && ispow2(height)){
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
+    } else {
+        int scaled_width, scaled_height;
+
+        for (scaled_width = 1; scaled_width < width; scaled_width <<= 1)
+            ;
+        for (scaled_height = 1; scaled_height < height; scaled_height <<= 1)
+            ;
+
+        //@Note: is psp min tex width 8?
+        if (height < 8 || scaled_height < 8) {
+            scaled_height = 8;
+        }
+        if (width < 8 || scaled_width < 8) {
+            scaled_width = 8;
+        }
+        scaled_width >>= 1;
+        scaled_height >>= 1;
+
+        /*
+        //@Note: we should maybe actually error out 
+        if (scaled_width * scaled_height > (int)sizeof(scaled) / 4)
+            {return;}
+        */
+        GL_ResampleTexture((const char*)rgba32_buf, width, height, scaled, scaled_width, scaled_height);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, scaled_width, scaled_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, scaled);
+    }
 }
 
 static uint32_t gfx_cm_to_opengl(uint32_t val) {
@@ -410,6 +530,8 @@ static void gfx_opengl_set_depth_mask(bool z_upd) {
 }
 
 static void gfx_opengl_set_zmode_decal(bool zmode_decal) {
+    (void)zmode_decal;
+    #if !defined(TARGET_PSP)
     if (zmode_decal) {
         glPolygonOffset(-2, -2);
         glEnable(GL_POLYGON_OFFSET_FILL);
@@ -417,6 +539,7 @@ static void gfx_opengl_set_zmode_decal(bool zmode_decal) {
         glPolygonOffset(0, 0);
         glDisable(GL_POLYGON_OFFSET_FILL);
     }
+    #endif
 }
 
 static void gfx_opengl_set_viewport(int x, int y, int width, int height) {
@@ -443,11 +566,13 @@ static inline void gfx_opengl_blend_fog_tris(void) {
     // if a texture was used, replace it with fog color instead, but still keep the alpha
     if (cur_shader->texture_used[0]) {
         glActiveTexture(GL_TEXTURE0);
+        /*@Note: no combiners!
         TEXENV_COMBINE_ON();
         // out.rgb = input0.rgb
         TEXENV_COMBINE_SET1(RGB, GL_REPLACE, GL_PRIMARY_COLOR);
         // out.a = texel0.a * input0.a
         TEXENV_COMBINE_SET2(ALPHA, GL_MODULATE, GL_TEXTURE, GL_PRIMARY_COLOR);
+        */
     }
 
     glEnableClientState(GL_COLOR_ARRAY); // enable color array temporarily
@@ -564,9 +689,11 @@ static void gfx_opengl_init(void) {
     // these also never change
     glEnableClientState(GL_VERTEX_ARRAY);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    #if FOR_WINDOWS || defined(OSX_BUILD)
     glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, c_white);
     TEXENV_COMBINE_OP(0, GL_SRC_COLOR, GL_SRC_ALPHA);
     TEXENV_COMBINE_OP(1, GL_SRC_COLOR, GL_SRC_ALPHA);
+    #endif
 }
 
 static void gfx_opengl_start_frame(void) {
