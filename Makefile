@@ -428,8 +428,8 @@ else # TARGET_N64
 AS := as
 # HOST_ tools are for building sound/sequences/00_sound_player.s on PSP
 # as psp-as errors out due to relocation issues with the 'assembly'
-HOST_AS      := as
-HOST_OBJCOPY := objcopy
+HOST_AS      := psp-as
+HOST_OBJCOPY := psp-objcopy
 ifneq ($(TARGET_WEB),1)
   CC := gcc
   CXX := g++
@@ -641,7 +641,7 @@ $(BUILD_DIR)/%: %.png
 	$(N64GRAPHICS) -i $@ -g $< -f $(lastword $(subst ., ,$@))
 
 $(BUILD_DIR)/%.inc.c: $(BUILD_DIR)/% %.png
-	hexdump -v -e '1/1 "0x%X,"' $< > $@
+	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
 	echo >> $@
 
 # Color Index CI8
@@ -728,7 +728,7 @@ $(SOUND_BIN_DIR)/%.o: $(SOUND_BIN_DIR)/%.s
 	$(HOST_AS) $(ASFLAGS) -o $@ $<
 
 $(SOUND_BIN_DIR)/%.inc.c: $(SOUND_BIN_DIR)/%
-	hexdump -v -e '1/1 "0x%X,"' $< > $@
+	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
 	echo >> $@
 
 $(SOUND_BIN_DIR)/sound_data.o: $(SOUND_BIN_DIR)/sound_data.ctl.inc.c $(SOUND_BIN_DIR)/sound_data.tbl.inc.c $(SOUND_BIN_DIR)/sequences.bin.inc.c $(SOUND_BIN_DIR)/bank_sets.inc.c
@@ -862,3 +862,18 @@ MAKEFLAGS += --no-builtin-rules
 -include $(DEP_FILES)
 
 print-% : ; $(info $* is a $(flavor $*) variable set to [$($*)]) @true
+
+HEXD := $(shell hexdump -h 2> /dev/null)
+
+all:
+ifndef HEXD
+  $(warning "system hexdump is not available please provide a binary")
+  HEXD_2 := $(shell ./hexdump -h 2> /dev/null)
+  ifndef HEXD_2
+    $(error "local hexdump is not available please install or provide a binary")
+  endif
+  HEXDUMP := ./hexdump
+endif
+ifndef HEXDUMP
+HEXDUMP := hexdump
+endif
