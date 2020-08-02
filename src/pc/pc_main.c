@@ -35,6 +35,7 @@
 #if defined(TARGET_PSP)
 #include <pspsdk.h>
 PSP_MODULE_INFO("SM64 for PSP", 0, 1, 1);
+PSP_HEAP_SIZE_KB(-64);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
 #define CONFIG_FILE_PREFIX "ms0:/"
 #else
