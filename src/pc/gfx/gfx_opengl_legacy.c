@@ -203,7 +203,56 @@ static inline void texenv_set_texture_texture(UNUSED struct ShaderProgram *prg) 
     TEXENV_COMBINE_SET1(ALPHA, GL_REPLACE, GL_PREVIOUS);
 #endif
 }
+#if defined(TARGET_PSP)
+/*@Note: we are using native format so should be simpler and "static"*/
+static void gfx_opengl_apply_shader(struct ShaderProgram *prg) {
+    const void *ofs = cur_buf;
+    
+    /*
+    glTexCoordPointer(2, GL_FLOAT, sizeof(psp_fast_t), &ofs->u);
+    glColorPointer(GL_BGRA, GL_UNSIGNED_BYTE, sizeof(psp_fast_t), &ofs->r);
+    glVertexPointer(3, GL_FLOAT, sizeof(psp_fast_t), &ofs->x);
+    */
+    glInterleavedArrays(GL_T2F_C4UB_V3F, 0, ofs);
 
+    // have texture(s), specify same texcoords for every active texture
+    for (int i = 0; i < 2; ++i) {
+        if (prg->texture_used[i]){
+            glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+            glEnable(GL_TEXTURE_2D);
+        }
+    }
+
+    if (prg->num_inputs) {
+        glEnableClientState(GL_COLOR_ARRAY);
+    }
+
+    if (prg->shader_id & SHADER_OPT_TEXTURE_EDGE) {
+        // (horrible) alpha discard
+        glEnable(GL_ALPHA_TEST);
+        glAlphaFunc(GL_GREATER, 0.3f);
+    }
+
+    // configure formulae
+    switch (prg->mix) {
+        case SH_MT_TEXTURE:
+            glActiveTexture(GL_TEXTURE0);
+            TEXENV_COMBINE_OFF();
+            break;
+
+        case SH_MT_TEXTURE_COLOR:
+            texenv_set_texture_color(prg);
+            break;
+
+        case SH_MT_TEXTURE_TEXTURE:
+            texenv_set_texture_texture(prg);
+            break;
+
+        default:
+            break;
+    }
+}
+#else 
 static void gfx_opengl_apply_shader(struct ShaderProgram *prg) {
     const float *ofs = cur_buf;
 
@@ -239,6 +288,7 @@ static void gfx_opengl_apply_shader(struct ShaderProgram *prg) {
 
     #if defined(TARGET_PSP)
     if (prg->shader_id & SHADER_OPT_FOG) {
+        cur_fog_ofs = ofs;
         ofs += 4;
     }
     #else
@@ -295,6 +345,7 @@ static void gfx_opengl_apply_shader(struct ShaderProgram *prg) {
             break;
     }
 }
+#endif
 
 static void gfx_opengl_unload_shader(struct ShaderProgram *old_prg) {
     if (cur_shader == old_prg || old_prg == NULL)
@@ -319,6 +370,7 @@ static void gfx_opengl_unload_shader(struct ShaderProgram *old_prg) {
     cur_fog_ofs = NULL; // clear fog colors
 
     glDisableClientState(GL_COLOR_ARRAY);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 #if !defined(TARGET_PSP)
     if (gl_adv_fog) glDisableClientState(GL_FOG_COORD_ARRAY);
 #endif
@@ -422,7 +474,7 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id) {
 
 /* Used for rescaling textures ROUGHLY into pow2 dims */
 static unsigned int scaled[256 * 256]; /* 256kb */
-void GL_ResampleTexture(unsigned *in, int inwidth, int inheight, unsigned *out, int outwidth, int outheight) {
+void GL_ResampleTexture(const unsigned *in, int inwidth, int inheight, unsigned *out, int outwidth, int outheight) {
   int i, j;
   unsigned int *inrow;
   unsigned int frac, fracstep;
@@ -444,7 +496,7 @@ void GL_ResampleTexture(unsigned *in, int inwidth, int inheight, unsigned *out, 
   }
 }
 
-void GL_Resample8BitTexture(unsigned char *in, int inwidth, int inheight, unsigned char *out, int outwidth, int outheight) {
+void GL_Resample8BitTexture(const unsigned char *in, int inwidth, int inheight, unsigned char *out, int outwidth, int outheight) {
   int i, j;
   unsigned char *inrow;
   unsigned int frac, fracstep;
@@ -497,7 +549,7 @@ static void gfx_opengl_upload_texture(const unsigned char *rgba32_buf, int width
         if (scaled_width * scaled_height > (int)sizeof(scaled) / 4)
             {return;}
         */
-        GL_ResampleTexture((const char*)rgba32_buf, width, height, scaled, scaled_width, scaled_height);
+        GL_ResampleTexture((const unsigned int*)rgba32_buf, width, height, scaled, scaled_width, scaled_height);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, scaled_width, scaled_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, scaled);
     }
 }
@@ -505,7 +557,12 @@ static void gfx_opengl_upload_texture(const unsigned char *rgba32_buf, int width
 static uint32_t gfx_cm_to_opengl(uint32_t val) {
     if (val & G_TX_CLAMP)
         return GL_CLAMP_TO_EDGE;
+#if defined(TARGET_PSP)
+    /*@Note: no mirroring on pspgl */
+    return (val & G_TX_MIRROR) ? GL_REPEAT : GL_REPEAT;
+#else
     return (val & G_TX_MIRROR) ? GL_MIRRORED_REPEAT : GL_REPEAT;
+#endif
 }
 
 static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint32_t cms, uint32_t cmt) {
@@ -563,6 +620,8 @@ static void gfx_opengl_set_use_alpha(bool use_alpha) {
 // on top of the normal tris and blends them to achieve sort of the same effect
 // as fog would
 static inline void gfx_opengl_blend_fog_tris(void) {
+    /*@Todo: figure this out! */
+    return;
     // if a texture was used, replace it with fog color instead, but still keep the alpha
     if (cur_shader->texture_used[0]) {
         glActiveTexture(GL_TEXTURE0);
@@ -595,12 +654,25 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     cur_buf_num_tris = buf_vbo_num_tris;
     cur_buf_stride = cur_buf_size / (3 * cur_buf_num_tris);
 
+    if(cur_buf_num_tris){
+
+    //printf("flushing %d tris, size %d, stride %d\n", cur_buf_num_tris, cur_buf_size, cur_buf_stride);
+
     gfx_opengl_apply_shader(cur_shader);
 
+#if 0
+    for(int i=0;i<cur_buf_num_tris;i++){
+        printf("Tri {%3.3f, %3.3f, %3.3f}, {%3.3f, %3.3f, %3.3f}, {%3.3f, %3.3f, %3.3f}\n", 
+        buf_vbo[((i+0)*cur_buf_stride)+0],buf_vbo[((i+0)*cur_buf_stride)+1], buf_vbo[((i+0)*cur_buf_stride)+2],
+        buf_vbo[((i+1)*cur_buf_stride)+0],buf_vbo[((i+1)*cur_buf_stride)+1], buf_vbo[((i+1)*cur_buf_stride)+2],
+        buf_vbo[((i+2)*cur_buf_stride)+0],buf_vbo[((i+2)*cur_buf_stride)+1], buf_vbo[((i+2)*cur_buf_stride)+2] );
+    }
+#endif
     glDrawArrays(GL_TRIANGLES, 0, 3 * cur_buf_num_tris);
+    }
 
     // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
-    if (cur_fog_ofs) gfx_opengl_blend_fog_tris();
+    //if (cur_fog_ofs) gfx_opengl_blend_fog_tris();
 }
 
 static inline bool gl_check_ext(const char *name) {
@@ -704,15 +776,21 @@ static void gfx_opengl_start_frame(void) {
     glEnable(GL_SCISSOR_TEST);
 }
 void gfx_opengl_on_resize(void) {
+#if 0
     fprintf(stderr, __FUNCTION__);
+#endif
 }
 
 static void gfx_opengl_end_frame(void) {
+#if 0
     fprintf(stderr, __FUNCTION__);
+#endif
 }
 
 static void gfx_opengl_finish_render(void) {
+#if 0
     fprintf(stderr, __FUNCTION__);
+#endif
 }
 
 struct GfxRenderingAPI gfx_opengl_api = {
