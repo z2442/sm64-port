@@ -23,15 +23,9 @@ static void controller_psp_init(void) {
 //  Analog   -> Move
 //  Start    -> Start
 //  DPad     -> Camera buttons
-/*
-#include <string.h>
-*/
+
 static void controller_psp_read(OSContPad *pad) {
     static SceCtrlData data;
-
-    /*@Note: should we reset everything? */
-    //memset(pad, 0, sizeof(OSContPad));
-    //memset(&sce_pad, 0, sizeof(SceCtrlData));
 
     if (!sceCtrlPeekBufferPositive(&data, 1))
         return;
