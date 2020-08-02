@@ -67,11 +67,8 @@ static EGLint attrib_list[] = {
     EGL_NONE};
 
 void gfx_psp_init(const char *game_name, bool start_in_fullscreen) {
-    fprintf(stderr, "%s called for %s, should %sstart in fullscreen\n", __FUNCTION__, game_name, start_in_fullscreen ? "" : "not ");
-    fprintf(stderr, "setupCallbacks() returned %d\n", setupCallbacks());
-    pspDebugScreenSetBackColor(0xFF0000FF);
-    pspDebugScreenInitEx(NULL, PSP_DISPLAY_PIXEL_FORMAT_8888, 1);
-
+  (void)game_name;
+  (void)start_in_fullscreen;
   EGLConfig config;
   EGLint num_configs;
 
@@ -109,7 +106,6 @@ void gfx_psp_init(const char *game_name, bool start_in_fullscreen) {
 #if 0
 	fprintf(stderr, ("eglChooseConfig() returned config 0x%04x\n", (unsigned int)config);
 #endif
-
   eglGetConfigAttrib(dpy, config, EGL_WIDTH, &width);
   eglGetConfigAttrib(dpy, config, EGL_HEIGHT, &height);
 
@@ -146,25 +142,34 @@ void gfx_psp_get_dimensions(uint32_t *width, uint32_t *height) {
 }
 
 void gfx_psp_handle_events(void) {
+#if 0
 	fprintf(stderr, "%s called\n", __FUNCTION__);
+#endif
 }
 
 bool gfx_psp_start_frame(void) {
+#if 0
 	fprintf(stderr, "%s called\n", __FUNCTION__);
+#endif
 }
 
 void gfx_psp_swap_buffers_begin(void) {
+#if 0
 	fprintf(stderr, "%s called\n", __FUNCTION__);
+#endif
 }
 
 void gfx_psp_swap_buffers_end(void) {
+#if 0
 	fprintf(stderr, "%s called\n", __FUNCTION__);
+#endif
 	eglSwapBuffers(dpy, surface);
 }
 
 double gfx_psp_get_time(void) {
+#if 0
 	fprintf(stderr, "%s called\n", __FUNCTION__);
-
+#endif
 }
 
 struct GfxWindowManagerAPI gfx_psp = {

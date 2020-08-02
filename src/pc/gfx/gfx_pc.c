@@ -52,9 +52,9 @@ struct XYWidthHeight {
 } __attribute__((packed, aligned(4)));
 
 struct LoadedVertex {
-    float x, y, z, w;
     float u, v;
     struct RGBA color;
+    float x, y, z, w;
     uint8_t clip_rej;
 } __attribute__((packed, aligned(4)));
 
@@ -151,8 +151,18 @@ struct GfxDimensions gfx_current_dimensions;
 
 static bool dropped_frame;
 
+#if defined(TARGET_PSP)
+typedef struct __attribute__((packed, aligned(4))) psp_fast_t {
+  float u,v;
+  struct RGBA color;
+  float x,y,z;
+} psp_fast_t;
+static psp_fast_t buf_vbo[MAX_BUFFERED  * 3] __attribute__ ((aligned (8))); // 3 vertices in a triangle and 26 floats per vtx
+#else
 static float buf_vbo[MAX_BUFFERED * (26 * 3)] __attribute__ ((aligned (8))); // 3 vertices in a triangle and 26 floats per vtx
+#endif
 static size_t buf_vbo_len;
+static size_t buf_num_vert;
 static size_t buf_vbo_num_tris;
 
 static struct GfxWindowManagerAPI *gfx_wapi;
@@ -178,6 +188,7 @@ static void gfx_flush(void) {
         //unsigned long t0 = get_time();
         gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
         buf_vbo_len = 0;
+        buf_num_vert = 0;
         buf_vbo_num_tris = 0;
         //unsigned long t1 = get_time();
         /*if (t1 - t0 > 1000) {
@@ -725,6 +736,234 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
     }
 }
 
+#if defined(TARGET_PSP)
+static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
+    struct LoadedVertex *v1 = &rsp.loaded_vertices[vtx1_idx];
+    struct LoadedVertex *v2 = &rsp.loaded_vertices[vtx2_idx];
+    struct LoadedVertex *v3 = &rsp.loaded_vertices[vtx3_idx];
+    struct LoadedVertex *v_arr[3] = {v1, v2, v3};
+    
+    //if (rand()%2) return;
+    
+    if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
+        // The whole triangle lies outside the visible area
+        return;
+    }
+    
+    if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
+        float dx1 = v1->x / (v1->w) - v2->x / (v2->w);
+        float dy1 = v1->y / (v1->w) - v2->y / (v2->w);
+        float dx2 = v3->x / (v3->w) - v2->x / (v2->w);
+        float dy2 = v3->y / (v3->w) - v2->y / (v2->w);
+        float cross = dx1 * dy2 - dy1 * dx2;
+        
+        if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
+            // If one vertex lies behind the eye, negating cross will give the correct result.
+            // If all vertices lie behind the eye, the triangle will be rejected anyway.
+            cross = -cross;
+        }
+        
+        switch (rsp.geometry_mode & G_CULL_BOTH) {
+            case G_CULL_FRONT:
+                if (cross <= 0) return;
+                break;
+            case G_CULL_BACK:
+                if (cross >= 0) return;
+                break;
+            case G_CULL_BOTH:
+                // Why is this even an option?
+                return;
+        }
+    }
+    
+    bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
+    if (depth_test != rendering_state.depth_test) {
+        gfx_flush();
+        gfx_rapi->set_depth_test(depth_test);
+        rendering_state.depth_test = depth_test;
+    }
+    
+    bool z_upd = (rdp.other_mode_l & Z_UPD) == Z_UPD;
+    if (z_upd != rendering_state.depth_mask) {
+        gfx_flush();
+        gfx_rapi->set_depth_mask(z_upd);
+        rendering_state.depth_mask = z_upd;
+    }
+    
+    bool zmode_decal = (rdp.other_mode_l & ZMODE_DEC) == ZMODE_DEC;
+    if (zmode_decal != rendering_state.decal_mode) {
+        gfx_flush();
+        gfx_rapi->set_zmode_decal(zmode_decal);
+        rendering_state.decal_mode = zmode_decal;
+    }
+    
+    if (rdp.viewport_or_scissor_changed) {
+        if (memcmp(&rdp.viewport, &rendering_state.viewport, sizeof(rdp.viewport)) != 0) {
+            gfx_flush();
+            gfx_rapi->set_viewport(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width, rdp.viewport.height);
+            rendering_state.viewport = rdp.viewport;
+        }
+        if (memcmp(&rdp.scissor, &rendering_state.scissor, sizeof(rdp.scissor)) != 0) {
+            gfx_flush();
+            gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
+            rendering_state.scissor = rdp.scissor;
+        }
+        rdp.viewport_or_scissor_changed = false;
+    }
+    
+    uint32_t cc_id = rdp.combine_mode;
+    
+    bool use_alpha = (rdp.other_mode_l & (G_BL_A_MEM << 18)) == 0;
+    bool use_fog = (rdp.other_mode_l >> 30) == G_BL_CLR_FOG;
+    bool texture_edge = (rdp.other_mode_l & CVG_X_ALPHA) == CVG_X_ALPHA;
+    bool use_noise = (rdp.other_mode_l & G_AC_DITHER) == G_AC_DITHER;
+    
+    if (texture_edge) {
+        use_alpha = true;
+    }
+    
+    if (use_alpha) cc_id |= SHADER_OPT_ALPHA;
+    if (use_fog) cc_id |= SHADER_OPT_FOG;
+    if (texture_edge) cc_id |= SHADER_OPT_TEXTURE_EDGE;
+    if (use_noise) cc_id |= SHADER_OPT_NOISE;
+    
+    if (!use_alpha) {
+        cc_id &= ~0xfff000;
+    }
+    
+    struct ColorCombiner *comb = gfx_lookup_or_create_color_combiner(cc_id);
+    struct ShaderProgram *prg = comb->prg;
+    if (prg != rendering_state.shader_program) {
+        gfx_flush();
+        gfx_rapi->unload_shader(rendering_state.shader_program);
+        gfx_rapi->load_shader(prg);
+        rendering_state.shader_program = prg;
+    }
+    if (use_alpha != rendering_state.alpha_blend) {
+        gfx_flush();
+        gfx_rapi->set_use_alpha(use_alpha);
+        rendering_state.alpha_blend = use_alpha;
+    }
+    uint8_t num_inputs;
+    bool used_textures[2];
+    gfx_rapi->shader_get_info(prg, &num_inputs, used_textures);
+    
+    for (int i = 0; i < 2; i++) {
+        if (used_textures[i]) {
+            if (rdp.textures_changed[i]) {
+                gfx_flush();
+                import_texture(i);
+                rdp.textures_changed[i] = false;
+            }
+            bool linear_filter = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT;
+            if (linear_filter != rendering_state.textures[i]->linear_filter || rdp.texture_tile.cms != rendering_state.textures[i]->cms || rdp.texture_tile.cmt != rendering_state.textures[i]->cmt) {
+                gfx_flush();
+                gfx_rapi->set_sampler_parameters(i, linear_filter, rdp.texture_tile.cms, rdp.texture_tile.cmt);
+                rendering_state.textures[i]->linear_filter = linear_filter;
+                rendering_state.textures[i]->cms = rdp.texture_tile.cms;
+                rendering_state.textures[i]->cmt = rdp.texture_tile.cmt;
+            }
+        }
+    }
+    
+    bool use_texture = used_textures[0] || used_textures[1];
+    uint32_t tex_width = (rdp.texture_tile.lrs - rdp.texture_tile.uls + 4) / 4;
+    uint32_t tex_height = (rdp.texture_tile.lrt - rdp.texture_tile.ult + 4) / 4;
+    
+    bool z_is_from_0_to_1 = gfx_rapi->z_is_from_0_to_1();
+    
+    for (int i = 0; i < 3; i++) {
+        float z = v_arr[i]->z, w = v_arr[i]->w;
+        if (z_is_from_0_to_1) {
+            z = (z + w) / 2.0f;
+        }
+        buf_vbo[buf_num_vert].x = v_arr[i]->x;
+        buf_vbo[buf_num_vert].y = v_arr[i]->y;
+        buf_vbo[buf_num_vert].z = z;
+        //buf_vbo[buf_vbo_len++] = w;
+        
+        if (use_texture) {
+            float u = (v_arr[i]->u - rdp.texture_tile.uls * 8) / 32.0f;
+            float v = (v_arr[i]->v - rdp.texture_tile.ult * 8) / 32.0f;
+            if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT) {
+                // Linear filter adds 0.5f to the coordinates
+                u += 0.5f;
+                v += 0.5f;
+            }
+            buf_vbo[buf_num_vert].u = u / tex_width;
+            buf_vbo[buf_num_vert].v = v / tex_height;
+        } else {
+            buf_vbo[buf_num_vert].u = 0;
+            buf_vbo[buf_num_vert].v = 0;
+        }
+        
+        /*
+        //@Note no fog currently
+        if (use_fog) {
+            buf_vbo[buf_vbo_len++] = rdp.fog_color.r / 255.0f;
+            buf_vbo[buf_vbo_len++] = rdp.fog_color.g / 255.0f;
+            buf_vbo[buf_vbo_len++] = rdp.fog_color.b / 255.0f;
+            buf_vbo[buf_vbo_len++] = v_arr[i]->color.a / 255.0f; // fog factor (not alpha)
+        }
+        */
+        for (int j = 0; j < num_inputs; j++) {
+            struct RGBA *color;
+            struct RGBA tmp;
+            for (int k = 0; k < 1 + (use_alpha ? 1 : 0); k++) {
+                switch (comb->shader_input_mapping[k][j]) {
+                    case CC_PRIM:
+                        color = &rdp.prim_color;
+                        break;
+                    case CC_SHADE:
+                        color = &v_arr[i]->color;
+                        break;
+                    case CC_ENV:
+                        color = &rdp.env_color;
+                        break;
+                    case CC_LOD:
+                    {
+                        float distance_frac = (v1->w - 3000.0f) / 3000.0f;
+                        if (distance_frac < 0.0f) distance_frac = 0.0f;
+                        if (distance_frac > 1.0f) distance_frac = 1.0f;
+                        tmp.r = tmp.g = tmp.b = tmp.a = distance_frac * 255.0f;
+                        color = &tmp;
+                        break;
+                    }
+                    default:
+                        memset(&tmp, 0, sizeof(tmp));
+                        color = &tmp;
+                        break;
+                }
+                memcpy(&buf_vbo[buf_num_vert].color, color, sizeof(struct RGBA));
+                /*
+                if (k == 0) {
+                    buf_vbo[buf_vbo_len++] = color->r / 255.0f;
+                    buf_vbo[buf_vbo_len++] = color->g / 255.0f;
+                    buf_vbo[buf_vbo_len++] = color->b / 255.0f;
+                } else {
+                    if (use_fog && color == &v_arr[i]->color) {
+                        // Shade alpha is 100% for fog
+                        buf_vbo[buf_vbo_len++] = 1.0f;
+                    } else {
+                        buf_vbo[buf_vbo_len++] = color->a / 255.0f;
+                    }
+                }*/
+
+            }
+        }
+        /*struct RGBA *color = &v_arr[i]->color;
+        buf_vbo[buf_vbo_len++] = color->r / 255.0f;
+        buf_vbo[buf_vbo_len++] = color->g / 255.0f;
+        buf_vbo[buf_vbo_len++] = color->b / 255.0f;
+        buf_vbo[buf_vbo_len++] = color->a / 255.0f;*/
+        buf_num_vert++;
+        buf_vbo_len += sizeof(psp_fast_t);
+    }
+    if (++buf_vbo_num_tris == MAX_BUFFERED) {
+        gfx_flush();
+    }
+}
+#else
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     struct LoadedVertex *v1 = &rsp.loaded_vertices[vtx1_idx];
     struct LoadedVertex *v2 = &rsp.loaded_vertices[vtx2_idx];
@@ -941,6 +1180,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
         gfx_flush();
     }
 }
+#endif
 
 static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
     rsp.geometry_mode &= ~clear;
@@ -1628,6 +1868,13 @@ void gfx_init(struct GfxWindowManagerAPI *wapi, struct GfxRenderingAPI *rapi, co
     for (size_t i = 0; i < sizeof(precomp_shaders) / sizeof(uint32_t); i++) {
         gfx_lookup_or_create_shader_program(precomp_shaders[i]);
     }
+
+    gfx_wapi->get_dimensions(&gfx_current_dimensions.width, &gfx_current_dimensions.height);
+    if (gfx_current_dimensions.height == 0) {
+        // Avoid division by zero
+        gfx_current_dimensions.height = 1;
+    }
+    gfx_current_dimensions.aspect_ratio = (float)gfx_current_dimensions.width / (float)gfx_current_dimensions.height;
 }
 
 struct GfxRenderingAPI *gfx_get_current_rendering_api(void) {
@@ -1636,12 +1883,7 @@ struct GfxRenderingAPI *gfx_get_current_rendering_api(void) {
 
 void gfx_start_frame(void) {
     gfx_wapi->handle_events();
-    gfx_wapi->get_dimensions(&gfx_current_dimensions.width, &gfx_current_dimensions.height);
-    if (gfx_current_dimensions.height == 0) {
-        // Avoid division by zero
-        gfx_current_dimensions.height = 1;
-    }
-    gfx_current_dimensions.aspect_ratio = (float)gfx_current_dimensions.width / (float)gfx_current_dimensions.height;
+    /*@Note: moved to init since we cannot change */
 }
 
 void gfx_run(Gfx *commands) {
