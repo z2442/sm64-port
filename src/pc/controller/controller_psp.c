@@ -30,9 +30,12 @@ static void controller_psp_read(OSContPad *pad) {
     if (!sceCtrlPeekBufferPositive(&data, 1))
         return;
 
-    /* flip and scale */
-    pad->stick_x = (char)((((float)data.Lx)*0.625f)-80);
-    pad->stick_y = (char)((((float)data.Ly)*0.625f)-80)*-1;
+    /* flip, scale and deadzone */
+    #define DEADZONE (12) /* 12/80 = 15% */
+    char stick_x = (char)((((float)data.Lx)*0.625f)-80);
+    char stick_y = (char)(((((float)data.Ly)*0.625f)-80)*-1);
+    pad->stick_x = stick_x * !(stick_x < DEADZONE && stick_x > -DEADZONE);
+    pad->stick_y = stick_y * !(stick_y < DEADZONE && stick_y > -DEADZONE);
 
     if (data.Buttons & PSP_CTRL_START)
         pad->button |= START_BUTTON;
