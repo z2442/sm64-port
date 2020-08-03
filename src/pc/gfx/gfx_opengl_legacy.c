@@ -79,7 +79,7 @@ static bool gl_adv_fog = false;
 static const float c_white[] = { 1.f, 1.f, 1.f, 1.f };
 
 static bool gfx_opengl_z_is_from_0_to_1(void) {
-    return false;
+    return true;
 }
 
 #if defined(TARGET_PSP)
@@ -476,7 +476,7 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id) {
 static unsigned int scaled[256 * 256]; /* 256kb */
 void GL_ResampleTexture(const unsigned *in, int inwidth, int inheight, unsigned *out, int outwidth, int outheight) {
   int i, j;
-  unsigned int *inrow;
+  const unsigned int *inrow;
   unsigned int frac, fracstep;
 
   fracstep = inwidth * 0x10000 / outwidth;
@@ -498,7 +498,7 @@ void GL_ResampleTexture(const unsigned *in, int inwidth, int inheight, unsigned 
 
 void GL_Resample8BitTexture(const unsigned char *in, int inwidth, int inheight, unsigned char *out, int outwidth, int outheight) {
   int i, j;
-  unsigned char *inrow;
+  const unsigned char *inrow;
   unsigned int frac, fracstep;
 
   fracstep = inwidth * 0x10000 / outwidth;
@@ -558,8 +558,12 @@ static uint32_t gfx_cm_to_opengl(uint32_t val) {
     if (val & G_TX_CLAMP)
         return GL_CLAMP_TO_EDGE;
 #if defined(TARGET_PSP)
-    /*@Note: no mirroring on pspgl */
-    return (val & G_TX_MIRROR) ? GL_REPEAT : GL_REPEAT;
+    /*@Note: no mirroring on pspgl, still unsure how to properly handle
+        for now, directly patching the images and DLs to fix */
+    /*if(val & G_TX_MIRROR){
+        glDisable(GL_TEXTURE_2D);
+    }*/
+    return GL_REPEAT;//(val & G_TX_MIRROR) ? GL_REPEAT : GL_REPEAT;
 #else
     return (val & G_TX_MIRROR) ? GL_MIRRORED_REPEAT : GL_REPEAT;
 #endif
@@ -647,14 +651,10 @@ static inline void gfx_opengl_blend_fog_tris(void) {
 }
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
-    //printf("flushing %d tris\n", buf_vbo_num_tris);
-
     cur_buf = buf_vbo;
     cur_buf_size = buf_vbo_len * 4;
     cur_buf_num_tris = buf_vbo_num_tris;
     cur_buf_stride = cur_buf_size / (3 * cur_buf_num_tris);
-
-    if(cur_buf_num_tris){
 
     //printf("flushing %d tris, size %d, stride %d\n", cur_buf_num_tris, cur_buf_size, cur_buf_stride);
 
@@ -669,7 +669,6 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     }
 #endif
     glDrawArrays(GL_TRIANGLES, 0, 3 * cur_buf_num_tris);
-    }
 
     // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
     //if (cur_fog_ofs) gfx_opengl_blend_fog_tris();
@@ -761,6 +760,12 @@ static void gfx_opengl_init(void) {
     // these also never change
     glEnableClientState(GL_VERTEX_ARRAY);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glFrontFace(GL_CCW);  
+	glShadeModel(GL_SMOOTH);
+    glEnable(GL_BLEND);
+    glDisable(GL_LIGHTING);
     #if FOR_WINDOWS || defined(OSX_BUILD)
     glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, c_white);
     TEXENV_COMBINE_OP(0, GL_SRC_COLOR, GL_SRC_ALPHA);
