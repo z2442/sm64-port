@@ -1,5 +1,5 @@
-#ifndef AUDIO_SDL_H
-#define AUDIO_SDL_H
+#ifndef AUDIO_PSP_H
+#define AUDIO_PSP_H
 
 extern struct AudioAPI audio_psp;
 
