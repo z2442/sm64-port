@@ -16,7 +16,7 @@ int gSplineState;
 static const float ROUNDING_ERROR_f32 = 0.00001f;
 
 //! returns if a equals b, taking possible rounding errors into account
-inline int equals(const float a, const float b)
+static inline int equals(const float a, const float b)
 {
         return (a + ROUNDING_ERROR_f32 >= b) && (a - ROUNDING_ERROR_f32 <= b);
 }

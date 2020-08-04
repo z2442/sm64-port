@@ -13,6 +13,7 @@
 #define TOSTRING(x) STRINGIFY(x)
 #define INFO_MSG(x) printf("%s %s\n", __FILE__ ":" TOSTRING(__LINE__), x)
 
+//static int exitRequest = 0;
 int exitCallback(int arg1, int arg2, void *common)
 {
 	(void)arg1;
@@ -71,6 +72,9 @@ void gfx_psp_init(const char *game_name, bool start_in_fullscreen) {
   (void)start_in_fullscreen;
   EGLConfig config;
   EGLint num_configs;
+
+  
+  setupCallbacks();
 
   /* pass NativeDisplay=0, we only have one screen... */
   dpy = eglGetDisplay(0);
@@ -163,6 +167,7 @@ void gfx_psp_swap_buffers_end(void) {
 #if 0
 	fprintf(stderr, "%s called\n", __FUNCTION__);
 #endif
+  sceDisplayWaitVblankStart();
 	eglSwapBuffers(dpy, surface);
 }
 
