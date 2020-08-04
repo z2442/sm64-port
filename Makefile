@@ -508,7 +508,7 @@ ifeq ($(ENABLE_OPENGL),1)
   endif
   ifeq ($(TARGET_PSP),1)
 #    GFX_LDFLAGS += src/pc/gfx/pspgl/libGL.a -L$(PSP_PREFIX)/lib -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
-    GFX_LDFLAGS +=  -L$(PSP_PREFIX)/lib -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
+    GFX_LDFLAGS +=  -L$(PSP_PREFIX)/lib -lm -lGL -lm -lpspvfpu -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lpspsdk -lpsprtc -lpspaudiolib -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lc -lpspuser -lpspvram
   endif
 endif
 ifeq ($(ENABLE_DX11),1)
