@@ -134,9 +134,7 @@ void gfx_psp_set_fullscreen(bool enable) {
 }
 
 void gfx_psp_main_loop(void (*run_one_game_iter)(void)) {
-	while (1) {
 		run_one_game_iter();
-	}
 }
 
 void gfx_psp_get_dimensions(uint32_t *width, uint32_t *height) {
