@@ -1,4 +1,5 @@
-#if defined(TARGET_PSP)
+#if 0
+//#if defined(TARGET_PSP)
 #include <pspsdk.h>
 #include <pspdisplay.h>
 #include <pspkernel.h>

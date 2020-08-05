@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-#include <ctype.h>
+//#include <ctype.h>
 
 #include "configfile.h"
 
@@ -145,7 +145,8 @@ void configfile_load(const char *filename) {
 
     printf("Loading configuration from '%s'\n", filename);
 
-    file = fopen(filename, "r");
+    //file = fopen(filename, "r");
+    file = NULL;
     if (file == NULL) {
         // Create a new config file and save defaults
         printf("Config file '%s' not found. Creating it.\n", filename);
@@ -183,10 +184,12 @@ void configfile_load(const char *filename) {
                                 *option->boolValue = false;
                             break;
                         case CONFIG_TYPE_UINT:
-                            sscanf(tokens[1], "%u", option->uintValue);
+                            *option->uintValue = strtoul(tokens[1], NULL, 0);
+                            //sscanf(tokens[1], "%u", option->uintValue);
                             break;
                         case CONFIG_TYPE_FLOAT:
-                            sscanf(tokens[1], "%f", option->floatValue);
+                            *option->floatValue = atof(tokens[1]);
+                            //sscanf(tokens[1], "%f", option->floatValue);
                             break;
                         default:
                             assert(0); // bad type
