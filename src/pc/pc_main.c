@@ -16,9 +16,11 @@
 #include "gfx/gfx_direct3d12.h"
 #include "gfx/gfx_dxgi.h"
 #include "gfx/gfx_glx.h"
+#include "gfx/gfx_psp.h"
 #include "gfx/gfx_sdl.h"
 
 #include "audio/audio_api.h"
+#include "audio/audio_psp.h"
 #include "audio/audio_wasapi.h"
 #include "audio/audio_pulse.h"
 #include "audio/audio_alsa.h"
@@ -31,7 +33,17 @@
 
 #include "compat.h"
 
-#define CONFIG_FILE "sm64config.txt"
+#if defined(TARGET_PSP)
+#include <pspsdk.h>
+PSP_MODULE_INFO("SM64 for PSP", 0, 1, 1);
+PSP_HEAP_SIZE_KB(-256);
+PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
+#define CONFIG_FILE_PREFIX "ms0:/"
+#else
+#define CONFIG_FILE_PREFIX ""
+#endif
+
+#define CONFIG_FILE CONFIG_FILE_PREFIX"sm64config.txt"
 
 OSMesg D_80339BEC;
 OSMesgQueue gSIEventMesgQueue;
@@ -162,6 +174,8 @@ void main_func(void) {
     rendering_api = &gfx_opengl_api;
     #if defined(__linux__) || defined(__BSD__)
         wm_api = &gfx_glx;
+    #elif defined(TARGET_PSP)
+        wm_api = &gfx_psp;
     #else
         wm_api = &gfx_sdl;
     #endif
@@ -171,12 +185,17 @@ void main_func(void) {
     
     wm_api->set_fullscreen_changed_callback(on_fullscreen_changed);
     wm_api->set_keyboard_callbacks(keyboard_on_key_down, keyboard_on_key_up, keyboard_on_all_keys_up);
-    
+
 #if HAVE_WASAPI
     if (audio_api == NULL && audio_wasapi.init()) {
         audio_api = &audio_wasapi;
     }
 #endif
+#if defined(TARGET_PSP)
+    if (audio_api == NULL && audio_psp.init()) {
+        audio_api = &audio_psp;
+    }
+    #endif
 #if HAVE_PULSE_AUDIO
     if (audio_api == NULL && audio_pulse.init()) {
         audio_api = &audio_pulse;

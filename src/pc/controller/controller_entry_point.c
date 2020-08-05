@@ -8,6 +8,8 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 #include "controller_xinput.h"
+#elif defined(TARGET_PSP)
+#include "controller_psp.h"
 #else
 #include "controller_sdl.h"
 #endif
@@ -17,9 +19,13 @@
 #endif
 
 static struct ControllerAPI *controller_implementations[] = {
+#if !defined(TARGET_PSP)
     &controller_recorded_tas,
+#endif
 #if defined(_WIN32) || defined(_WIN64)
     &controller_xinput,
+#elif defined(TARGET_PSP)
+    &controller_psp,
 #else
     &controller_sdl,
 #endif

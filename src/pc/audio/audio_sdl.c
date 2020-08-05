@@ -1,10 +1,11 @@
-#if !defined(_WIN32) && !defined(_WIN64)
+#if !defined(_WIN32) && !defined(_WIN64) && !defined(TARGET_PSP)
 
 #ifdef __MINGW32__
 #include "SDL.h"
 #else
 #include "SDL2/SDL.h"
 #endif
+#include <stdio.h>
 
 #include "audio_api.h"
 

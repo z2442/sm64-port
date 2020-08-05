@@ -7,6 +7,12 @@
 #include <emscripten.h>
 #endif
 
+#if defined(TARGET_PSP)
+#define FILE_PREFIX "ms0:/"
+#else
+#define FILE_PREFIX ""
+#endif
+
 extern OSMgrArgs piMgrArgs;
 
 u64 osClockRate = 62500000;
@@ -146,7 +152,7 @@ s32 osEepromLongRead(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes)
         ret = 0;
     }
 #else
-    FILE *fp = fopen("sm64_save_file.bin", "rb");
+    FILE *fp = fopen(FILE_PREFIX"sm64_save_file.bin", "rb");
     if (fp == NULL) {
         return -1;
     }
@@ -176,7 +182,7 @@ s32 osEepromLongWrite(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes
     }, content);
     s32 ret = 0;
 #else
-    FILE* fp = fopen("sm64_save_file.bin", "wb");
+    FILE* fp = fopen(FILE_PREFIX"sm64_save_file.bin", "wb");
     if (fp == NULL) {
         return -1;
     }

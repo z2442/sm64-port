@@ -1,4 +1,4 @@
-#ifdef ENABLE_OPENGL
+#if defined(ENABLE_OPENGL) && !defined(TARGET_PSP)
 
 #include <stdint.h>
 #include <stdbool.h>
