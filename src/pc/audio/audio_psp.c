@@ -8,25 +8,21 @@
 int chan = -1;
 
 static bool audio_psp_init(void) {
-    pspAudioInit();
-    chan = sceAudioChReserve(PSP_AUDIO_NEXT_CHANNEL, 512, PSP_AUDIO_FORMAT_STEREO);
-    sceAudioChangeChannelConfig	(chan,PSP_AUDIO_FORMAT_STEREO );	
+    sceAudioSRCChReserve(1024, 32000, 2);
     return true;
 }
 
 static int audio_psp_buffered(void) {
  
-    return  512 / 4 - sceAudioGetChannelRestLen(chan);
+    return  1024 / 4 - sceAudioGetChannelRestLen(chan);
 }
 
 static int audio_psp_get_desired_buffered(void) {
-    return 512 / 4;
+    return 512;
 }
 
 static void audio_psp_play(const uint8_t *buf, size_t len) {  
-    if(!sceAudioOutput( chan ,PSP_VOLUME_MAX , buf)){
-    printf("audio output failed ");
-    }
+    sceAudioSRCOutputBlocking(PSP_VOLUME_MAX,buf);
 }
 
 struct AudioAPI audio_psp = {
