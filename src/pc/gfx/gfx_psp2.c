@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <pspkernel.h>
+#include <psppower.h>
 #include <pspdisplay.h>
 #include <pspgu.h>
 #include <pspgum.h>
@@ -47,6 +48,8 @@ static void gfx_psp2_init(UNUSED const char *game_name, UNUSED bool start_in_ful
     if (thid >= 0) {
         sceKernelStartThread(thid, 0, 0);
     }
+
+    scePowerSetClockFrequency(333, 333, 166);
 }
 
 static void
