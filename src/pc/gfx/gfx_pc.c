@@ -11,6 +11,9 @@
 #endif
 #include <PR/gbi.h>
 
+#include <pspgu.h>
+#include <pspgum.h>
+
 #include "gfx_pc.h"
 #include "gfx_cc.h"
 #include "gfx_window_manager_api.h"
@@ -54,6 +57,7 @@
 #define GU_PSM_T16		(6) /* Texture */
 #define GU_PSM_T32		(7) /* Texture */
 extern void* getStaticVramTexBuffer(unsigned int width, unsigned int height, unsigned int psm);
+extern float identity_matrix[4][4];
 
 struct RGBA {
     uint8_t r, g, b, a;
@@ -96,11 +100,11 @@ static struct ColorCombiner color_combiner_pool[64];
 static uint8_t color_combiner_pool_size;
 
 static struct RSP {
-    float modelview_matrix_stack[11][4][4];
+    float modelview_matrix_stack[11][4][4]__attribute__((aligned(16)));
+
+    float MP_matrix[4][4] __attribute__((aligned(16)));
+    float P_matrix[4][4] __attribute__((aligned(16)));
     uint8_t modelview_matrix_stack_size;
-    
-    float MP_matrix[4][4];
-    float P_matrix[4][4];
     
     Light_t current_lights[MAX_LIGHTS + 1];
     float current_lights_coeffs[MAX_LIGHTS][3];
@@ -117,7 +121,7 @@ static struct RSP {
     } texture_scaling_factor;
     
     struct LoadedVertex loaded_vertices[MAX_VERTICES + 4];
-} rsp  __attribute__((aligned(4)));
+} rsp  __attribute__((aligned(16)));
 
 static struct RDP {
     const uint8_t *palette;
@@ -321,31 +325,20 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, co
 }
 
 static void import_texture_rgba16(int tile) {
-    uint8_t rgba32_buf[8192] __attribute__ ((aligned(4)));
+    uint16_t rgba16_buf[4096] __attribute__ ((aligned(4)));    
+    for (uint32_t i = 0; i < rdp.loaded_texture[tile].size_bytes / 2; i++) {
+        uint16_t col16 = (rdp.loaded_texture[tile].addr[2 * i] << 8) | rdp.loaded_texture[tile].addr[2 * i + 1];
+        const uint8_t a = col16 & 1;
+        const uint8_t r = (col16 >> 11) & 0x1f;
+        const uint8_t g = (col16 >> 6) & 0x1f;
+        const uint8_t b = (col16 >> 1) & 0x1f;
+        rgba16_buf[i] = (a << 15)  | (b << 10)  | (g << 5) | (r);
+    }
     
-    for (uint32_t i = 0; i < rdp.loaded_texture[tile].size_bytes / 2; i++) {
-        uint16_t col16 = (rdp.loaded_texture[tile].addr[2 * i] << 8) | rdp.loaded_texture[tile].addr[2 * i + 1];
-        uint8_t a = col16 & 1;
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-        rgba32_buf[4*i + 0] = SCALE_5_8(r);
-        rgba32_buf[4*i + 1] = SCALE_5_8(g);
-        rgba32_buf[4*i + 2] = SCALE_5_8(b);
-        rgba32_buf[4*i + 3] = a ? 255 : 0;
-    }
-
-    /*uint16_t rgba32_buf[4096] __attribute__ ((aligned(4)));    
-    for (uint32_t i = 0; i < rdp.loaded_texture[tile].size_bytes / 2; i++) {
-        uint16_t col16 = (rdp.loaded_texture[tile].addr[2 * i] << 8) | rdp.loaded_texture[tile].addr[2 * i + 1];
-        rgba32_buf[i] = col16;
-    }
-    */
     uint32_t width = rdp.texture_tile.line_size_bytes / 2;
     uint32_t height = rdp.loaded_texture[tile].size_bytes / rdp.texture_tile.line_size_bytes;
 
-    gfx_rapi->upload_texture(rgba32_buf, width, height, GU_PSM_8888);
-    //gfx_rapi->upload_texture(rgba32_buf, width, height, GU_PSM_5551);
+    gfx_rapi->upload_texture((const uint8_t*)rgba16_buf, width, height, GU_PSM_5551);
 }
 
 static void import_texture_rgba32(int tile) {
@@ -597,7 +590,7 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
 }
 
 static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
-    float matrix[4][4];
+    static float matrix[4][4]__attribute__((aligned(16)));
 #ifndef GBI_FLOATS
     // Original GBI where fixed point matrices are used
     for (int i = 0; i < 4; i++) {
@@ -612,37 +605,53 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
     // For a modified GBI where fixed point values are replaced with floats
     memcpy(matrix, addr, sizeof(matrix));
 #endif
-    
     if (parameters & G_MTX_PROJECTION) {
+        sceGumMatrixMode(GU_PROJECTION);
         if (parameters & G_MTX_LOAD) {
             memcpy(rsp.P_matrix, matrix, sizeof(matrix));
+            //sceGumLoadMatrix(matrix);
         } else {
             gfx_matrix_mul(rsp.P_matrix, matrix, rsp.P_matrix);
+            //sceGumMultMatrix(matrix);
         }
+        sceKernelDcacheWritebackRange(rsp.P_matrix, sizeof(matrix));
+        sceGumLoadMatrix(rsp.P_matrix);
     } else { // G_MTX_MODELVIEW
+        sceGumMatrixMode(GU_MODEL);
         if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size < 11) {
             ++rsp.modelview_matrix_stack_size;
             memcpy(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 2], sizeof(matrix));
+            sceGumLoadMatrix(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 2]);
         }
         if (parameters & G_MTX_LOAD) {
             memcpy(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], matrix, sizeof(matrix));
+            //sceGumLoadMatrix(matrix);
         } else {
             gfx_matrix_mul(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
+            //sceGumMultMatrix(matrix);
         }
+        sceKernelDcacheWritebackRange(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], sizeof(matrix));
+        sceGumLoadMatrix(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
         rsp.lights_changed = 1;
     }
+    sceGumUpdateMatrix();
     gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
 }
 
 static void gfx_sp_pop_matrix(uint32_t count) {
+    sceGumMatrixMode(GU_MODEL);
     while (count--) {
         if (rsp.modelview_matrix_stack_size > 0) {
             --rsp.modelview_matrix_stack_size;
             if (rsp.modelview_matrix_stack_size > 0) {
                 gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
+                //sceGumPopMatrix();
             }
         }
     }
+    sceKernelDcacheWritebackRange(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], sizeof(rsp.P_matrix));
+    sceGumLoadMatrix(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
+    sceGumUpdateMatrix();
 }
 
 static float gfx_adjust_x_for_aspect_ratio(float x) {
@@ -655,12 +664,18 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
         const Vtx_tn *vn = &vertices[i].n;
         struct LoadedVertex *d = &rsp.loaded_vertices[dest_index];
         
+        /*
         float x = v->ob[0] * rsp.MP_matrix[0][0] + v->ob[1] * rsp.MP_matrix[1][0] + v->ob[2] * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
         float y = v->ob[0] * rsp.MP_matrix[0][1] + v->ob[1] * rsp.MP_matrix[1][1] + v->ob[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
         float z = v->ob[0] * rsp.MP_matrix[0][2] + v->ob[1] * rsp.MP_matrix[1][2] + v->ob[2] * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
+        */
         float w = v->ob[0] * rsp.MP_matrix[0][3] + v->ob[1] * rsp.MP_matrix[1][3] + v->ob[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
         
-        x = gfx_adjust_x_for_aspect_ratio(x);
+        float x = v->ob[0];
+        float y = v->ob[1];
+        float z = v->ob[2];
+
+        //x = gfx_adjust_x_for_aspect_ratio(x);
         
         short U = v->tc[0] * rsp.texture_scaling_factor.s >> 16;
         short V = v->tc[1] * rsp.texture_scaling_factor.t >> 16;
@@ -718,22 +733,20 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
         
         d->u = U;
         d->v = V;
+
+        if (fabsf(w) < 0.001f) {
+            // To avoid division by zero
+            w = 0.001f;
+        }
         
-        /*@Note: This is important but broken */
         // trivial clip rejection
         d->clip_rej = 0;
-        //float w_mod = w*(!(w<1.0f)*0.8);
         if (x < -w) d->clip_rej |= 1;
         if (x > w) d->clip_rej |= 2;
         if (y < -w) d->clip_rej |= 4;
         if (y > w) d->clip_rej |= 8;
-        //if (z < -w_mod) d->clip_rej |= 16;
         if (z < -w) d->clip_rej |= 16;
         if (z > w) d->clip_rej |= 32;
-
-        if(z == 32767.0f) d->clip_rej = 1;
-
-        //if((z + w) / 2.0f < 0.0f) d->clip_rej = 0xff;
 
         d->x = x;
         d->y = y;
@@ -768,13 +781,14 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     struct LoadedVertex *v3 = &rsp.loaded_vertices[vtx3_idx];
     struct LoadedVertex *v_arr[3] = {v1, v2, v3};
     
-    //if (rand()%2) return;
     
+    #if 0
+    /*@Note: unsure if needed anymore? */
     if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
         // The whole triangle lies outside the visible area
         return;
     }
-    
+
     if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
         float dx1 = v1->x / (v1->w) - v2->x / (v2->w);
         float dy1 = v1->y / (v1->w) - v2->y / (v2->w);
@@ -800,7 +814,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
                 return;
         }
     }
-    
+    #endif
     bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
     if (depth_test != rendering_state.depth_test) {
         gfx_flush();
@@ -895,24 +909,11 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     uint32_t tex_width = (rdp.texture_tile.lrs - rdp.texture_tile.uls + 4) / 4;
     uint32_t tex_height = (rdp.texture_tile.lrt - rdp.texture_tile.ult + 4) / 4;
     
-    //@Note: who knows?
-    bool z_is_from_0_to_1 = false;//gfx_rapi->z_is_from_0_to_1();
-    
     for (int i = 0; i < 3; i++) {
-        float z = v_arr[i]->z, w = v_arr[i]->w;
-        //if (z_is_from_0_to_1) {
-            if(z <= 0.0f){
-                buf_vbo_len -= sizeof(psp_fast_t)*i;
-                buf_num_vert -= i;
-                return;
-            } else {
-                //z = ((z + w) / 2.0f)*(z > 0.0f);
-                buf_vbo[buf_num_vert].z = ((z + w) / 2.0f)/w;
-            }
-        //}
-        buf_vbo[buf_num_vert].x = v_arr[i]->x/w;
-        buf_vbo[buf_num_vert].y = v_arr[i]->y/w;
-        //buf_vbo[buf_num_vert].z = z/w;
+
+        buf_vbo[buf_num_vert].x = v_arr[i]->x;
+        buf_vbo[buf_num_vert].y = v_arr[i]->y;
+        buf_vbo[buf_num_vert].z = v_arr[i]->z;
         
         if (use_texture) {
             float u = (v_arr[i]->u - rdp.texture_tile.uls * 8) / 32.0f;
@@ -1724,6 +1725,10 @@ void gfx_init(struct GfxWindowManagerAPI *wapi, struct GfxRenderingAPI *rapi, co
         gfx_lookup_or_create_shader_program(precomp_shaders[i]);
     }
     #endif
+
+    memcpy(rsp.P_matrix, identity_matrix, sizeof(identity_matrix));
+    memcpy(rsp.modelview_matrix_stack[0], identity_matrix, sizeof(identity_matrix));
+
     gfx_wapi->get_dimensions(&gfx_current_dimensions.width, &gfx_current_dimensions.height);
     if (gfx_current_dimensions.height == 0) {
         // Avoid division by zero
@@ -1738,7 +1743,6 @@ struct GfxRenderingAPI *gfx_get_current_rendering_api(void) {
 
 void gfx_start_frame(void) {
     gfx_wapi->handle_events();
-    /*@Note: moved to init since we cannot change */
 }
 
 extern unsigned int sceKernelLibcClock(void);
@@ -1756,6 +1760,18 @@ void gfx_run(Gfx *commands) {
     //double t0 = gfx_wapi->get_time();
     unsigned int t0 = sceKernelLibcClock();
     gfx_rapi->start_frame();
+    sceGumMatrixMode(GU_PROJECTION);
+    sceKernelDcacheWritebackRange(rsp.P_matrix, sizeof(rsp.P_matrix));
+    sceGumLoadMatrix(rsp.P_matrix);
+
+    sceGumMatrixMode(GU_VIEW);
+    sceGumLoadIdentity();
+
+    sceGumMatrixMode(GU_MODEL);
+    sceKernelDcacheWritebackRange(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], sizeof(rsp.P_matrix));
+    sceGumLoadMatrix(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
+    
+    sceGumUpdateMatrix();
     gfx_run_dl(commands);
     gfx_flush();
     gfx_rapi->end_frame();

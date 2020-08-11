@@ -26,11 +26,12 @@
 #define SCR_WIDTH (480)
 #define SCR_HEIGHT (272)
 
-unsigned int __attribute__((aligned(16))) list[262144];
+float identity_matrix[4][4] __attribute__((aligned(16))) = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+
+//unsigned int __attribute__((aligned(16))) list[262144];
+unsigned int __attribute__((aligned(16))) list[262144*2];
 
 static unsigned int staticOffset = 0;
-//static unsigned int staticTexOffset = NULL;
-//static unsigned int currentTexOffset = NULL;
 
 static unsigned int getMemorySize(unsigned int width, unsigned int height, unsigned int psm)
 {
@@ -143,58 +144,6 @@ static size_t cur_buf_stride = 0;
 static bool gl_blend = false;
 static bool gl_adv_fog = false;
 
-struct Vertex __attribute__((aligned(16))) vertices[12*3] =
-{
-	{0, 0, 0xff7f0000,-1,-1, 1}, // 0
-	{1, 0, 0xff7f0000,-1, 1, 1}, // 4
-	{1, 1, 0xff7f0000, 1, 1, 1}, // 5
-
-	{0, 0, 0xff7f0000,-1,-1, 1}, // 0
-	{1, 1, 0xff7f0000, 1, 1, 1}, // 5
-	{0, 1, 0xff7f0000, 1,-1, 1}, // 1
-
-	{0, 0, 0xff7f0000,-1,-1,-1}, // 3
-	{1, 0, 0xff7f0000, 1,-1,-1}, // 2
-	{1, 1, 0xff7f0000, 1, 1,-1}, // 6
-
-	{0, 0, 0xff7f0000,-1,-1,-1}, // 3
-	{1, 1, 0xff7f0000, 1, 1,-1}, // 6
-	{0, 1, 0xff7f0000,-1, 1,-1}, // 7
-
-	{0, 0, 0xff007f00, 1,-1,-1}, // 0
-	{1, 0, 0xff007f00, 1,-1, 1}, // 3
-	{1, 1, 0xff007f00, 1, 1, 1}, // 7
-
-	{0, 0, 0xff007f00, 1,-1,-1}, // 0
-	{1, 1, 0xff007f00, 1, 1, 1}, // 7
-	{0, 1, 0xff007f00, 1, 1,-1}, // 4
-
-	{0, 0, 0xff007f00,-1,-1,-1}, // 0
-	{1, 0, 0xff007f00,-1, 1,-1}, // 3
-	{1, 1, 0xff007f00,-1, 1, 1}, // 7
-
-	{0, 0, 0xff007f00,-1,-1,-1}, // 0
-	{1, 1, 0xff007f00,-1, 1, 1}, // 7
-	{0, 1, 0xff007f00,-1,-1, 1}, // 4
-
-	{0, 0, 0xff00007f,-1, 1,-1}, // 0
-	{1, 0, 0xff00007f, 1, 1,-1}, // 1
-	{1, 1, 0xff00007f, 1, 1, 1}, // 2
-
-	{0, 0, 0xff00007f,-1, 1,-1}, // 0
-	{1, 1, 0xff00007f, 1, 1, 1}, // 2
-	{0, 1, 0xff00007f,-1, 1, 1}, // 3
-
-	{0, 0, 0xff00007f,-1,-1,-1}, // 4
-	{1, 0, 0xff00007f,-1,-1, 1}, // 7
-	{1, 1, 0xff00007f, 1,-1, 1}, // 6
-
-	{0, 0, 0xff00007f,-1,-1,-1}, // 4
-	{1, 1, 0xff00007f, 1,-1, 1}, // 6
-	{0, 1, 0xff00007f, 1,-1,-1}, // 5
-};
-
-
 static bool gfx_scegu_z_is_from_0_to_1(void) {
     return true;
 }
@@ -238,21 +187,27 @@ static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
                 //const unsigned int alphasrc = (prg->mix_flags & SH_MF_INPUT_ALPHA) ? GL_PRIMARY_COLOR : GL_TEXTURE;
                 //TEXENV_COMBINE_SET2(RGB, GL_MODULATE, GL_TEXTURE, GL_PRIMARY_COLOR);
                //TEXENV_COMBINE_SET1(ALPHA, GL_REPLACE, alphasrc);
-                sceGuTexFunc(GU_TFX_BLEND, GU_TCC_RGBA );
+                //sceGuTexFunc(GU_TFX_BLEND, GU_TCC_RGBA );
+                sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA );
+                //printf("SH_MF_SINGLE_ALPHA & SH_MF_MULTIPLY_ALPHA\n");
             } else {
                 // somehow makes it keep the color while taking the alpha from primary color
                 //TEXENV_COMBINE_SET1(RGB, GL_REPLACE, GL_TEXTURE);
                 sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA );
+                printf("SH_MF_SINGLE_ALPHA & !SH_MF_MULTIPLY_ALPHA\n");
             }
         } else { // if (prg->mix_flags & SH_MF_SINGLE) {
             if (prg->mix_flags & SH_MF_MULTIPLY_ALPHA) {
                 // modulate the alpha but keep the color
                 //TEXENV_COMBINE_SET2(ALPHA, GL_MODULATE, GL_TEXTURE, GL_PRIMARY_COLOR);
                 //TEXENV_COMBINE_SET1(RGB, GL_REPLACE, GL_TEXTURE);
+                /*@Note Used in intro, maybe for letter? */
+                //printf("!SH_MF_SINGLE_ALPHA & SH_MF_MULTIPLY_ALPHA\n");
             } else {
                 // somehow makes it keep the alpha
                 //TEXENV_COMBINE_SET1(ALPHA, GL_REPLACE, GL_TEXTURE);
-                sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGBA );
+                //sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGBA );
+                printf("!SH_MF_SINGLE_ALPHA & !SH_MF_MULTIPLY_ALPHA\n");
             }
         }
         // TODO: MIX and the other one
@@ -282,7 +237,7 @@ static inline void texenv_set_texture_texture(UNUSED struct ShaderProgram *prg) 
     //glActiveTexture(GL_TEXTURE0);
     //TEXENV_COMBINE_OFF();
     //glActiveTexture(GL_TEXTURE1);
-    TEXENV_COMBINE_ON();
+    //TEXENV_COMBINE_ON();
     // out.rgb = mix(texel0.rgb, texel1.rgb, color0.rgb);
     //TEXENV_COMBINE_OP(2, GL_SRC_COLOR, GL_SRC_ALPHA);
     //TEXENV_COMBINE_SET3(RGB, GL_INTERPOLATE, GL_PREVIOUS, GL_TEXTURE, GL_PRIMARY_COLOR);
@@ -351,7 +306,6 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
 
     // configure formulae
     switch (prg->mix) {
-        sceGuEnable(GU_BLEND);
         case SH_MT_TEXTURE:
             TEXENV_COMBINE_OFF();
             break;
@@ -359,11 +313,10 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
         case SH_MT_TEXTURE_COLOR:
             /* texenv_set_texture_color is right */
             texenv_set_texture_color(prg);
-            //sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA );
             break;
 
         case SH_MT_TEXTURE_TEXTURE:
-            //texenv_set_texture_texture(prg);
+            texenv_set_texture_texture(prg);
             break;
 
         default:
@@ -585,7 +538,7 @@ static void gfx_scegu_upload_texture(const uint8_t *rgba32_buf, int width, int h
         if(type == GU_PSM_8888)
         texman_upload_swizzle(width,  height, type, (void*)rgba32_buf);
         else
-        texman_upload(width,  height, type, (void*)rgba32_buf);
+        texman_upload_swizzle(width,  height, type, (void*)rgba32_buf);
     } else {
         int scaled_width, scaled_height;
 
@@ -614,10 +567,10 @@ static void gfx_scegu_upload_texture(const uint8_t *rgba32_buf, int width, int h
             texman_upload_swizzle(scaled_width, scaled_height, type, (void*)scaled);
         } else if(type == GU_PSM_5551){
             gfx_scegu_resample_16bit((const unsigned short*)rgba32_buf, width, height, (void*)scaled, scaled_width, scaled_height);
-            texman_upload(scaled_width, scaled_height, type, (void*)scaled);
+            texman_upload_swizzle(scaled_width, scaled_height, type, (void*)scaled);
         }else{ 
             gfx_scegu_resample_8bit((const unsigned char*)rgba32_buf, width, height, (void*)scaled, scaled_width, scaled_height);
-            texman_upload(scaled_width, scaled_height, type, (void*)scaled);
+            texman_upload_swizzle(scaled_width, scaled_height, type, (void*)scaled);
         }
     }
 }
@@ -631,33 +584,30 @@ static void gfx_scegu_set_depth_test(bool depth_test) {
 }
 static bool z_depth = false; 
 static void gfx_scegu_set_depth_mask(bool z_upd) {
-    //z_depth = z_upd;
-    //sceGuDepthMask(z_upd ? GU_FALSE : GU_TRUE);
+    z_depth = z_upd;
+    sceGuDepthMask(z_upd ? GU_FALSE : GU_TRUE);
 }
 
 static void gfx_scegu_set_zmode_decal(bool zmode_decal) {
     if (zmode_decal) {
-        //sceGuDepthOffset(-2);
-        sceGuDepthOffset(-4);
+        sceGuDepthOffset(-2);
     } else {
-        //sceGuDepthOffset(0);
-        sceGuDepthOffset(-128);
+        sceGuDepthOffset(0);
     }
 }
 
 static void gfx_scegu_set_viewport(int x, int y, int width, int height) {
-    return;
-    sceGuViewport(x, y, width, height);
+    printf("sceGuViewport(%d, %d, %d, %d)\n", x, y, width, height);
+    //sceGuViewport(x, y, width, height);
 }
 
 static void gfx_scegu_set_scissor(int x, int y, int width, int height) {
-    return;
+    //printf("sceGuScissor(%d, %d, %d, %d)\n", x, y, width, height);
     /*@Note: maybe this is right */
     sceGuScissor(x, y, x+width, y+height);
 }
 
 static void gfx_scegu_set_use_alpha(bool use_alpha) {
-    return;
     gl_blend = use_alpha;
     if (use_alpha) {
         sceGuEnable(GU_BLEND);
@@ -708,7 +658,9 @@ static void gfx_scegu_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t
 
     sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
     sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * cur_buf_num_tris, 0, cur_buf);
-
+    
+    //if (!gl_blend) sceGuDisable(GU_BLEND); // disable blending if it was disabled
+    //else sceGuEnable(GU_BLEND);
     // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
     if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
 }
@@ -757,62 +709,29 @@ static void gfx_scegu_init(void) {
     sceGuDepthBuffer(zbp,BUF_WIDTH);
     sceGuOffset(2048 - (SCR_WIDTH/2),2048 - (SCR_HEIGHT/2));
 	sceGuViewport(2048,2048,SCR_WIDTH,SCR_HEIGHT);
-	//sceGuDepthRange(65535,0);
 	sceGuDepthRange(0xffff,0);
-	//sceGuDepthRange(42000,1200);
 	sceGuScissor(0,0,SCR_WIDTH,SCR_HEIGHT);
-	sceGuEnable(GU_SCISSOR_TEST);
+    sceGuEnable(GU_SCISSOR_TEST);
 	sceGuDepthFunc(GU_GEQUAL);
-	sceGuDisable(GU_DEPTH_TEST);
-	sceGuFrontFace(GU_CCW);
+	sceGuEnable(GU_DEPTH_TEST);
 	sceGuShadeModel(GU_SMOOTH);
-	sceGuEnable(GU_CULL_FACE);
 	sceGuEnable(GU_CLIP_PLANES);
-	//sceGuDisable(GU_CLIP_PLANES);
-    sceGuDepthOffset(-128);
+	sceGuDisable(GU_CULL_FACE);
+    sceGuEnable(GU_ALPHA_TEST);
+    sceGuAlphaFunc(GU_GREATER, 0x55, 0xff); /* 0.3f  */
+    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
+	sceGuDisable(GU_LIGHTING);
+	sceGuDisable(GU_BLEND);
+	sceGuDepthMask(GU_FALSE);
     sceGuTexEnvColor(0xffffffff);
-	sceGuFinish();
+	sceGuTexOffset(0.0f,0.0f);
+	sceGuTexWrap(GU_REPEAT,GU_REPEAT);
+    sceGuFinish();
 	sceGuSync(0,0);
 
 	sceDisplayWaitVblankStart();
 	sceGuDisplay(GU_TRUE);
-#if 0
-    printf("Check memory now!\n");
-    sceKernelDelayThread(1000*1000*5); /* 10seconds */
-    void *test = malloc(64*1024); /* 64kb */
-    if(test){
-        printf("malloc worked!\n");
-    }
-    printf("Check memory again!\n");
-    sceKernelDelayThread(1000*1000*5); /* 10seconds */
-#endif
-    void *texman_buffer = malloc(TEXMAN_BUFFER_SIZE);
-    void *texman_aligned = (void *) ((((unsigned int) texman_buffer + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT) * TEX_ALIGNMENT);
-    texman_reset(texman_aligned, TEXMAN_BUFFER_SIZE);
-    /*
-    struct mallinfo mi;
-    mi = mallinfo();
-    printf("ESTIMATED FREE RAM: %d BYTES NEEDED %d\n", ((20*1024*1024) - mi.arena + mi.fordblks), TEXMAN_BUFFER_SIZE);
-    */
-    if(!texman_buffer){
-        sprintf(msg, "OUT OF MEMORY!\n");
-        sceIoWrite(1, msg, strlen(msg));
 
-        sceKernelExitGame();
-    }
-}
-
-static void gfx_scegu_start_frame(void) {
-    //resetStaticTexBuffer();
-    sceGuStart(GU_DIRECT, list);
-    sceGuDisable(GU_SCISSOR_TEST);
-    sceGuDepthMask(GU_TRUE); // Must be set to clear Z-buffer
-    sceGuClearColor(0xFF000000);
-    sceGuClearDepth(0);
-    sceGuClear(GU_COLOR_BUFFER_BIT | GU_DEPTH_BUFFER_BIT);
-    sceGuEnable(GU_SCISSOR_TEST);
-    sceGuDepthMask(GU_FALSE);
-    
     sceGumMatrixMode(GU_PROJECTION);
     sceGumLoadIdentity();
 
@@ -823,6 +742,41 @@ static void gfx_scegu_start_frame(void) {
     sceGumLoadIdentity();
 
     sceGumUpdateMatrix();
+
+    void *texman_buffer = malloc(TEXMAN_BUFFER_SIZE);
+    void *texman_aligned = (void *) ((((unsigned int) texman_buffer + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT) * TEX_ALIGNMENT);
+    texman_reset(texman_aligned, TEXMAN_BUFFER_SIZE);
+    if(!texman_buffer){
+        sprintf(msg, "OUT OF MEMORY!\n");
+        sceIoWrite(1, msg, strlen(msg));
+
+        sceKernelExitGame();
+    }
+}
+
+static void gfx_scegu_start_frame(void) {
+    sceGuStart(GU_DIRECT, list);
+    sceGuDisable(GU_SCISSOR_TEST);
+    sceGuDepthMask(GU_TRUE); // Must be set to clear Z-buffer
+    //sceGuClearColor(0xFF000000);
+    sceGuClearColor(0xFF554433);
+    sceGuClearDepth(0);
+    sceGuClear(GU_COLOR_BUFFER_BIT | GU_DEPTH_BUFFER_BIT);
+    sceGuEnable(GU_SCISSOR_TEST);
+   
+    /*
+    Ideentity every frame? unsure.
+    sceGumMatrixMode(GU_PROJECTION);
+    sceGumLoadIdentity();
+
+    sceGumMatrixMode(GU_VIEW);
+    sceGumLoadIdentity();
+
+    sceGumMatrixMode(GU_MODEL);
+    sceGumLoadIdentity();
+
+    sceGumUpdateMatrix();
+    */
 }
 
 void gfx_scegu_on_resize(void) {
@@ -836,8 +790,7 @@ static void gfx_scegu_end_frame(void) {
 }
 
 static void gfx_scegu_finish_render(void) {
-    //sceGuFinish();
-    //sceGuSync(0,0);
+    /* There should be something here! */
 }
 
 struct GfxRenderingAPI gfx_opengl_api = {
