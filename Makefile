@@ -21,8 +21,24 @@ NON_MATCHING ?= 0
 TARGET_N64 ?= 0
 # Build for Emscripten/WebGL
 TARGET_WEB ?= 0
+# Build for PSP
+TARGET_PSP ?= 0
 # Compiler to use (ido or gcc)
-COMPILER ?= ido
+#COMPILER ?= ido
+
+# Checks for local vs system hexdump
+ifeq (, $(shell which hexdump))
+$(warning "system hexdump is not available please provide a binary")
+  HEXD_2 := $(shell ./hexdump -h 2> /dev/null)
+  ifndef HEXD_2
+    $(error "local hexdump is not available please install or provide a binary")
+  endif
+  HEXDUMP := ./hexdump
+else
+$(warning "System hexdump Found")
+HEXDUMP := hexdump
+endif
+
 
 # Automatic settings only for ports
 ifeq ($(TARGET_N64),0)
@@ -30,6 +46,7 @@ ifeq ($(TARGET_N64),0)
   NON_MATCHING := 1
   GRUCODE := f3dex2e
   TARGET_WINDOWS := 0
+  ifeq ($(TARGET_PSP), 0)
   ifeq ($(TARGET_WEB),0)
     ifeq ($(OS),Windows_NT)
       TARGET_WINDOWS := 1
@@ -76,6 +93,13 @@ ifeq ($(TARGET_N64),0)
       $(error Cannot specify multiple graphics backends)
     endif
   endif
+
+  endif
+
+#PSP DEFS
+ifeq ($(TARGET_PSP), 1)
+  ENABLE_OPENGL ?= 1
+endif
 
 endif
 
@@ -395,6 +419,13 @@ endif
 
 INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
 
+ifeq ($(TARGET_PSP),1)
+  CC := psp-gcc
+  AS := psp-as
+  CXX := psp-g++
+  OPT_FLAGS += -march=mips32
+endif
+
 # Check code syntax with host compiler
 CC_CHECK := gcc
 CC_CHECK_CFLAGS := -fsyntax-only -fsigned-char $(CC_CFLAGS) $(TARGET_CFLAGS) $(INCLUDE_CFLAGS) -std=gnu90 -Wall -Wextra -Wno-format-security -Wno-main -DNON_MATCHING -DAVOID_UB $(VERSION_CFLAGS) $(GRUCODE_CFLAGS)
@@ -459,6 +490,10 @@ ifeq ($(TARGET_WINDOWS),1)
   PLATFORM_CFLAGS  := -DTARGET_WINDOWS
   PLATFORM_LDFLAGS := -lm -lxinput9_1_0 -lole32 -no-pie -mwindows
 endif
+ifeq ($(TARGET_PSP),1)
+CC_CHECK := $(CC) -fsyntax-only -fsigned-char $(BACKEND_CFLAGS) $(INCLUDE_CFLAGS) -Wall -Wno-format-security $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fsigned-char -DTARGET_PSP -D__PSP__
+CFLAGS := $(OPT_FLAGS) $(INCLUDE_CFLAGS) $(VERSION_CFLAGS) $(GRUCODE_CFLAGS) -fno-strict-aliasing -fwrapv -Wfatal-errors -fsigned-char -DTARGET_PSP -D__PSP__
+endif
 ifeq ($(TARGET_LINUX),1)
   PLATFORM_CFLAGS  := -DTARGET_LINUX `pkg-config --cflags libusb-1.0`
   PLATFORM_LDFLAGS := -lm -lpthread `pkg-config --libs libusb-1.0` -lasound -lpulse -no-pie
@@ -493,7 +528,7 @@ ifeq ($(ENABLE_OPENGL),1)
     GFX_LDFLAGS += -lGL -lSDL2
   endif
   ifeq ($(TARGET_PSP),1)
-    GFX_LDFLAGS += -L$(PSP_PREFIX)/lib src/pc/gfx/libpspmath.a -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspgum_vfpu -lpspvfpu -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lpsplibc -lpspuser -lpspvram  
+    GFX_LDFLAGS += -L$(PSPSDK_PREFIX)/lib -lpspdebug -lpspvfpu -lpspgu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpspirkeyb -lpsppower -lpsplibc -lpspuser -lpspvram  
   endif
 endif
 ifeq ($(ENABLE_DX11),1)
@@ -863,17 +898,4 @@ MAKEFLAGS += --no-builtin-rules
 
 print-% : ; $(info $* is a $(flavor $*) variable set to [$($*)]) @true
 
-HEXD := $(shell hexdump -h 2> /dev/null)
 
-all:
-ifndef HEXD
-  $(warning "system hexdump is not available please provide a binary")
-  HEXD_2 := $(shell ./hexdump -h 2> /dev/null)
-  ifndef HEXD_2
-    $(error "local hexdump is not available please install or provide a binary")
-  endif
-  HEXDUMP := ./hexdump
-endif
-ifndef HEXDUMP
-HEXDUMP := hexdump
-endif

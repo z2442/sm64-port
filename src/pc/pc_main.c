@@ -20,6 +20,7 @@
 #include "gfx/gfx_sdl.h"
 
 #include "audio/audio_api.h"
+#include "audio/audio_psp.h"
 #include "audio/audio_wasapi.h"
 #include "audio/audio_pulse.h"
 #include "audio/audio_alsa.h"
@@ -184,12 +185,17 @@ void main_func(void) {
     
     wm_api->set_fullscreen_changed_callback(on_fullscreen_changed);
     wm_api->set_keyboard_callbacks(keyboard_on_key_down, keyboard_on_key_up, keyboard_on_all_keys_up);
-    
+
 #if HAVE_WASAPI
     if (audio_api == NULL && audio_wasapi.init()) {
         audio_api = &audio_wasapi;
     }
 #endif
+#if defined(TARGET_PSP)
+    if (audio_api == NULL && audio_psp.init()) {
+        audio_api = &audio_psp;
+    }
+    #endif
 #if HAVE_PULSE_AUDIO
     if (audio_api == NULL && audio_pulse.init()) {
         audio_api = &audio_pulse;

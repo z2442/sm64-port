@@ -1,3 +1,5 @@
+# PSP Port of PC
+
 # Super Mario 64 Port
 
 - This repo contains a full decompilation of Super Mario 64 (J), (U), and (E) with minor exceptions in the audio subsystem.
@@ -30,6 +32,12 @@ A prior copy of the game is required to extract the assets.
 5. Place a *Super Mario 64* ROM called `baserom.<VERSION>.z64` into the repository's root directory for asset extraction, where `VERSION` can be `us`, `jp`, or `eu`.
 6. Run `make` to build. Qualify the version through `make VERSION=<VERSION>`. Add `-j4` to improve build speed (hardware dependent based on the amount of CPU cores available).
 7. The executable binary will be located at `build/<VERSION>_pc/sm64.<VERSION>.f3dex2e.exe` inside the repository.
+
+#### PSP
+Notes:Currently only building under linux and WSL
+1. Install the PSP toolchain https://github.com/pspdev/psptoolchain.
+2. Place a Super Mario 64 ROM called `baserom.<VERSION>.z64` into the repository's root directory for asset extraction, where `VERSION` can be `us`, `jp`, or `eu`.
+3. Run 'make TARGET_PSP=1'
 
 #### Troubleshooting
 

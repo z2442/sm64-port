@@ -1,361 +1,8 @@
+.nolist
 .include "seq_macros.inc"
+.list
 .section .rodata
 .align 0
-sequence_start:
-
-seq_setmutebhv 0x60
-seq_setmutescale 0
-seq_setvol 127
-seq_settempo 120
-seq_initchannels 0x3ff
-seq_startchannel 0, .channel0
-seq_startchannel 1, .channel1
-seq_startchannel 2, .channel2
-seq_startchannel 3, .channel38
-seq_startchannel 4, .channel4
-seq_startchannel 5, .channel59
-seq_startchannel 6, .channel6
-seq_startchannel 7, .channel7
-seq_startchannel 8, .channel38
-seq_startchannel 9, .channel59
-.seq_loop:
-seq_delay 20000
-seq_jump .seq_loop
-
-.channel0:
-chan_largenoteson
-chan_setinstr 0
-chan_setpanmix 127
-chan_setnotepriority 14
-chan_setval 0
-chan_iowriteval 5
-chan_stereoheadseteffects 1
-chan_setdyntable .channel0_table
-chan_jump .main_loop_023589
-
-.channel2:
-chan_largenoteson
-chan_setinstr 0
-chan_setpanmix 127
-chan_setnotepriority 14
-chan_setval 0
-chan_iowriteval 5
-chan_stereoheadseteffects 1
-chan_setdyntable .channel2_table
-chan_jump .main_loop_023589
-
-.channel38:
-chan_largenoteson
-chan_setinstr 0
-chan_setpanmix 127
-chan_setnotepriority 14
-chan_setval 0
-chan_iowriteval 5
-chan_stereoheadseteffects 1
-chan_setdyntable .channel38_table
-chan_jump .main_loop_023589
-
-.channel59:
-chan_largenoteson
-chan_setinstr 0
-chan_setpanmix 127
-chan_setnotepriority 14
-chan_setval 0
-chan_iowriteval 5
-chan_stereoheadseteffects 1
-chan_setdyntable .channel59_table
-chan_jump .main_loop_023589
-
-# Main loop for standard, non-continuous sound effects
-.main_loop_023589:
-chan_delay1
-chan_ioreadval 0
-chan_bltz .main_loop_023589
-.start_playing_023589:
-chan_freelayer 0
-chan_freelayer 1
-chan_freelayer 2
-chan_setval 0
-chan_iowriteval 5
-chan_ioreadval 4
-chan_dyncall
-
-# keep looping until layer 0 finishes or we are told to stop or to play something else
-.poll_023589:
-chan_delay1
-chan_ioreadval 0
-chan_bltz .skip_023589 # if we have a signal:
-  chan_beqz .force_stop_023589 # told to stop
-  chan_jump .start_playing_023589 # told to play something else
-.skip_023589:
-chan_testlayerfinished 0
-chan_beqz .poll_023589 # if layer 0 hasn't finished, keep polling
-chan_jump .main_loop_023589 # otherwise go back to the main loop
-.force_stop_023589:
-chan_freelayer 0
-chan_freelayer 1
-chan_freelayer 2
-chan_jump .main_loop_023589
-
-.channel1:
-chan_largenoteson
-chan_setinstr 0
-chan_setpanmix 127
-chan_setnotepriority 14
-chan_setval 0
-chan_iowriteval 5
-chan_setmutebhv 0x20
-chan_stereoheadseteffects 1
-chan_setdyntable .channel1_table
-chan_jump .main_loop_146
-
-.channel4:
-chan_largenoteson
-chan_setinstr 0
-chan_setpanmix 127
-chan_setnotepriority 14
-chan_setval 0
-chan_iowriteval 5
-chan_setmutebhv 0x20
-chan_stereoheadseteffects 1
-chan_setdyntable .channel4_table
-chan_jump .main_loop_146
-
-.channel6:
-chan_largenoteson
-chan_setinstr 0
-chan_setpanmix 127
-chan_setnotepriority 14
-chan_setval 0
-chan_iowriteval 5
-chan_setmutebhv 0x20
-chan_stereoheadseteffects 1
-chan_setdyntable .channel6_table
-chan_jump .main_loop_146
-
-# Main loop for moving, env and air sound effects, which play continuously
-.main_loop_146:
-chan_delay1
-chan_ioreadval 0
-chan_bltz .main_loop_146
-.start_playing_146:
-chan_freelayer 0
-chan_freelayer 1
-chan_freelayer 2
-chan_setvolscale 127
-chan_setval 0
-chan_iowriteval 5
-chan_ioreadval 4
-chan_dyncall
-
-# keep looping until we are told to stop or to play something else
-.poll_146:
-chan_delay1
-chan_ioreadval 0
-chan_bltz .poll_146
-chan_beqz .force_stop_146
-chan_jump .start_playing_146
-.force_stop_146:
-chan_freelayer 0
-chan_freelayer 1
-chan_freelayer 2
-chan_jump .main_loop_146
-
-.channel7:
-chan_largenoteson
-chan_setinstr 0
-chan_setnotepriority 14
-chan_setval 0
-chan_iowriteval 5
-chan_stereoheadseteffects 1
-chan_setdyntable .channel7_table
-
-# Loop for menu sound effects
-.main_loop_7:
-chan_delay1
-chan_ioreadval 0
-chan_bltz .main_loop_7
-.start_playing_7:
-chan_freelayer 0
-chan_freelayer 1
-chan_freelayer 2
-chan_setval 0
-chan_iowriteval 5
-chan_setreverb 0
-chan_setpan 64
-chan_setpanmix 127
-chan_ioreadval 4
-chan_dyncall
-
-# keep looping until layer 0 finishes or we are told to stop or to play something else
-.poll_7:
-chan_delay1
-chan_ioreadval 0
-chan_bltz .skip_7 # if we have a signal:
-  chan_beqz .force_stop_7 # told to stop
-  chan_unreservenotes
-  chan_jump .start_playing_7 # told to play something else
-.skip_7:
-chan_testlayerfinished 0
-chan_beqz .poll_7 # if layer 0 hasn't finished, keep polling
-chan_unreservenotes
-chan_jump .main_loop_7 # otherwise go back to the main loop
-.force_stop_7:
-chan_freelayer 0
-chan_freelayer 1
-chan_freelayer 2
-chan_unreservenotes
-chan_jump .main_loop_7
-
-# Delay for a number of ticks (1-255) in an interruptible manner.
-.delay:
-chan_writeseq_nextinstr 0, 1
-chan_loop 20
-chan_delay1
-chan_ioreadval 0
-chan_iowriteval 1
-chan_bgez .delay_interrupt
-chan_loopend
-chan_end
-
-.delay_interrupt:
-chan_setpanmix 127
-chan_setvolscale 127
-chan_setvibratoextent 0
-chan_ioreadval 1 # IO slots 0-3 are reset to -1 when read; restore the value
-chan_iowriteval 0
-chan_break # break out of the loop
-chan_break # force the caller to return immediately
-chan_end
-
-# Set reverb in way that takes area echo level and volume into account. This
-# is done by writing to IO slot 5 and letting get_sound_reverb in external.c
-# do the necessary math.
-.set_reverb:
-chan_writeseq_nextinstr 0, 1
-chan_setreverb 10
-chan_iowriteval 5
-chan_end
-
-.channel0_table:
-sound_ref .sound_action_jump_default
-sound_ref .sound_action_jump_grass
-sound_ref .sound_action_jump_water
-sound_ref .sound_action_jump_stone
-sound_ref .sound_action_jump_spooky
-sound_ref .sound_action_jump_snow
-sound_ref .sound_action_jump_ice
-sound_ref .sound_action_jump_sand
-sound_ref .sound_action_landing_default
-sound_ref .sound_action_landing_grass
-sound_ref .sound_action_landing_water
-sound_ref .sound_action_landing_stone
-sound_ref .sound_action_landing_spooky
-sound_ref .sound_action_landing_snow
-sound_ref .sound_action_landing_ice
-sound_ref .sound_action_landing_sand
-sound_ref .sound_action_step_default
-sound_ref .sound_action_step_grass
-sound_ref .sound_action_step_water
-sound_ref .sound_action_step_stone
-sound_ref .sound_action_step_spooky
-sound_ref .sound_action_step_snow
-sound_ref .sound_action_step_ice
-sound_ref .sound_action_step_sand
-sound_ref .sound_action_body_hit_ground_default
-sound_ref .sound_action_body_hit_ground_grass
-sound_ref .sound_action_body_hit_ground_water
-sound_ref .sound_action_body_hit_ground_stone
-sound_ref .sound_action_body_hit_ground_spooky
-sound_ref .sound_action_body_hit_ground_snow
-sound_ref .sound_action_body_hit_ground_ice
-sound_ref .sound_action_body_hit_ground_sand
-sound_ref .sound_action_step_tiptoe_default
-sound_ref .sound_action_step_tiptoe_grass
-sound_ref .sound_action_step_tiptoe_water
-sound_ref .sound_action_step_tiptoe_stone
-sound_ref .sound_action_step_tiptoe_spooky
-sound_ref .sound_action_step_tiptoe_snow
-sound_ref .sound_action_step_tiptoe_ice
-sound_ref .sound_action_step_tiptoe_sand
-sound_ref .sound_action_metal_jump
-sound_ref .sound_action_metal_landing
-sound_ref .sound_action_metal_step
-sound_ref .sound_action_metal_heavy_landing
-sound_ref .sound_action_clap_hands_cold
-sound_ref .sound_action_hanging_step
-sound_ref .sound_action_quicksand_step
-sound_ref .sound_action_metal_step_tiptoe
-sound_ref .chan_4E5
-sound_ref .chan_4F1
-sound_ref .chan_4FD
-sound_ref .sound_action_swim
-sound_ref .chan_522
-sound_ref .sound_action_throw
-sound_ref .sound_action_key_swish
-sound_ref .sound_action_spin
-sound_ref .sound_action_spin
-sound_ref .sound_action_spin
-sound_ref .sound_action_climb_up_tree
-sound_ref .sound_action_climb_down_tree
-sound_ref .chan_582
-sound_ref .chan_591
-sound_ref .chan_5A3
-sound_ref .sound_action_pat_back
-sound_ref .sound_action_brush_hair
-sound_ref .sound_action_climb_up_pole
-sound_ref .sound_action_metal_bonk
-sound_ref .sound_action_unstuck_from_ground
-sound_ref .sound_action_hit
-sound_ref .sound_action_bonk
-sound_ref .sound_action_enter_bbh
-sound_ref .sound_action_swim_fast
-sound_ref .sound_action_stuck_in_ground_default
-sound_ref .sound_action_stuck_in_ground_default
-sound_ref .sound_action_stuck_in_ground_default
-sound_ref .sound_action_stuck_in_ground_default
-sound_ref .sound_action_stuck_in_ground_default
-sound_ref .sound_action_stuck_in_ground_snow
-sound_ref .sound_action_stuck_in_ground_sand
-sound_ref .sound_action_stuck_in_ground_sand
-sound_ref .sound_action_metal_jump_water
-sound_ref .sound_action_metal_land_water
-sound_ref .sound_action_metal_step_water
-sound_ref .chan_731
-sound_ref .chan_743
-sound_ref .chan_756
-sound_ref .sound_action_flying_fast
-sound_ref .sound_action_teleport
-sound_ref .chan_7A5
-sound_ref .sound_action_bounce_off_object
-sound_ref .chan_7ED
-sound_ref .sound_action_read_sign
-sound_ref .chan_810
-.ifdef VERSION_JP
-  sound_ref .sound_action_jump_default
-  sound_ref .sound_action_jump_default
-  sound_ref .sound_action_jump_default
-.else
-  sound_ref .chan_828
-  sound_ref .sound_action_intro_unk45e
-  sound_ref .sound_action_intro_unk45f
-.endif
-sound_ref .sound_action_heavy_landing_default
-sound_ref .sound_action_heavy_landing_grass
-sound_ref .sound_action_heavy_landing_water
-sound_ref .sound_action_heavy_landing_stone
-sound_ref .sound_action_heavy_landing_spooky
-sound_ref .sound_action_heavy_landing_snow
-sound_ref .sound_action_heavy_landing_ice
-sound_ref .sound_action_heavy_landing_sand
-sound_ref .sound_action_jump_default
-sound_ref .sound_action_jump_default
-sound_ref .sound_action_jump_default
-sound_ref .sound_action_jump_default
-sound_ref .sound_action_jump_default
-sound_ref .sound_action_jump_default
-sound_ref .sound_action_jump_default
-sound_ref .sound_action_jump_default
 
 .sound_action_jump_default:
 chan_setbank 1
@@ -7018,6 +6665,27 @@ sound_ref .sound_menu_mario_castle_warp2
   sound_ref .sound_menu_camera_turn
 .endif
 
+sequence_start:
+
+seq_setmutebhv 0x60
+seq_setmutescale 0
+seq_setvol 127
+seq_settempo 120
+seq_initchannels 0x3ff
+seq_startchannel 0, .channel0
+seq_startchannel 1, .channel1
+seq_startchannel 2, .channel2
+seq_startchannel 3, .channel38
+seq_startchannel 4, .channel4
+seq_startchannel 5, .channel59
+seq_startchannel 6, .channel6
+seq_startchannel 7, .channel7
+seq_startchannel 8, .channel38
+seq_startchannel 9, .channel59
+.seq_loop:
+seq_delay 20000
+seq_jump .seq_loop
+
 .sound_menu_change_select:
 chan_setbank 9
 chan_setinstr 1
@@ -8158,3 +7826,342 @@ envelope_line 1000 32700
 envelope_line 10 16000
 envelope_line 200 32760
 envelope_goto 3
+
+
+.channel0_table:
+sound_ref .sound_action_jump_default
+sound_ref .sound_action_jump_grass
+sound_ref .sound_action_jump_water
+sound_ref .sound_action_jump_stone
+sound_ref .sound_action_jump_spooky
+sound_ref .sound_action_jump_snow
+sound_ref .sound_action_jump_ice
+sound_ref .sound_action_jump_sand
+sound_ref .sound_action_landing_default
+sound_ref .sound_action_landing_grass
+sound_ref .sound_action_landing_water
+sound_ref .sound_action_landing_stone
+sound_ref .sound_action_landing_spooky
+sound_ref .sound_action_landing_snow
+sound_ref .sound_action_landing_ice
+sound_ref .sound_action_landing_sand
+sound_ref .sound_action_step_default
+sound_ref .sound_action_step_grass
+sound_ref .sound_action_step_water
+sound_ref .sound_action_step_stone
+sound_ref .sound_action_step_spooky
+sound_ref .sound_action_step_snow
+sound_ref .sound_action_step_ice
+sound_ref .sound_action_step_sand
+sound_ref .sound_action_body_hit_ground_default
+sound_ref .sound_action_body_hit_ground_grass
+sound_ref .sound_action_body_hit_ground_water
+sound_ref .sound_action_body_hit_ground_stone
+sound_ref .sound_action_body_hit_ground_spooky
+sound_ref .sound_action_body_hit_ground_snow
+sound_ref .sound_action_body_hit_ground_ice
+sound_ref .sound_action_body_hit_ground_sand
+sound_ref .sound_action_step_tiptoe_default
+sound_ref .sound_action_step_tiptoe_grass
+sound_ref .sound_action_step_tiptoe_water
+sound_ref .sound_action_step_tiptoe_stone
+sound_ref .sound_action_step_tiptoe_spooky
+sound_ref .sound_action_step_tiptoe_snow
+sound_ref .sound_action_step_tiptoe_ice
+sound_ref .sound_action_step_tiptoe_sand
+sound_ref .sound_action_metal_jump
+sound_ref .sound_action_metal_landing
+sound_ref .sound_action_metal_step
+sound_ref .sound_action_metal_heavy_landing
+sound_ref .sound_action_clap_hands_cold
+sound_ref .sound_action_hanging_step
+sound_ref .sound_action_quicksand_step
+sound_ref .sound_action_metal_step_tiptoe
+sound_ref .chan_4E5
+sound_ref .chan_4F1
+sound_ref .chan_4FD
+sound_ref .sound_action_swim
+sound_ref .chan_522
+sound_ref .sound_action_throw
+sound_ref .sound_action_key_swish
+sound_ref .sound_action_spin
+sound_ref .sound_action_spin
+sound_ref .sound_action_spin
+sound_ref .sound_action_climb_up_tree
+sound_ref .sound_action_climb_down_tree
+sound_ref .chan_582
+sound_ref .chan_591
+sound_ref .chan_5A3
+sound_ref .sound_action_pat_back
+sound_ref .sound_action_brush_hair
+sound_ref .sound_action_climb_up_pole
+sound_ref .sound_action_metal_bonk
+sound_ref .sound_action_unstuck_from_ground
+sound_ref .sound_action_hit
+sound_ref .sound_action_bonk
+sound_ref .sound_action_enter_bbh
+sound_ref .sound_action_swim_fast
+sound_ref .sound_action_stuck_in_ground_default
+sound_ref .sound_action_stuck_in_ground_default
+sound_ref .sound_action_stuck_in_ground_default
+sound_ref .sound_action_stuck_in_ground_default
+sound_ref .sound_action_stuck_in_ground_default
+sound_ref .sound_action_stuck_in_ground_snow
+sound_ref .sound_action_stuck_in_ground_sand
+sound_ref .sound_action_stuck_in_ground_sand
+sound_ref .sound_action_metal_jump_water
+sound_ref .sound_action_metal_land_water
+sound_ref .sound_action_metal_step_water
+sound_ref .chan_731
+sound_ref .chan_743
+sound_ref .chan_756
+sound_ref .sound_action_flying_fast
+sound_ref .sound_action_teleport
+sound_ref .chan_7A5
+sound_ref .sound_action_bounce_off_object
+sound_ref .chan_7ED
+sound_ref .sound_action_read_sign
+sound_ref .chan_810
+.ifdef VERSION_JP
+  sound_ref .sound_action_jump_default
+  sound_ref .sound_action_jump_default
+  sound_ref .sound_action_jump_default
+.else
+  sound_ref .chan_828
+  sound_ref .sound_action_intro_unk45e
+  sound_ref .sound_action_intro_unk45f
+.endif
+sound_ref .sound_action_heavy_landing_default
+sound_ref .sound_action_heavy_landing_grass
+sound_ref .sound_action_heavy_landing_water
+sound_ref .sound_action_heavy_landing_stone
+sound_ref .sound_action_heavy_landing_spooky
+sound_ref .sound_action_heavy_landing_snow
+sound_ref .sound_action_heavy_landing_ice
+sound_ref .sound_action_heavy_landing_sand
+sound_ref .sound_action_jump_default
+sound_ref .sound_action_jump_default
+sound_ref .sound_action_jump_default
+sound_ref .sound_action_jump_default
+sound_ref .sound_action_jump_default
+sound_ref .sound_action_jump_default
+sound_ref .sound_action_jump_default
+sound_ref .sound_action_jump_default
+
+# @Note: here is new start
+# Main loop for standard, non-continuous sound effects
+.main_loop_023589:
+chan_delay1
+chan_ioreadval 0
+chan_bltz .main_loop_023589
+.start_playing_023589:
+chan_freelayer 0
+chan_freelayer 1
+chan_freelayer 2
+chan_setval 0
+chan_iowriteval 5
+chan_ioreadval 4
+chan_dyncall
+
+# keep looping until layer 0 finishes or we are told to stop or to play something else
+.poll_023589:
+chan_delay1
+chan_ioreadval 0
+chan_bltz .skip_023589 # if we have a signal:
+  chan_beqz .force_stop_023589 # told to stop
+  chan_jump .start_playing_023589 # told to play something else
+.skip_023589:
+chan_testlayerfinished 0
+chan_beqz .poll_023589 # if layer 0 hasn't finished, keep polling
+chan_jump .main_loop_023589 # otherwise go back to the main loop
+.force_stop_023589:
+chan_freelayer 0
+chan_freelayer 1
+chan_freelayer 2
+chan_jump .main_loop_023589
+
+
+.channel1:
+chan_largenoteson
+chan_setinstr 0
+chan_setpanmix 127
+chan_setnotepriority 14
+chan_setval 0
+chan_iowriteval 5
+chan_setmutebhv 0x20
+chan_stereoheadseteffects 1
+chan_setdyntable .channel1_table
+chan_jump .main_loop_146
+
+.channel4:
+chan_largenoteson
+chan_setinstr 0
+chan_setpanmix 127
+chan_setnotepriority 14
+chan_setval 0
+chan_iowriteval 5
+chan_setmutebhv 0x20
+chan_stereoheadseteffects 1
+chan_setdyntable .channel4_table
+chan_jump .main_loop_146
+
+.channel6:
+chan_largenoteson
+chan_setinstr 0
+chan_setpanmix 127
+chan_setnotepriority 14
+chan_setval 0
+chan_iowriteval 5
+chan_setmutebhv 0x20
+chan_stereoheadseteffects 1
+chan_setdyntable .channel6_table
+chan_jump .main_loop_146
+
+.channel0:
+chan_largenoteson
+chan_setinstr 0
+chan_setpanmix 127
+chan_setnotepriority 14
+chan_setval 0
+chan_iowriteval 5
+chan_stereoheadseteffects 1
+chan_setdyntable .channel0_table
+chan_jump .main_loop_023589
+
+.channel2:
+chan_largenoteson
+chan_setinstr 0
+chan_setpanmix 127
+chan_setnotepriority 14
+chan_setval 0
+chan_iowriteval 5
+chan_stereoheadseteffects 1
+chan_setdyntable .channel2_table
+chan_jump .main_loop_023589
+
+.channel38:
+chan_largenoteson
+chan_setinstr 0
+chan_setpanmix 127
+chan_setnotepriority 14
+chan_setval 0
+chan_iowriteval 5
+chan_stereoheadseteffects 1
+chan_setdyntable .channel38_table
+chan_jump .main_loop_023589
+
+.channel59:
+chan_largenoteson
+chan_setinstr 0
+chan_setpanmix 127
+chan_setnotepriority 14
+chan_setval 0
+chan_iowriteval 5
+chan_stereoheadseteffects 1
+chan_setdyntable .channel59_table
+chan_jump .main_loop_023589
+
+# Main loop for moving, env and air sound effects, which play continuously
+.main_loop_146:
+chan_delay1
+chan_ioreadval 0
+chan_bltz .main_loop_146
+.start_playing_146:
+chan_freelayer 0
+chan_freelayer 1
+chan_freelayer 2
+chan_setvolscale 127
+chan_setval 0
+chan_iowriteval 5
+chan_ioreadval 4
+chan_dyncall
+
+# keep looping until we are told to stop or to play something else
+.poll_146:
+chan_delay1
+chan_ioreadval 0
+chan_bltz .poll_146
+chan_beqz .force_stop_146
+chan_jump .start_playing_146
+.force_stop_146:
+chan_freelayer 0
+chan_freelayer 1
+chan_freelayer 2
+chan_jump .main_loop_146
+
+.channel7:
+chan_largenoteson
+chan_setinstr 0
+chan_setnotepriority 14
+chan_setval 0
+chan_iowriteval 5
+chan_stereoheadseteffects 1
+chan_setdyntable .channel7_table
+
+# Loop for menu sound effects
+.main_loop_7:
+chan_delay1
+chan_ioreadval 0
+chan_bltz .main_loop_7
+.start_playing_7:
+chan_freelayer 0
+chan_freelayer 1
+chan_freelayer 2
+chan_setval 0
+chan_iowriteval 5
+chan_setreverb 0
+chan_setpan 64
+chan_setpanmix 127
+chan_ioreadval 4
+chan_dyncall
+
+# keep looping until layer 0 finishes or we are told to stop or to play something else
+.poll_7:
+chan_delay1
+chan_ioreadval 0
+chan_bltz .skip_7 # if we have a signal:
+  chan_beqz .force_stop_7 # told to stop
+  chan_unreservenotes
+  chan_jump .start_playing_7 # told to play something else
+.skip_7:
+chan_testlayerfinished 0
+chan_beqz .poll_7 # if layer 0 hasn't finished, keep polling
+chan_unreservenotes
+chan_jump .main_loop_7 # otherwise go back to the main loop
+.force_stop_7:
+chan_freelayer 0
+chan_freelayer 1
+chan_freelayer 2
+chan_unreservenotes
+chan_jump .main_loop_7
+
+
+.delay_interrupt:
+chan_setpanmix 127
+chan_setvolscale 127
+chan_setvibratoextent 0
+chan_ioreadval 1 # IO slots 0-3 are reset to -1 when read; restore the value
+chan_iowriteval 0
+chan_break # break out of the loop
+chan_break # force the caller to return immediately
+chan_end
+
+# Delay for a number of ticks (1-255) in an interruptible manner.
+.delay:
+chan_writeseq_nextinstr 0, 1
+chan_loop 20
+chan_delay1
+chan_ioreadval 0
+chan_iowriteval 1
+chan_bgez .delay_interrupt
+chan_loopend
+chan_end
+
+# Set reverb in way that takes area echo level and volume into account. This
+# is done by writing to IO slot 5 and letting get_sound_reverb in external.c
+# do the necessary math.
+.set_reverb:
+chan_writeseq_nextinstr 0, 1
+chan_setreverb 10
+chan_iowriteval 5
+chan_end
