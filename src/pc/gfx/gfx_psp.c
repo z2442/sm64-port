@@ -22,7 +22,7 @@ void __assert_func(const char *file, int line, const char *method, const char *e
 }
 
 static unsigned int GetTicks(void) {
-    unsigned int temp;
+    uint64_t temp;
     sceRtcGetCurrentTick(&temp);
     return (unsigned int) ((temp / 1000) & 0xffffffff);
 }

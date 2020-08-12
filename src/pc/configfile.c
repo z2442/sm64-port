@@ -10,6 +10,15 @@
 
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 
+#if defined(TARGET_PSP)
+static int isspace(int _c)
+{
+    char c = _c & 0xff;
+    return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
+}
+#endif
+
+
 enum ConfigOptionType {
     CONFIG_TYPE_BOOL,
     CONFIG_TYPE_UINT,
