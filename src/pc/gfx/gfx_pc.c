@@ -13,6 +13,7 @@
 
 #include <pspgu.h>
 #include <pspgum.h>
+#include <pspkernel.h>
 
 #include "gfx_pc.h"
 #include "gfx_cc.h"
@@ -26,6 +27,9 @@
 #define _GL_UNUSED(x) (void)(x)
 
 #define SUPPORT_CHECK(x) assert(x)
+
+// align value to N-byte boundary
+#define ALIGN(VAL_, ALIGNMENT_) (((VAL_) + ((ALIGNMENT_) - 1)) & ~((ALIGNMENT_) - 1))
 
 // SCALE_M_N: upscale/downscale M-bit integer to N-bit
 #define SCALE_5_8(VAL_) (((VAL_) * 0xFF) / 0x1F)
@@ -57,6 +61,7 @@
 #define GU_PSM_T16		(6) /* Texture */
 #define GU_PSM_T32		(7) /* Texture */
 extern void* getStaticVramTexBuffer(unsigned int width, unsigned int height, unsigned int psm);
+extern void gfx_scegu_draw_triangles_2d(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris);
 extern float identity_matrix[4][4];
 
 struct RGBA {
@@ -70,7 +75,8 @@ struct XYWidthHeight {
 struct LoadedVertex {
     float u, v;
     struct RGBA color;
-    float x, y, z, w;
+    float x, y, z;
+    float _x, _y, _z, w;
     uint8_t clip_rej;
 } __attribute__((packed, aligned(4)));
 
@@ -590,7 +596,10 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
 }
 
 static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
-    static float matrix[4][4]__attribute__((aligned(16)));
+    /* Since we dont store matrix info we just blast it here */
+    gfx_flush();
+
+    float matrix[4][4];
 #ifndef GBI_FLOATS
     // Original GBI where fixed point matrices are used
     for (int i = 0; i < 4; i++) {
@@ -606,52 +615,43 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
     memcpy(matrix, addr, sizeof(matrix));
 #endif
     if (parameters & G_MTX_PROJECTION) {
-        sceGumMatrixMode(GU_PROJECTION);
         if (parameters & G_MTX_LOAD) {
             memcpy(rsp.P_matrix, matrix, sizeof(matrix));
-            //sceGumLoadMatrix(matrix);
         } else {
             gfx_matrix_mul(rsp.P_matrix, matrix, rsp.P_matrix);
-            //sceGumMultMatrix(matrix);
         }
-        sceKernelDcacheWritebackRange(rsp.P_matrix, sizeof(matrix));
-        sceGumLoadMatrix(rsp.P_matrix);
+        /* Allocate space in DL for current proj matrix */
+        void *matrix_inline = (void *)ALIGN((unsigned int)sceGuGetMemory(sizeof(rsp.P_matrix)+15), 16);
+        memcpy(matrix_inline, rsp.P_matrix, sizeof(rsp.P_matrix));
+        sceGuSetMatrix(GU_PROJECTION, (const ScePspFMatrix4 *)matrix_inline);
     } else { // G_MTX_MODELVIEW
-        sceGumMatrixMode(GU_MODEL);
         if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size < 11) {
             ++rsp.modelview_matrix_stack_size;
             memcpy(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 2], sizeof(matrix));
-            sceGumLoadMatrix(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 2]);
         }
         if (parameters & G_MTX_LOAD) {
             memcpy(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], matrix, sizeof(matrix));
-            //sceGumLoadMatrix(matrix);
         } else {
             gfx_matrix_mul(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
-            //sceGumMultMatrix(matrix);
         }
-        sceKernelDcacheWritebackRange(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], sizeof(matrix));
-        sceGumLoadMatrix(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
+        /* Allocate space in DL for current model matrix */
+        void *matrix_inline = (void *)ALIGN((unsigned int)sceGuGetMemory(sizeof(rsp.P_matrix)+15), 16);
+        memcpy(matrix_inline, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], sizeof(rsp.P_matrix));
+        sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)matrix_inline);
         rsp.lights_changed = 1;
     }
-    sceGumUpdateMatrix();
     gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
 }
 
 static void gfx_sp_pop_matrix(uint32_t count) {
-    sceGumMatrixMode(GU_MODEL);
     while (count--) {
         if (rsp.modelview_matrix_stack_size > 0) {
             --rsp.modelview_matrix_stack_size;
             if (rsp.modelview_matrix_stack_size > 0) {
                 gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
-                //sceGumPopMatrix();
             }
         }
     }
-    sceKernelDcacheWritebackRange(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], sizeof(rsp.P_matrix));
-    sceGumLoadMatrix(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
-    sceGumUpdateMatrix();
 }
 
 static float gfx_adjust_x_for_aspect_ratio(float x) {
@@ -664,19 +664,12 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
         const Vtx_tn *vn = &vertices[i].n;
         struct LoadedVertex *d = &rsp.loaded_vertices[dest_index];
         
-        /*
         float x = v->ob[0] * rsp.MP_matrix[0][0] + v->ob[1] * rsp.MP_matrix[1][0] + v->ob[2] * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
         float y = v->ob[0] * rsp.MP_matrix[0][1] + v->ob[1] * rsp.MP_matrix[1][1] + v->ob[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
         float z = v->ob[0] * rsp.MP_matrix[0][2] + v->ob[1] * rsp.MP_matrix[1][2] + v->ob[2] * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
-        */
         float w = v->ob[0] * rsp.MP_matrix[0][3] + v->ob[1] * rsp.MP_matrix[1][3] + v->ob[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
         
-        float x = v->ob[0];
-        float y = v->ob[1];
-        float z = v->ob[2];
-
-        //x = gfx_adjust_x_for_aspect_ratio(x);
-        
+        x = gfx_adjust_x_for_aspect_ratio(x);
         short U = v->tc[0] * rsp.texture_scaling_factor.s >> 16;
         short V = v->tc[1] * rsp.texture_scaling_factor.t >> 16;
         
@@ -733,12 +726,6 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
         
         d->u = U;
         d->v = V;
-
-        if (fabsf(w) < 0.001f) {
-            // To avoid division by zero
-            w = 0.001f;
-        }
-        
         // trivial clip rejection
         d->clip_rej = 0;
         if (x < -w) d->clip_rej |= 1;
@@ -748,9 +735,13 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
         if (z < -w) d->clip_rej |= 16;
         if (z > w) d->clip_rej |= 32;
 
-        d->x = x;
-        d->y = y;
-        d->z = z;
+        d->x = v->ob[0];
+        d->y = v->ob[1];
+        d->z = v->ob[2];
+
+        d->_x = x;
+        d->_y = y;
+        d->_z = z;
         d->w = w;
         
         /*if (rsp.geometry_mode & G_FOG) {
@@ -781,7 +772,6 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     struct LoadedVertex *v3 = &rsp.loaded_vertices[vtx3_idx];
     struct LoadedVertex *v_arr[3] = {v1, v2, v3};
     
-    
     #if 0
     /*@Note: unsure if needed anymore? */
     if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
@@ -790,10 +780,10 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     }
 
     if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
-        float dx1 = v1->x / (v1->w) - v2->x / (v2->w);
-        float dy1 = v1->y / (v1->w) - v2->y / (v2->w);
-        float dx2 = v3->x / (v3->w) - v2->x / (v2->w);
-        float dy2 = v3->y / (v3->w) - v2->y / (v2->w);
+        float dx1 = v1->_x / (v1->w) - v2->_x / (v2->w);
+        float dy1 = v1->_y / (v1->w) - v2->_y / (v2->w);
+        float dx2 = v3->_x / (v3->w) - v2->_x / (v2->w);
+        float dy2 = v3->_y / (v3->w) - v2->_y / (v2->w);
         float cross = dx1 * dy2 - dy1 * dx2;
         
         if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
@@ -998,6 +988,229 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     if (++buf_vbo_num_tris == MAX_BUFFERED) {
         gfx_flush();
     }
+}
+
+/* This will be going away possibly, it all depends on how we end up treating hw sprites */
+static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
+    struct LoadedVertex *v1 = &rsp.loaded_vertices[vtx1_idx];
+    struct LoadedVertex *v2 = &rsp.loaded_vertices[vtx2_idx];
+    struct LoadedVertex *v3 = &rsp.loaded_vertices[vtx3_idx];
+    struct LoadedVertex *v_arr[3] = {v1, v2, v3};
+    
+    #if 0
+    /*@Note: unsure if needed anymore? */
+    if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
+        // The whole triangle lies outside the visible area
+        return;
+    }
+
+    if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
+        float dx1 = v1->_x / (v1->w) - v2->_x / (v2->w);
+        float dy1 = v1->_y / (v1->w) - v2->_y / (v2->w);
+        float dx2 = v3->_x / (v3->w) - v2->_x / (v2->w);
+        float dy2 = v3->_y / (v3->w) - v2->_y / (v2->w);
+        float cross = dx1 * dy2 - dy1 * dx2;
+        
+        if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
+            // If one vertex lies behind the eye, negating cross will give the correct result.
+            // If all vertices lie behind the eye, the triangle will be rejected anyway.
+            cross = -cross;
+        }
+        
+        switch (rsp.geometry_mode & G_CULL_BOTH) {
+            case G_CULL_FRONT:
+                if (cross <= 0) return;
+                break;
+            case G_CULL_BACK:
+                if (cross >= 0) return;
+                break;
+            case G_CULL_BOTH:
+                // Why is this even an option?
+                return;
+        }
+    }
+    #endif
+    bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
+    if (depth_test != rendering_state.depth_test) {
+        gfx_flush();
+        gfx_rapi->set_depth_test(depth_test);
+        rendering_state.depth_test = depth_test;
+    }
+    
+    bool z_upd = (rdp.other_mode_l & Z_UPD) == Z_UPD;
+    if (z_upd != rendering_state.depth_mask) {
+        gfx_flush();
+        gfx_rapi->set_depth_mask(z_upd);
+        rendering_state.depth_mask = z_upd;
+    }
+    
+    bool zmode_decal = (rdp.other_mode_l & ZMODE_DEC) == ZMODE_DEC;
+    if (zmode_decal != rendering_state.decal_mode) {
+        gfx_flush();
+        gfx_rapi->set_zmode_decal(zmode_decal);
+        rendering_state.decal_mode = zmode_decal;
+    }
+    
+    if (rdp.viewport_or_scissor_changed) {
+        if (memcmp(&rdp.viewport, &rendering_state.viewport, sizeof(rdp.viewport)) != 0) {
+            gfx_flush();
+            gfx_rapi->set_viewport(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width, rdp.viewport.height);
+            rendering_state.viewport = rdp.viewport;
+        }
+        if (memcmp(&rdp.scissor, &rendering_state.scissor, sizeof(rdp.scissor)) != 0) {
+            gfx_flush();
+            gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
+            rendering_state.scissor = rdp.scissor;
+        }
+        rdp.viewport_or_scissor_changed = false;
+    }
+    
+    uint32_t cc_id = rdp.combine_mode;
+    
+    bool use_alpha = (rdp.other_mode_l & (G_BL_A_MEM << 18)) == 0;
+    bool use_fog = (rdp.other_mode_l >> 30) == G_BL_CLR_FOG;
+    bool texture_edge = (rdp.other_mode_l & CVG_X_ALPHA) == CVG_X_ALPHA;
+    bool use_noise = (rdp.other_mode_l & G_AC_DITHER) == G_AC_DITHER;
+    
+    if (texture_edge) {
+        use_alpha = true;
+    }
+    
+    if (use_alpha) cc_id |= SHADER_OPT_ALPHA;
+    if (use_fog) cc_id |= SHADER_OPT_FOG;
+    if (texture_edge) cc_id |= SHADER_OPT_TEXTURE_EDGE;
+    if (use_noise) cc_id |= SHADER_OPT_NOISE;
+    
+    if (!use_alpha) {
+        cc_id &= ~0xfff000;
+    }
+    
+    struct ColorCombiner *comb = gfx_lookup_or_create_color_combiner(cc_id);
+    struct ShaderProgram *prg = comb->prg;
+    if (prg != rendering_state.shader_program) {
+        gfx_flush();
+        gfx_rapi->unload_shader(rendering_state.shader_program);
+        gfx_rapi->load_shader(prg);
+        rendering_state.shader_program = prg;
+    }
+    if (use_alpha != rendering_state.alpha_blend) {
+        gfx_flush();
+        gfx_rapi->set_use_alpha(use_alpha);
+        rendering_state.alpha_blend = use_alpha;
+    }
+    uint8_t num_inputs;
+    bool used_textures[2];
+    gfx_rapi->shader_get_info(prg, &num_inputs, used_textures);
+    
+    for (int i = 0; i < 2; i++) {
+        if (used_textures[i]) {
+            if (rdp.textures_changed[i]) {
+                gfx_flush();
+                import_texture(i);
+                rdp.textures_changed[i] = false;
+            }
+            bool linear_filter = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT;
+            if (linear_filter != rendering_state.textures[i]->linear_filter || rdp.texture_tile.cms != rendering_state.textures[i]->cms || rdp.texture_tile.cmt != rendering_state.textures[i]->cmt) {
+                gfx_flush();
+                gfx_rapi->set_sampler_parameters(i, linear_filter, rdp.texture_tile.cms, rdp.texture_tile.cmt);
+                rendering_state.textures[i]->linear_filter = linear_filter;
+                rendering_state.textures[i]->cms = rdp.texture_tile.cms;
+                rendering_state.textures[i]->cmt = rdp.texture_tile.cmt;
+            }
+        }
+    }
+    
+    bool use_texture = used_textures[0] || used_textures[1];
+    uint32_t tex_width = (rdp.texture_tile.lrs - rdp.texture_tile.uls + 4) / 4;
+    uint32_t tex_height = (rdp.texture_tile.lrt - rdp.texture_tile.ult + 4) / 4;
+
+    psp_fast_t tri_buf[3];
+    int tri_num_vert = 0;
+    
+    for (int i = 0; i < 3; i++) {
+        tri_buf[tri_num_vert].x = (v_arr[i]->x * 240.0f)+240.f;
+        tri_buf[tri_num_vert].y = (136.0f - (v_arr[i]->y * 136.0f));
+        tri_buf[tri_num_vert].z = v_arr[i]->z;
+        
+        if (use_texture) {
+            float u = (v_arr[i]->u - rdp.texture_tile.uls * 8) / 32.0f;
+            float v = (v_arr[i]->v - rdp.texture_tile.ult * 8) / 32.0f;
+            if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT) {
+                // Linear filter adds 0.5f to the coordinates
+                u += 0.5f;
+                v += 0.5f;
+            }
+            tri_buf[tri_num_vert].u = u;
+            tri_buf[tri_num_vert].v = v;
+        } else {
+            tri_buf[tri_num_vert].u = 0;
+            tri_buf[tri_num_vert].v = 0;
+        }
+        
+        /*
+        //@Note no fog currently
+        if (use_fog) {
+            tri_buf[buf_vbo_len++] = rdp.fog_color.r / 255.0f;
+            tri_buf[buf_vbo_len++] = rdp.fog_color.g / 255.0f;
+            tri_buf[buf_vbo_len++] = rdp.fog_color.b / 255.0f;
+            tri_buf[buf_vbo_len++] = v_arr[i]->color.a / 255.0f; // fog factor (not alpha)
+        }
+        */
+        struct RGBA white = (struct RGBA){0xff, 0xff, 0xff, 0xff};
+        struct RGBA tmp = (struct RGBA){0x00, 0x00, 0x00, 0x00};
+        struct RGBA *color = &white;
+        
+        //const int hack = (num_inputs > 1) * ((int)used_textures[0]);
+        for (int j = 0; j < num_inputs; j++) {
+            for (int k = 0; k < 1 + (use_alpha ? 1 : 0); k++) {
+                switch (comb->shader_input_mapping[k][j]) {
+                    case CC_PRIM:
+                        color = &rdp.prim_color;
+                        break;
+                    case CC_SHADE:
+                        color = &v_arr[i]->color;
+                        break;
+                    case CC_ENV:
+                        color = &rdp.env_color;
+                        break;
+                    /*
+                    case CC_LOD:
+                    {
+                        float distance_frac = (v1->w - 3000.0f) / 3000.0f;
+                        if (distance_frac < 0.0f) distance_frac = 0.0f;
+                        if (distance_frac > 1.0f) distance_frac = 1.0f;
+                        tmp.r = tmp.g = tmp.b = tmp.a = distance_frac * 255.0f;
+                        color = &tmp;
+                        break;
+                    }*/
+                    default:
+                        //color = &tmp;
+                        color = &white;
+                        break;
+                }
+                /*@Note: should this be here ? */
+                //memcpy(&tri_buf[buf_num_vert].color, color, sizeof(struct RGBA));
+
+                /*
+                //Ignore for now
+                if (k == 0) {
+                    tri_buf[buf_vbo_len++] = color->r / 255.0f;
+                    tri_buf[buf_vbo_len++] = color->g / 255.0f;
+                    tri_buf[buf_vbo_len++] = color->b / 255.0f;
+                } else {
+                    if (use_fog && color == &v_arr[i]->color) {
+                        // Shade alpha is 100% for fog
+                        tri_buf[buf_vbo_len++] = 1.0f;
+                    } else {
+                        tri_buf[buf_vbo_len++] = color->a / 255.0f;
+                    }
+                }*/
+            }
+        }
+        memcpy(&tri_buf[tri_num_vert].color, color, sizeof(struct RGBA));
+        tri_num_vert++;
+    }
+    gfx_scegu_draw_triangles_2d(&tri_buf[tri_num_vert],0,1);
 }
 
 static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
@@ -1298,14 +1511,17 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     float ulyf = uly;
     float lrxf = lrx;
     float lryf = lry;
+    //printf("rectangle raw[%f, %f -> %f, %f]\n",ulxf, ulyf, lrxf, lryf);
     
     ulxf = ulxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
     ulyf = -(ulyf / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
     lrxf = lrxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
     lryf = -(lryf / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
+    //printf("\trectangle adj[%f, %f -> %f, %f]\n",ulxf, ulyf, lrxf, lryf);
     
     ulxf = gfx_adjust_x_for_aspect_ratio(ulxf);
     lrxf = gfx_adjust_x_for_aspect_ratio(lrxf);
+    //printf("\trectangle res[%f, %f -> %f, %f]\n",ulxf, ulyf, lrxf, lryf);
     
     struct LoadedVertex* ul = &rsp.loaded_vertices[MAX_VERTICES + 0];
     struct LoadedVertex* ll = &rsp.loaded_vertices[MAX_VERTICES + 1];
@@ -1341,8 +1557,8 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     rdp.viewport_or_scissor_changed = true;
     rsp.geometry_mode = 0;
     
-    gfx_sp_tri1(MAX_VERTICES + 0, MAX_VERTICES + 1, MAX_VERTICES + 3);
-    gfx_sp_tri1(MAX_VERTICES + 1, MAX_VERTICES + 2, MAX_VERTICES + 3);
+    gfx_sp_tri1_2d(MAX_VERTICES + 0, MAX_VERTICES + 1, MAX_VERTICES + 3);
+    gfx_sp_tri1_2d(MAX_VERTICES + 1, MAX_VERTICES + 2, MAX_VERTICES + 3);
     
     rsp.geometry_mode = geometry_mode_saved;
     rdp.viewport = viewport_saved;
@@ -1630,7 +1846,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 dsdx = C1(16, 16);
                 dtdy = C1(0, 16);
 #endif
-                gfx_dp_texture_rectangle(ulx, uly, lrx, lry, tile, uls, ult, dsdx, dtdy, opcode == G_TEXRECTFLIP);
+                //gfx_dp_texture_rectangle(ulx, uly, lrx, lry, tile, uls, ult, dsdx, dtdy, opcode == G_TEXRECTFLIP);
                 break;
             }
             case G_FILLRECT:
@@ -1642,11 +1858,11 @@ static void gfx_run_dl(Gfx* cmd) {
                 ++cmd;
                 ulx = (int32_t)(C0(0, 24) << 8) >> 8;
                 uly = (int32_t)(C1(0, 24) << 8) >> 8;
-                gfx_dp_fill_rectangle(ulx, uly, lrx, lry);
+                //gfx_dp_fill_rectangle(ulx, uly, lrx, lry);
                 break;
             }
 #else
-                gfx_dp_fill_rectangle(C1(12, 12), C1(0, 12), C0(12, 12), C0(0, 12));
+                //gfx_dp_fill_rectangle(C1(12, 12), C1(0, 12), C0(12, 12), C0(0, 12));
                 break;
 #endif
             case G_SETSCISSOR:
@@ -1742,10 +1958,9 @@ struct GfxRenderingAPI *gfx_get_current_rendering_api(void) {
 }
 
 void gfx_start_frame(void) {
+    //sceIoWrite(1, "----START FRAME!\n", 18);
     gfx_wapi->handle_events();
 }
-
-extern unsigned int sceKernelLibcClock(void);
 
 void gfx_run(Gfx *commands) {
     gfx_sp_reset();
@@ -1760,18 +1975,6 @@ void gfx_run(Gfx *commands) {
     //double t0 = gfx_wapi->get_time();
     unsigned int t0 = sceKernelLibcClock();
     gfx_rapi->start_frame();
-    sceGumMatrixMode(GU_PROJECTION);
-    sceKernelDcacheWritebackRange(rsp.P_matrix, sizeof(rsp.P_matrix));
-    sceGumLoadMatrix(rsp.P_matrix);
-
-    sceGumMatrixMode(GU_VIEW);
-    sceGumLoadIdentity();
-
-    sceGumMatrixMode(GU_MODEL);
-    sceKernelDcacheWritebackRange(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], sizeof(rsp.P_matrix));
-    sceGumLoadMatrix(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
-    
-    sceGumUpdateMatrix();
     gfx_run_dl(commands);
     gfx_flush();
     gfx_rapi->end_frame();
@@ -1793,6 +1996,7 @@ void gfx_run(Gfx *commands) {
 }
 
 void gfx_end_frame(void) {
+    //sceIoWrite(1, "----END FRAME!\n", 16);
     if (!dropped_frame) {
         gfx_rapi->finish_render();
         gfx_wapi->swap_buffers_end();
