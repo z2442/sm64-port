@@ -1,4 +1,5 @@
-#if defined(TARGET_PSP)
+#if 0
+//#if defined(TARGET_PSP) 
 
 #include <assert.h>
 #include <stdbool.h>
