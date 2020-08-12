@@ -138,9 +138,7 @@ static struct ShaderProgram *cur_shader = NULL;
 
 static const Vertex *cur_buf = NULL;
 static const Vertex *cur_fog_ofs = NULL;
-static size_t cur_buf_size = 0;
 static size_t cur_buf_num_tris = 0;
-static size_t cur_buf_stride = 0;
 static bool gl_blend = false;
 static bool gl_adv_fog = false;
 
@@ -179,6 +177,7 @@ static bool gfx_scegu_z_is_from_0_to_1(void) {
     } while (0)
 
 static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
+    sceGuEnable(GU_BLEND);
     if (prg->mix_flags & SH_MF_OVERRIDE_ALPHA) {
         TEXENV_COMBINE_ON();
         if (prg->mix_flags & SH_MF_SINGLE_ALPHA) {
@@ -234,6 +233,7 @@ static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
 }
 
 static inline void texenv_set_texture_texture(UNUSED struct ShaderProgram *prg) {
+    sceGuEnable(GU_BLEND);
     //glActiveTexture(GL_TEXTURE0);
     //TEXENV_COMBINE_OFF();
     //glActiveTexture(GL_TEXTURE1);
@@ -307,6 +307,7 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
     // configure formulae
     switch (prg->mix) {
         case SH_MT_TEXTURE:
+            sceGuEnable(GU_BLEND);
             TEXENV_COMBINE_OFF();
             break;
 
@@ -316,6 +317,7 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
             break;
 
         case SH_MT_TEXTURE_TEXTURE:
+            sceGuDisable(GU_BLEND);
             texenv_set_texture_texture(prg);
             break;
 
@@ -582,15 +584,16 @@ static void gfx_scegu_set_depth_test(bool depth_test) {
         sceGuDisable(GU_DEPTH_TEST);
     }
 }
-static bool z_depth = false; 
+//static bool z_depth = false; 
 static void gfx_scegu_set_depth_mask(bool z_upd) {
-    z_depth = z_upd;
-    sceGuDepthMask(z_upd ? GU_FALSE : GU_TRUE);
+    //z_depth = z_upd;
+    //sceGuDepthMask(z_upd ? GU_FALSE : GU_TRUE);
 }
 
 static void gfx_scegu_set_zmode_decal(bool zmode_decal) {
     if (zmode_decal) {
-        sceGuDepthOffset(-2);
+        //sceGuDepthOffset(2);
+        sceGuDepthOffset(16); /* I think we need a little more on vita */
     } else {
         sceGuDepthOffset(0);
     }
@@ -604,7 +607,7 @@ static void gfx_scegu_set_viewport(int x, int y, int width, int height) {
 static void gfx_scegu_set_scissor(int x, int y, int width, int height) {
     //printf("sceGuScissor(%d, %d, %d, %d)\n", x, y, width, height);
     /*@Note: maybe this is right */
-    sceGuScissor(x, y, x+width, y+height);
+    //sceGuScissor(x, y, x+width, y+height);
 }
 
 static void gfx_scegu_set_use_alpha(bool use_alpha) {
@@ -650,19 +653,29 @@ static void gfx_scegu_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t
     //printf("flushing %d tris\n", buf_vbo_num_tris);
 
     cur_buf = (Vertex *)buf_vbo;
-    cur_buf_size = buf_vbo_len * 4;
+    //cur_buf_size = buf_vbo_len * 4;
     cur_buf_num_tris = buf_vbo_num_tris;
-    cur_buf_stride = cur_buf_size / (3 * cur_buf_num_tris);
+    //cur_buf_stride = cur_buf_size / (3 * cur_buf_num_tris);
 
     gfx_scegu_apply_shader(cur_shader);
 
     sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
     sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * cur_buf_num_tris, 0, cur_buf);
-    
-    //if (!gl_blend) sceGuDisable(GU_BLEND); // disable blending if it was disabled
-    //else sceGuEnable(GU_BLEND);
+
     // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
     if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
+}
+
+void gfx_scegu_draw_triangles_2d(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
+    //printf("flushing %d tris\n", buf_vbo_num_tris);
+
+    cur_buf = (Vertex *)buf_vbo;
+    cur_buf_num_tris = buf_vbo_num_tris;
+
+    gfx_scegu_apply_shader(cur_shader);
+
+    sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
+    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_2D, 3 * cur_buf_num_tris, 0, cur_buf);
 }
 
 static void gfx_scegu_init(void) {
@@ -712,16 +725,16 @@ static void gfx_scegu_init(void) {
 	sceGuDepthRange(0xffff,0);
 	sceGuScissor(0,0,SCR_WIDTH,SCR_HEIGHT);
     sceGuEnable(GU_SCISSOR_TEST);
-	sceGuDepthFunc(GU_GEQUAL);
 	sceGuEnable(GU_DEPTH_TEST);
+	sceGuDepthFunc(GU_GEQUAL);
 	sceGuShadeModel(GU_SMOOTH);
 	sceGuEnable(GU_CLIP_PLANES);
-	sceGuDisable(GU_CULL_FACE);
     sceGuEnable(GU_ALPHA_TEST);
     sceGuAlphaFunc(GU_GREATER, 0x55, 0xff); /* 0.3f  */
     sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
 	sceGuDisable(GU_LIGHTING);
 	sceGuDisable(GU_BLEND);
+	sceGuDisable(GU_CULL_FACE);
 	sceGuDepthMask(GU_FALSE);
     sceGuTexEnvColor(0xffffffff);
 	sceGuTexOffset(0.0f,0.0f);
@@ -731,17 +744,6 @@ static void gfx_scegu_init(void) {
 
 	sceDisplayWaitVblankStart();
 	sceGuDisplay(GU_TRUE);
-
-    sceGumMatrixMode(GU_PROJECTION);
-    sceGumLoadIdentity();
-
-    sceGumMatrixMode(GU_VIEW);
-    sceGumLoadIdentity();
-
-    sceGumMatrixMode(GU_MODEL);
-    sceGumLoadIdentity();
-
-    sceGumUpdateMatrix();
 
     void *texman_buffer = malloc(TEXMAN_BUFFER_SIZE);
     void *texman_aligned = (void *) ((((unsigned int) texman_buffer + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT) * TEX_ALIGNMENT);
@@ -758,26 +760,16 @@ static void gfx_scegu_start_frame(void) {
     sceGuStart(GU_DIRECT, list);
     sceGuDisable(GU_SCISSOR_TEST);
     sceGuDepthMask(GU_TRUE); // Must be set to clear Z-buffer
-    //sceGuClearColor(0xFF000000);
-    sceGuClearColor(0xFF554433);
+    sceGuClearColor(0xFF000000);
     sceGuClearDepth(0);
     sceGuClear(GU_COLOR_BUFFER_BIT | GU_DEPTH_BUFFER_BIT);
     sceGuEnable(GU_SCISSOR_TEST);
+    sceGuDepthMask(GU_FALSE);
    
-    /*
-    Ideentity every frame? unsure.
-    sceGumMatrixMode(GU_PROJECTION);
-    sceGumLoadIdentity();
-
-    sceGumMatrixMode(GU_VIEW);
-    sceGumLoadIdentity();
-
-    sceGumMatrixMode(GU_MODEL);
-    sceGumLoadIdentity();
-
-    sceGumUpdateMatrix();
-    */
-}
+    //Identity every frame? unsure.
+    sceGuSetMatrix(GU_PROJECTION, (const ScePspFMatrix4 *)identity_matrix);
+    sceGuSetMatrix(GU_VIEW, (const ScePspFMatrix4 *)identity_matrix);
+    sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)identity_matrix);}
 
 void gfx_scegu_on_resize(void) {
 }
