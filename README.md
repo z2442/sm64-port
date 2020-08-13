@@ -39,7 +39,7 @@ A prior copy of the game is required to extract the assets.
 Notes:Currently only building under linux and WSL
 1. Install the PSP toolchain https://github.com/pspdev/psptoolchain.
 2. Place a Super Mario 64 ROM called `baserom.<VERSION>.z64` into the repository's root directory for asset extraction, where `VERSION` can be `us`, `jp`, or `eu`.
-3. Run 'make TARGET_PSP=1'
+3. Run `make TARGET_PSP=1`
 
 #### Troubleshooting
 
