@@ -96,7 +96,7 @@ void produce_one_frame(void) {
     int samples_left = audio_api->buffered();
     u32 num_audio_samples = samples_left < audio_api->get_desired_buffered() ? SAMPLES_HIGH : SAMPLES_LOW;
     //printf("Audio samples: %d %u\n", samples_left, num_audio_samples);
-    s16 audio_buffer[SAMPLES_HIGH * 2 * 2];
+    s16 audio_buffer[SAMPLES_HIGH * 2 * 2] __attribute__((aligned(64)));
     for (int i = 0; i < 2; i++) {
         /*if (audio_cnt-- == 0) {
             audio_cnt = 2;
