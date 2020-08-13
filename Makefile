@@ -28,14 +28,13 @@ TARGET_PSP ?= 0
 
 # Checks for local vs system hexdump
 ifeq (, $(shell which hexdump))
-$(warning "system hexdump is not available please provide a binary")
+$(warning "system hexdump is not available please provide a local binary")
   HEXD_2 := $(shell ./hexdump -h 2> /dev/null)
   ifndef HEXD_2
-    $(error "local hexdump is not available please install or provide a binary")
+    $(error "local hexdump is not available please install systemwide or provide local a binary")
   endif
   HEXDUMP := ./hexdump
 else
-$(warning "System hexdump Found")
 HEXDUMP := hexdump
 endif
 
@@ -478,6 +477,7 @@ OBJCOPY := objcopy
 PYTHON := python3
 ifeq ($(TARGET_PSP),1)
   CC  := psp-gcc
+  CPP := psp-cpp -P
   CXX := psp-g++
   AS  := psp-as
   LD  := $(CC)
