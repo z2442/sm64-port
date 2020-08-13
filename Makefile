@@ -38,6 +38,8 @@ else
 HEXDUMP := hexdump
 endif
 
+# Add a version tag to all builds
+SRC_VER := $(shell git describe --always --abbrev=8 --dirty 2>/dev/null 2>/dev/null || date "+%Y%m%d-%H%M%S")
 
 # Automatic settings only for ports
 ifeq ($(TARGET_N64),0)
@@ -420,6 +422,7 @@ INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
 
 ifeq ($(TARGET_PSP),1)
   CC := psp-gcc
+  CPP := cpp -P -Wno-trigraphs
   AS := psp-as
   CXX := psp-g++
   OPT_FLAGS += -march=mips32
@@ -501,7 +504,7 @@ endif
 ifeq ($(TARGET_PSP),1)
   PSPSDK_PREFIX = $(shell psp-config -p)
   PSP_PREFIX    = $(shell psp-config -P)
-  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -I$(PSPSDK_PREFIX)/include -G 0 -D_PSP_FW_VERSION=500 -g3 -Ofast
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -G 0 -D_PSP_FW_VERSION=500 -g3 -Ofast
   PLATFORM_LDFLAGS := -I$(PSPSDK_PREFIX)/lib -I$(PSPSDK_PREFIX)/include/libc -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx $(PSPSDK_PREFIX)/lib/prxexports.o
 endif
 ifeq ($(TARGET_WEB),1)
@@ -882,6 +885,16 @@ $(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(
 ifeq ($(TARGET_PSP),1)
 	psp-fixup-imports $@
 	psp-prxgen $@ $@.prx
+
+TITLE := "sm64-port $(SRC_VER)"
+
+pbp: $(EXE)
+	@cp -r psp/EBOOT $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/mario64
+	mksfoex -d MEMSIZE=1 "$(TITLE)" $(BUILD_DIR)/PARAM.SFO
+	pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(EXE).prx NULL
+
+.PHONY: pbp
 endif
 endif
 
