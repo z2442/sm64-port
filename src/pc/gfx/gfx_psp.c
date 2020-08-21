@@ -16,13 +16,15 @@
 #define SCR_HEIGHT (272)
 
 static int force_30fps = 1;
+extern void J_Init(int foo);
 
 /* I forgot why we need this */
 void __assert_func(const char *file, int line, const char *method, const char *expression) {
+
 }
 
 static unsigned int GetTicks(void) {
-    unsigned int temp;
+    long long unsigned int temp;
     sceRtcGetCurrentTick(&temp);
     return (unsigned int) ((temp / 1000) & 0xffffffff);
 }
@@ -57,6 +59,7 @@ static void gfx_psp_init(UNUSED const char *game_name, UNUSED bool start_in_full
     }
 
     scePowerSetClockFrequency(333, 333, 166);
+    J_Init(0);
 }
 
 static void gfx_psp_set_fullscreen_changed_callback(UNUSED void (*on_fullscreen_changed)(bool is_now_fullscreen)) {

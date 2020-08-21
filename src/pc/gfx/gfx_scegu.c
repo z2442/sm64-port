@@ -28,8 +28,199 @@
 
 float identity_matrix[4][4] __attribute__((aligned(16))) = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
 
-//unsigned int __attribute__((aligned(16))) list[262144];
-unsigned int __attribute__((aligned(16))) list[262144*2];
+
+/* Shader IDs
+id        alp fog edg nse ut0 ut1 num sin0 sin1 mul0 mul1 mix0 mix1 cas
+-----------------------------------------------------------------------
+69        0   0   0   0   1   0   1   0    1    1    1    1    1    0  
+512       0   0   0   0   0   0   1   1    1    0    1    0    1    0  
+909       0   0   0   0   1   0   1   0    1    0    1    1    1    0  
+1361      0   0   0   0   1   0   2   0    1    0    1    1    1    0  
+2560      0   0   0   0   1   0   0   1    1    0    1    0    1    0  
+17059909  1   0   0   0   1   0   1   0    0    1    1    1    1    1  
+17062400  1   0   0   0   1   0   1   1    0    0    1    0    1    0  
+17305729  1   0   0   0   0   0   2   0    0    1    1    1    1    1  
+18092101  1   0   0   0   1   0   1   0    0    1    1    1    1    0  
+18874437  1   0   0   0   1   0   1   0    1    1    0    1    0    0  
+18874880  1   0   0   0   0   0   1   1    1    0    0    0    0    1  
+18875277  1   0   0   0   1   0   1   0    1    0    0    1    0    0  
+18876928  1   0   0   0   1   0   1   1    1    0    0    0    0    0
+27263045  1   0   0   0   1   0   1   0    1    1    0    1    0    0  
+27265536  1   0   0   0   1   0   0   1    1    0    0    0    0    1  
+27265647  1   0   0   0   1   1   1   0    1    0    0    1    0    0  
+52428869  1   1   0   0   1   0   1   0    1    1    0    1    0    0  
+52429312  1   1   0   0   0   0   1   1    1    0    0    0    0    1  
+52431360  1   1   0   0   1   0   1   1    1    0    0    0    0    0  
+84168773  1   0   1   0   1   0   1   0    0    1    1    1    1    1  
+85983744  1   0   1   0   0   0   1   1    1    0    0    0    0    1  
+94374400  1   0   1   0   1   0   0   1    1    0    0    0    0    1  
+127928832 1   1   1   0   1   0   0   1    1    0    0    0    0    1  
+153092165 1   0   0   1   1   0   1   0    1    1    0    1    0    0  
+153092608 1   0   0   1   0   0   1   1    1    0    0    0    0    1  
+153093005 1   0   0   1   1   0   1   0    1    0    0    1    0    0  
+153094656 1   0   0   1   1   0   1   1    1    0    0    0    0    0
+
+printf("%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n", shader_id,
+    cc_features.opt_alpha,
+    cc_features.opt_fog,
+    cc_features.opt_texture_edge,
+    cc_features.opt_noise,
+    cc_features.used_textures[0],
+    cc_features.used_textures[1],
+    cc_features.num_inputs,
+    cc_features.do_single[0],
+    cc_features.do_single[1],
+    cc_features.do_multiply[0],
+    cc_features.do_multiply[1],
+    cc_features.do_mix[0],
+    cc_features.do_mix[1],
+    cc_features.color_alpha_same
+);
+*/
+
+/* Shader Working List:
+
+*/
+
+/* Shader Broken List: 
+153092165
+153092608
+153093005
+153094656
+*/
+
+static uint32_t shader_ids[27] =
+{
+69       ,
+512      ,
+909      ,
+1361     ,
+2560     ,
+17059909 ,
+17062400 ,
+17305729 ,
+18092101 ,
+18874437 ,
+18874880 ,
+18875277 ,
+18876928 ,
+27263045 ,
+27265536 ,
+27265647 ,
+52428869 ,
+52429312 ,
+52431360 ,
+84168773 ,
+85983744 ,
+94374400 ,
+127928832,
+153092165,
+153092608,
+153093005,
+153094656
+};
+
+static uint32_t shader_remap[27*2] = {
+69       ,69       ,
+512      ,512      ,
+909      ,909      ,
+1361     ,1361     ,
+2560     ,2560     ,
+17059909 ,17059909 ,
+17062400 ,17062400 ,
+17305729 ,17305729 ,
+18092101 ,18092101 ,
+18874437 ,18874437 ,
+18874880 ,18874880 ,
+18875277 ,18875277 ,
+18876928 ,18876928 ,
+27263045 ,27263045 ,
+27265536 ,27265536 ,
+27265647 ,27265647 ,
+52428869 ,52428869 ,
+52429312 ,52429312 ,
+52431360 ,52431360 ,
+84168773 ,84168773 ,
+85983744 ,85983744 ,
+94374400 ,94374400 ,
+127928832,127928832,
+153092165,69,
+153092608,69,
+153093005,69,
+153094656,69
+};
+
+static uint32_t shader_broken[27] ={
+153092165,
+153092608,
+153093005,
+153094656
+};
+
+static bool draw_enabled = true;
+
+
+#if 0
+static uint32_t shader_remap[27*2] = {
+69       ,69       ,
+512      ,512      ,
+909      ,909      ,
+1361     ,1361     ,
+2560     ,2560     ,
+17059909 ,17059909 ,
+17062400 ,17062400 ,
+17305729 ,17305729 ,
+18092101 ,18092101 ,
+18874437 ,18874437 ,
+18874880 ,18874880 ,
+18875277 ,18875277 ,
+18876928 ,18876928 ,
+27263045 ,27263045 ,
+27265536 ,27265536 ,
+27265647 ,27265647 ,
+52428869 ,52428869 ,
+52429312 ,52429312 ,
+52431360 ,52431360 ,
+84168773 ,84168773 ,
+85983744 ,85983744 ,
+94374400 ,94374400 ,
+127928832,127928832,
+153092165,153092165,
+153092608,153092608,
+153093005,153093005,
+153094656,153094656
+}
+#endif
+
+static inline uint32_t get_shader_index(uint32_t id){
+    size_t i;
+    for(i = 0;i<27;i++){
+        if(shader_ids[i] == id){
+            return shader_ids[i];
+        }
+    }
+    char msg[32];
+    sprintf(msg, "ERROR! Shader not known %u\n", id);
+    sceIoWrite(2, msg, strlen(msg));
+    return 0;
+}
+
+static inline uint32_t get_shader_remap(uint32_t id){
+    size_t index = get_shader_index(id);
+    return shader_remap[index*2+1];
+}
+
+static inline bool is_shader_enabled(uint32_t id){
+    size_t i;
+    for(i = 0;i<27;i++){
+        if(shader_broken[i] == id){
+            return false;
+        }
+    }
+    return true;
+}
+
+unsigned int __attribute__((aligned(16))) list[262144];
 
 static unsigned int staticOffset = 0;
 
@@ -584,16 +775,16 @@ static void gfx_scegu_set_depth_test(bool depth_test) {
         sceGuDisable(GU_DEPTH_TEST);
     }
 }
-//static bool z_depth = false; 
+static bool z_depth = false; 
 static void gfx_scegu_set_depth_mask(bool z_upd) {
-    //z_depth = z_upd;
-    //sceGuDepthMask(z_upd ? GU_FALSE : GU_TRUE);
+    z_depth = !z_upd;
+    sceGuDepthMask(z_upd ? GU_FALSE : GU_TRUE);
 }
 
 static void gfx_scegu_set_zmode_decal(bool zmode_decal) {
     if (zmode_decal) {
-        //sceGuDepthOffset(2);
-        sceGuDepthOffset(16); /* I think we need a little more on vita */
+        sceGuDepthOffset(2);
+        //sceGuDepthOffset(16); /* I think we need a little more on vita */
     } else {
         sceGuDepthOffset(0);
     }
@@ -607,7 +798,7 @@ static void gfx_scegu_set_viewport(int x, int y, int width, int height) {
 static void gfx_scegu_set_scissor(int x, int y, int width, int height) {
     //printf("sceGuScissor(%d, %d, %d, %d)\n", x, y, width, height);
     /*@Note: maybe this is right */
-    //sceGuScissor(x, y, x+width, y+height);
+    sceGuScissor(x, y, x+width, y+height);
 }
 
 static void gfx_scegu_set_use_alpha(bool use_alpha) {
@@ -652,30 +843,32 @@ static inline void gfx_scegu_blend_fog_tris(void) {
 static void gfx_scegu_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     //printf("flushing %d tris\n", buf_vbo_num_tris);
 
-    cur_buf = (Vertex *)buf_vbo;
-    //cur_buf_size = buf_vbo_len * 4;
-    cur_buf_num_tris = buf_vbo_num_tris;
-    //cur_buf_stride = cur_buf_size / (3 * cur_buf_num_tris);
+    if(is_shader_enabled(cur_shader->shader_id)){
+        cur_buf = (Vertex *)buf_vbo;
+        cur_buf_num_tris = buf_vbo_num_tris;
 
-    gfx_scegu_apply_shader(cur_shader);
+        gfx_scegu_apply_shader(cur_shader);
 
-    sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
-    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * cur_buf_num_tris, 0, cur_buf);
+        sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
+        sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * cur_buf_num_tris, 0, cur_buf);
 
-    // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
-    if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
+        // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
+        if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
+    }
 }
 
 void gfx_scegu_draw_triangles_2d(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     //printf("flushing %d tris\n", buf_vbo_num_tris);
 
-    cur_buf = (Vertex *)buf_vbo;
-    cur_buf_num_tris = buf_vbo_num_tris;
+    if(is_shader_enabled(cur_shader->shader_id)){
+        cur_buf = (Vertex *)buf_vbo;
+        cur_buf_num_tris = buf_vbo_num_tris;
 
-    gfx_scegu_apply_shader(cur_shader);
+        gfx_scegu_apply_shader(cur_shader);
 
-    sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
-    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_2D, 3 * cur_buf_num_tris, 0, cur_buf);
+        sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
+        sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * cur_buf_num_tris, 0, cur_buf);
+    }
 }
 
 static void gfx_scegu_init(void) {
@@ -698,26 +891,12 @@ static void gfx_scegu_init(void) {
     val = 0;
 	sceGuInit();
 
-    char msg[64];
-    sprintf(msg, "SCEGU INIT!\n");
-    sceIoWrite(1, msg, strlen(msg));
-
-
-    #ifdef BUFFER32
-    void* fbp0 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_8888);
-    void* fbp1 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_8888);
-    #else
     void* fbp0 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_5650);
     void* fbp1 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_5650);
-    #endif
     void* zbp = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_4444);
 
 	sceGuStart(GU_DIRECT,list);
-    #ifdef BUFFER32
-    sceGuDrawBuffer(GU_PSM_8888,fbp0,BUF_WIDTH);
-    #else
     sceGuDrawBuffer(GU_PSM_5650,fbp0,BUF_WIDTH);
-    #endif
     sceGuDispBuffer(SCR_WIDTH,SCR_HEIGHT,fbp1,BUF_WIDTH);
     sceGuDepthBuffer(zbp,BUF_WIDTH);
     sceGuOffset(2048 - (SCR_WIDTH/2),2048 - (SCR_HEIGHT/2));
@@ -734,21 +913,45 @@ static void gfx_scegu_init(void) {
     sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
 	sceGuDisable(GU_LIGHTING);
 	sceGuDisable(GU_BLEND);
-	sceGuDisable(GU_CULL_FACE);
+    sceGuDisable(GU_CULL_FACE);
+    sceGuFrontFace(GU_CCW);  
 	sceGuDepthMask(GU_FALSE);
     sceGuTexEnvColor(0xffffffff);
 	sceGuTexOffset(0.0f,0.0f);
 	sceGuTexWrap(GU_REPEAT,GU_REPEAT);
+#if 0 
+    // Broken 
+    sceGuViewport(2048,2048,SCR_WIDTH,SCR_HEIGHT);
+	sceGuDepthRange(0xffff,0);
+	sceGuScissor(0,0,SCR_WIDTH,SCR_HEIGHT);
+	sceGuEnable(GU_SCISSOR_TEST);
+	sceGuDepthFunc(GU_GREATER);
+	sceGuEnable(GU_DEPTH_TEST);
+	sceGuShadeModel(GU_SMOOTH);
+	sceGuDisable(GU_CULL_FACE);
+	sceGuEnable(GU_CLIP_PLANES);
+    sceGuDepthOffset(-128);
+    sceGuTexEnvColor(0xffffffff);
+#endif
     sceGuFinish();
 	sceGuSync(0,0);
 
 	sceDisplayWaitVblankStart();
 	sceGuDisplay(GU_TRUE);
 
+    // This disables FPU exceptions
+    __asm__ volatile (
+        "cfc1    $2, $31\n" 
+        "lui     $8, 0x80\n" 
+        "and     $8, $2, $8\n" // Mask off all bits except for 23 of FCR 
+        "ctc1    $8, $31\n" 
+        :::);
+
     void *texman_buffer = malloc(TEXMAN_BUFFER_SIZE);
     void *texman_aligned = (void *) ((((unsigned int) texman_buffer + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT) * TEX_ALIGNMENT);
     texman_reset(texman_aligned, TEXMAN_BUFFER_SIZE);
     if(!texman_buffer){
+        char msg[32];
         sprintf(msg, "OUT OF MEMORY!\n");
         sceIoWrite(1, msg, strlen(msg));
 
@@ -769,7 +972,8 @@ static void gfx_scegu_start_frame(void) {
     //Identity every frame? unsure.
     sceGuSetMatrix(GU_PROJECTION, (const ScePspFMatrix4 *)identity_matrix);
     sceGuSetMatrix(GU_VIEW, (const ScePspFMatrix4 *)identity_matrix);
-    sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)identity_matrix);}
+    sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)identity_matrix);
+}
 
 void gfx_scegu_on_resize(void) {
 }
