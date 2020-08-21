@@ -21,6 +21,7 @@
 
 #include "audio/audio_api.h"
 #include "audio/audio_psp.h"
+#include "melib.h"
 #include "audio/audio_wasapi.h"
 #include "audio/audio_pulse.h"
 #include "audio/audio_alsa.h"
@@ -96,6 +97,18 @@ void send_display_list(struct SPTask *spTask) {
 #define SAMPLES_LOW 528
 #endif
 
+#if defined(TARGET_PSP)
+static s16 audio_buffer[SAMPLES_HIGH * 2 * 2] __attribute__((aligned(64)));
+struct Job* j = NULL;
+
+int run_me_audio(JobData data){
+
+    create_next_audio_buffer(audio_buffer + 0 * (*(uint32_t*)data * 2), *(uint32_t*)data);
+    create_next_audio_buffer(audio_buffer + 1 * (*(uint32_t*)data * 2), *(uint32_t*)data);
+    return 0;
+}
+#endif
+
 void produce_one_frame(void) {
     gfx_start_frame();
     game_loop_one_iteration();
@@ -103,7 +116,8 @@ void produce_one_frame(void) {
     int samples_left = audio_api->buffered();
     u32 num_audio_samples = samples_left < audio_api->get_desired_buffered() ? SAMPLES_HIGH : SAMPLES_LOW;
     //printf("Audio samples: %d %u\n", samples_left, num_audio_samples);
-    s16 audio_buffer[SAMPLES_HIGH * 2 * 2] __attribute__((aligned(64)));
+    
+    #if 0
     for (int i = 0; i < 2; i++) {
         /*if (audio_cnt-- == 0) {
             audio_cnt = 2;
@@ -111,6 +125,20 @@ void produce_one_frame(void) {
         u32 num_audio_samples = audio_cnt < 2 ? 528 : 544;*/
         create_next_audio_buffer(audio_buffer + i * (num_audio_samples * 2), num_audio_samples);
     }
+    #else
+    if(!j){
+        j = (struct Job*)malloc(sizeof(struct Job));
+        j->jobInfo.id = 1;
+        j->jobInfo.execMode = MELIB_EXEC_ME;
+
+        j->function = &run_me_audio;
+        j->data = (int)&num_audio_samples;
+    }
+
+    J_AddJob(j);
+    J_Update(0.0f);
+    #endif
+
     //printf("Audio samples before submitting: %d\n", audio_api->buffered());
     audio_api->play((u8 *)audio_buffer, 2 * num_audio_samples * 4);
     
