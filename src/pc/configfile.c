@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-//#include <ctype.h>
+#include <ctype.h>
 
 #include "configfile.h"
 
@@ -67,7 +67,7 @@ static const struct ConfigOption options[] = {
 // Returns NULL if no lines could be read from the file
 static char *read_file_line(FILE *file) {
     char *buffer;
-    size_t bufferSize = 8;
+    size_t bufferSize = 64;
     size_t offset = 0; // offset in buffer to write
 
     buffer = malloc(bufferSize);
@@ -80,7 +80,10 @@ static char *read_file_line(FILE *file) {
         offset = strlen(buffer);
         assert(offset > 0);
 
-        // If a newline was found, remove the trailing newline and exit
+        // If a newline was found, remove the trailing newline and exit, also accept weird libcs
+        if (buffer[offset] == '\0') {
+            break;
+        }
         if (buffer[offset - 1] == '\n') {
             buffer[offset - 1] = '\0';
             break;
@@ -145,8 +148,7 @@ void configfile_load(const char *filename) {
 
     printf("Loading configuration from '%s'\n", filename);
 
-    //file = fopen(filename, "r");
-    file = NULL;
+    file = fopen(filename, "r");
     if (file == NULL) {
         // Create a new config file and save defaults
         printf("Config file '%s' not found. Creating it.\n", filename);
@@ -184,12 +186,18 @@ void configfile_load(const char *filename) {
                                 *option->boolValue = false;
                             break;
                         case CONFIG_TYPE_UINT:
-                            *option->uintValue = strtoul(tokens[1], NULL, 0);
-                            //sscanf(tokens[1], "%u", option->uintValue);
+                        #if defined(TARGET_PSP)
+                            *option->uintValue = strtoul(tokens[1], NULL, 10);
+                        #else
+                            sscanf(tokens[1], "%u", option->uintValue);
+                        #endif
                             break;
                         case CONFIG_TYPE_FLOAT:
+                        #if defined(TARGET_PSP)
                             *option->floatValue = atof(tokens[1]);
-                            //sscanf(tokens[1], "%f", option->floatValue);
+                        #else
+                            sscanf(tokens[1], "%f", option->floatValue);
+                        #endif
                             break;
                         default:
                             assert(0); // bad type
