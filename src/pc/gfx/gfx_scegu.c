@@ -323,6 +323,13 @@ typedef struct Vertex
 	float x,y,z;
 } Vertex;
 
+typedef struct VertexColor
+{
+	unsigned short a, b;
+	unsigned long color;
+	unsigned short x, y, z;
+} VertexColor;
+
 static struct ShaderProgram shader_program_pool[64];
 static uint8_t shader_program_pool_size;
 static struct ShaderProgram *cur_shader = NULL;
@@ -823,35 +830,38 @@ static inline void gfx_scegu_blend_fog_tris(void) {
 #endif
 }
 
-static void gfx_scegu_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
+static void gfx_scegu_draw_triangles(float buf_vbo[], UNUSED size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     //printf("flushing %d tris\n", buf_vbo_num_tris);
 
     if(is_shader_enabled(cur_shader->shader_id)){
-        cur_buf = (Vertex *)buf_vbo;
-        cur_buf_num_tris = buf_vbo_num_tris;
-
         gfx_scegu_apply_shader(cur_shader);
-
-        sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
-        sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * cur_buf_num_tris, 0, cur_buf);
-
-        // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
-        if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
+    } else {
+        printf("Remapping shader %u -> %u\n", cur_shader->shader_id, get_shader_remap(cur_shader->shader_id));
+        gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
+
+    sceKernelDcacheWritebackRange (buf_vbo, sizeof(Vertex)* 3 * buf_vbo_num_tris);
+	sceKernelDcacheInvalidateRange(buf_vbo, sizeof(Vertex)* 3 * buf_vbo_num_tris);
+    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * buf_vbo_num_tris, 0, (void *)buf_vbo);
+
+    // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
+    //if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
+
 }
 
-void gfx_scegu_draw_triangles_2d(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
+void gfx_scegu_draw_triangles_2d(float buf_vbo[], UNUSED size_t buf_vbo_len, UNUSED size_t buf_vbo_num_tris) {
     //printf("flushing %d tris\n", buf_vbo_num_tris);
 
     if(is_shader_enabled(cur_shader->shader_id)){
-        cur_buf = (Vertex *)buf_vbo;
-        cur_buf_num_tris = buf_vbo_num_tris;
-
         gfx_scegu_apply_shader(cur_shader);
-
-        sceKernelDcacheWritebackRange(cur_buf, sizeof(Vertex)* 3 * cur_buf_num_tris);
-        sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * cur_buf_num_tris, 0, cur_buf);
+    } else {
+        printf("Remapping shader %u -> %u\n", cur_shader->shader_id, get_shader_remap(cur_shader->shader_id));
+        gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
+
+    sceKernelDcacheWritebackRange (buf_vbo, sizeof(VertexColor)* 2);
+	sceKernelDcacheInvalidateRange(buf_vbo, sizeof(VertexColor)* 2);
+    sceGuDrawArray(GU_SPRITES, GU_TEXTURE_16BIT|GU_COLOR_8888|GU_VERTEX_16BIT|GU_TRANSFORM_2D, 2, 0, (void *)buf_vbo);
 }
 
 static void gfx_scegu_init(void) {

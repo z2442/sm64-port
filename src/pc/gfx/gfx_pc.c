@@ -81,6 +81,12 @@ struct LoadedVertex {
     uint32_t clip_rej;
 } __attribute__((packed, aligned(16)));
 
+typedef struct VertexColor {
+	unsigned short u, v;
+	struct RGBA color;
+	unsigned short x, y, z;
+} VertexColor __attribute__((aligned(16)));
+
 struct TextureHashmapNode {
     struct TextureHashmapNode *next;
     
@@ -127,7 +133,8 @@ static struct RSP {
         uint16_t s, t;
     } texture_scaling_factor;
     
-    struct LoadedVertex loaded_vertices[MAX_VERTICES + 4];
+    struct VertexColor loaded_vertices_2D[4];
+    struct LoadedVertex loaded_vertices[MAX_VERTICES];
 } rsp  __attribute__((aligned(16)));
 
 static struct RDP {
@@ -787,10 +794,13 @@ static inline float dot(const float a[3], const float b[3])
 }
 
 static void gfx_normalize_vector(float v[3]) {
-    const float scale = 1.0f / sqrtf(dot(v, v));
-    v[0] *= scale;
-    v[1] *= scale;
-    v[2] *= scale;
+    float dot = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    if(dot > 0.00001f){
+        const float scale = 1.0f / sqrtf(dot);
+        v[0] *= scale;
+        v[1] *= scale;
+        v[2] *= scale;
+    }
 }
 
 static void gfx_transposed_matrix_mul(float res[3], const float a[3], const float b[4][4]) {
@@ -1262,14 +1272,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
 }
 
 /* This will be going away possibly, it all depends on how we end up treating hw sprites */
-static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
-    struct LoadedVertex *v1 = &rsp.loaded_vertices[vtx1_idx];
-    struct LoadedVertex *v2 = &rsp.loaded_vertices[vtx2_idx];
-    struct LoadedVertex *v3 = &rsp.loaded_vertices[vtx3_idx];
-    struct LoadedVertex *v_arr[3] = {v1, v2, v3};
+static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, UNUSED uint8_t vtx3_idx) {
+    struct VertexColor *v1 = &rsp.loaded_vertices_2D[vtx1_idx];
+    struct VertexColor *v2 = &rsp.loaded_vertices_2D[vtx2_idx];
+    struct VertexColor *v_arr[2] = {v1, v2};
 
     #if 0
-    /*@Note: unsure if needed anymore? */
+    /*@Note: unsure if needed anymore? or even possible...*/
     if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
         // The whole triangle lies outside the visible area
         return;
@@ -1300,7 +1309,8 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx)
                 return;
         }
     }
-#endif
+    #endif
+
     bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
     if (depth_test != rendering_state.depth_test) {
         gfx_flush();
@@ -1392,25 +1402,27 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx)
     }
     
     bool use_texture = used_textures[0] || used_textures[1];
-    uint32_t tex_width = (rdp.texture_tile.lrs - rdp.texture_tile.uls + 4) / 4;
-    uint32_t tex_height = (rdp.texture_tile.lrt - rdp.texture_tile.ult + 4) / 4;
+    //uint32_t tex_width = (rdp.texture_tile.lrs - rdp.texture_tile.uls + 4) / 4;
+    //uint32_t tex_height = (rdp.texture_tile.lrt - rdp.texture_tile.ult + 4) / 4;
 
-    psp_fast_t tri_buf[3];
+    static VertexColor tri_buf[2] = {{0}};
     int tri_num_vert = 0;
     
-    for (int i = 0; i < 3; i++) {
-        tri_buf[tri_num_vert].x = (v_arr[i]->x * 240.0f)+240.f;
-        tri_buf[tri_num_vert].y = (136.0f - (v_arr[i]->y * 136.0f));
-        tri_buf[tri_num_vert].z = v_arr[i]->z;
+    for (int i = 0; i < 2; i++) {
+        tri_buf[tri_num_vert].x = v_arr[i]->x;
+        tri_buf[tri_num_vert].y = v_arr[i]->y;
+        tri_buf[tri_num_vert].z = 0;
         
         if (use_texture) {
-            float u = (v_arr[i]->u - rdp.texture_tile.uls * 8) / 32.0f;
-            float v = (v_arr[i]->v - rdp.texture_tile.ult * 8) / 32.0f;
+            short u = (v_arr[i]->u - rdp.texture_tile.uls * 8)/ 32;
+            short v = (v_arr[i]->v - rdp.texture_tile.ult * 8) / 32;
+            /*
             if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT) {
                 // Linear filter adds 0.5f to the coordinates
                 u += 0.5f;
                 v += 0.5f;
             }
+            */
             tri_buf[tri_num_vert].u = u;
             tri_buf[tri_num_vert].v = v;
         } else {
@@ -1428,7 +1440,7 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx)
         }
         */
         struct RGBA white = (struct RGBA){0xff, 0xff, 0xff, 0xff};
-        struct RGBA tmp = (struct RGBA){0x00, 0x00, 0x00, 0x00};
+        //struct RGBA tmp = (struct RGBA){0x00, 0x00, 0x00, 0x00};
         struct RGBA *color = &white;
         
         //const int hack = (num_inputs > 1) * ((int)used_textures[0]);
@@ -1481,7 +1493,7 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx)
         memcpy(&tri_buf[tri_num_vert].color, color, sizeof(struct RGBA));
         tri_num_vert++;
     }
-    gfx_scegu_draw_triangles_2d(&tri_buf[tri_num_vert],0,1);
+    gfx_scegu_draw_triangles_2d((float*)&tri_buf[0],0,1);
 }
 
 static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
@@ -1782,43 +1794,30 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     float ulyf = uly;
     float lrxf = lrx;
     float lryf = lry;
-    //printf("rectangle raw[%f, %f -> %f, %f]\n",ulxf, ulyf, lrxf, lryf);
-    
+
     ulxf = ulxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
-    ulyf = -(ulyf / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
+    ulyf = (ulyf / (4.0f * HALF_SCREEN_HEIGHT)) - 1.0f;
     lrxf = lrxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
-    lryf = -(lryf / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
-    //printf("\trectangle adj[%f, %f -> %f, %f]\n",ulxf, ulyf, lrxf, lryf);
+    lryf = (lryf / (4.0f * HALF_SCREEN_HEIGHT)) - 1.0f;
     
     ulxf = gfx_adjust_x_for_aspect_ratio(ulxf);
     lrxf = gfx_adjust_x_for_aspect_ratio(lrxf);
-    //printf("\trectangle res[%f, %f -> %f, %f]\n",ulxf, ulyf, lrxf, lryf);
+
+    ulxf = (ulxf*240)+240;
+    lrxf = (lrxf*240)+240;
+
+    ulyf = (ulyf*136)+136;
+    lryf = (lryf*136)+136;
     
-    struct LoadedVertex* ul = &rsp.loaded_vertices[MAX_VERTICES + 0];
-    struct LoadedVertex* ll = &rsp.loaded_vertices[MAX_VERTICES + 1];
-    struct LoadedVertex* lr = &rsp.loaded_vertices[MAX_VERTICES + 2];
-    struct LoadedVertex* ur = &rsp.loaded_vertices[MAX_VERTICES + 3];
+    struct VertexColor* ul = &rsp.loaded_vertices_2D[0];
+    struct VertexColor* lr = &rsp.loaded_vertices_2D[1];
     
-    ul->x = ulxf;
-    ul->y = ulyf;
-    ul->z = -1.0f;
-    ul->w = 1.0f;
-    
-    ll->x = ulxf;
-    ll->y = lryf;
-    ll->z = -1.0f;
-    ll->w = 1.0f;
-    
-    lr->x = lrxf;
-    lr->y = lryf;
-    lr->z = -1.0f;
-    lr->w = 1.0f;
-    
-    ur->x = lrxf;
-    ur->y = ulyf;
-    ur->z = -1.0f;
-    ur->w = 1.0f;
-    
+    ul->x = (unsigned short)ulxf;
+    ul->y = (unsigned short)ulyf;
+
+    lr->x = (unsigned short)lrxf;
+    lr->y = (unsigned short)lryf;
+
     // The coordinates for texture rectangle shall bypass the viewport setting
     struct XYWidthHeight default_viewport = {0, 0, gfx_current_dimensions.width, gfx_current_dimensions.height};
     struct XYWidthHeight viewport_saved = rdp.viewport;
@@ -1828,8 +1827,7 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     rdp.viewport_or_scissor_changed = true;
     rsp.geometry_mode = 0;
     
-    gfx_sp_tri1_2d(MAX_VERTICES + 0, MAX_VERTICES + 1, MAX_VERTICES + 3);
-    gfx_sp_tri1_2d(MAX_VERTICES + 1, MAX_VERTICES + 2, MAX_VERTICES + 3);
+    gfx_sp_tri1_2d(0, 1, 2);
     
     rsp.geometry_mode = geometry_mode_saved;
     rdp.viewport = viewport_saved;
@@ -1870,14 +1868,14 @@ static void gfx_dp_texture_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int3
     float lrs = ((uls << 7) + dsdx * width) >> 7;
     float lrt = ((ult << 7) + dtdy * height) >> 7;
     
-    struct LoadedVertex* ul = &rsp.loaded_vertices[MAX_VERTICES + 0];
-    struct LoadedVertex* ll = &rsp.loaded_vertices[MAX_VERTICES + 1];
-    struct LoadedVertex* lr = &rsp.loaded_vertices[MAX_VERTICES + 2];
-    struct LoadedVertex* ur = &rsp.loaded_vertices[MAX_VERTICES + 3];
+    struct VertexColor* ul = &rsp.loaded_vertices_2D[0];
+    struct VertexColor* lr = &rsp.loaded_vertices_2D[1];
     ul->u = uls;
     ul->v = ult;
     lr->u = lrs;
     lr->v = lrt;
+    /*@Note: fix this */
+    #if 0
     if (!flip) {
         ll->u = uls;
         ll->v = lrt;
@@ -1889,6 +1887,7 @@ static void gfx_dp_texture_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int3
         ur->u = uls;
         ur->v = lrt;
     }
+    #endif
     
     gfx_draw_rectangle(ulx, uly, lrx, lry);
     rdp.combine_mode = saved_combine_mode;
@@ -1907,8 +1906,8 @@ static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t
         lry += 1 << 2;
     }
     
-    for (int i = MAX_VERTICES; i < MAX_VERTICES + 4; i++) {
-        struct LoadedVertex* v = &rsp.loaded_vertices[i];
+    for (int i = 0; i < 2; i++) {
+        struct VertexColor* v = &rsp.loaded_vertices_2D[i];
         v->color = rdp.fill_color;
     }
     
