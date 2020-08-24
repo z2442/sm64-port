@@ -165,6 +165,7 @@ void texman_upload_swizzle(int width, int height, unsigned int type, const void 
     current->swizzled = GU_TRUE;
     // printf("TEX_MAN upload swizzled [%d]\n", psp_tex_number);
     sceKernelDcacheWritebackRange(current->location, getMemorySize(width, height, type));
+	sceKernelDcacheInvalidateRange(current->location, getMemorySize(width, height, type));
     texman_bind_tex(psp_tex_number);
 }
 
@@ -177,8 +178,8 @@ void texman_upload(int width, int height, unsigned int type, const void *buffer)
     current->swizzled = GU_FALSE;
     memcpy(current->location, buffer, getMemorySize(width, height, type));
     // printf("TEX_MAN upload plain [%d]\n", psp_tex_number);
-    // Flush the data cache.
     sceKernelDcacheWritebackRange(current->location, getMemorySize(width, height, type));
+	sceKernelDcacheInvalidateRange(current->location, getMemorySize(width, height, type));
     texman_bind_tex(psp_tex_number);
 }
 
