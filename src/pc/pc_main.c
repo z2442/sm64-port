@@ -102,9 +102,8 @@ static s16 audio_buffer[SAMPLES_HIGH * 2 * 2] __attribute__((aligned(64)));
 struct Job* j = NULL;
 
 int run_me_audio(JobData data){
-
-    create_next_audio_buffer(audio_buffer + 0 * (*(uint32_t*)data * 2), *(uint32_t*)data);
-    create_next_audio_buffer(audio_buffer + 1 * (*(uint32_t*)data * 2), *(uint32_t*)data);
+    create_next_audio_buffer(audio_buffer + 0 * (data * 2), data);
+    create_next_audio_buffer(audio_buffer + 1 * (data * 2), data);
     return 0;
 }
 #endif
@@ -117,7 +116,7 @@ void produce_one_frame(void) {
     u32 num_audio_samples = samples_left < audio_api->get_desired_buffered() ? SAMPLES_HIGH : SAMPLES_LOW;
     //printf("Audio samples: %d %u\n", samples_left, num_audio_samples);
     
-    #if 0
+    #if !defined(TARGET_PSP)
     for (int i = 0; i < 2; i++) {
         /*if (audio_cnt-- == 0) {
             audio_cnt = 2;
@@ -126,15 +125,12 @@ void produce_one_frame(void) {
         create_next_audio_buffer(audio_buffer + i * (num_audio_samples * 2), num_audio_samples);
     }
     #else
-    if(!j){
-        j = (struct Job*)malloc(sizeof(struct Job));
-        j->jobInfo.id = 1;
-        j->jobInfo.execMode = MELIB_EXEC_ME;
+    j = (struct Job*)malloc(sizeof(struct Job));
+    j->jobInfo.id = 1;
+    j->jobInfo.execMode = MELIB_EXEC_ME;
 
-        j->function = &run_me_audio;
-        j->data = (int)&num_audio_samples;
-    }
-
+    j->function = &run_me_audio;
+    j->data = num_audio_samples;
     J_AddJob(j);
     J_Update(0.0f);
     #endif
@@ -220,7 +216,7 @@ void main_func(void) {
     
     wm_api->set_fullscreen_changed_callback(on_fullscreen_changed);
     wm_api->set_keyboard_callbacks(keyboard_on_key_down, keyboard_on_key_up, keyboard_on_all_keys_up);
-
+    
 #if HAVE_WASAPI
     if (audio_api == NULL && audio_wasapi.init()) {
         audio_api = &audio_wasapi;
