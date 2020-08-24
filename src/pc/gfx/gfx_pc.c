@@ -220,6 +220,7 @@ static unsigned long get_time(void) {
 
 // Test all but Z_NEG (for No Near Plane microcodes)
 #define CLIP_TEST_FLAGS ( X_POS | X_NEG | Y_POS | Y_NEG | Z_POS | Z_NEG)
+//#define CLIP_TEST_FLAGS ( Z_POS | Z_NEG ) /* Faster but worse */
 
 static inline float vec3_dot(const float *lhs, const float *rhs){
     return (lhs[0]*rhs[0]) + (lhs[1]*rhs[1]) + (lhs[2]*rhs[2]);
@@ -295,14 +296,12 @@ static uint32_t clipToHyperPlane( struct LoadedVertex *dest, const struct Loaded
 	outCount = 0;
 	b = source;
 	bDotPlane = vec4_dot(&b->_x, plane);
-	//bDotPlane = b->ProjectedPos.Dot( plane );
     size_t i;
 
 	for(i = 1; i < inCount + 1; ++i)
 	{
 		a = &source[i%inCount];
 		aDotPlane = vec4_dot(&a->_x, plane);
-		//aDotPlane = a->ProjectedPos.Dot( plane );
 
 		// current point inside
 		if ( aDotPlane <= 0.f )
@@ -345,7 +344,6 @@ static uint32_t clipToHyperPlane( struct LoadedVertex *dest, const struct Loaded
 		}
 
         bDotPlane = vec4_dot(&b->_x, plane);
-		//bDotPlane = b->ProjectedPos.Dot( plane );
 	}
 
 	return outCount;
@@ -370,7 +368,7 @@ uint32_t clip_to_frustum( struct LoadedVertex * v0, struct LoadedVertex * v1, ui
 static struct LoadedVertex temp_a[16];
 static struct LoadedVertex temp_b[16];
 
-void gfx_clip_single_vert( struct LoadedVertex *p_p_vertices[16], size_t *p_num_vertices, struct LoadedVertex *v_arr[3])
+void gfx_clip_single_vert( struct LoadedVertex **p_p_vertices, size_t *p_num_vertices, struct LoadedVertex *v_arr[3])
 {
 	//
 	//	At this point all vertices are lit/projected and have both transformed and projected
@@ -391,7 +389,7 @@ void gfx_clip_single_vert( struct LoadedVertex *p_p_vertices[16], size_t *p_num_
 		uint32_t idx1 = 1;
 		uint32_t idx2 = 2;
 
-		if(v_arr[idx0]->clip_rej | v_arr[idx1]->clip_rej | v_arr[idx2]->clip_rej)
+		if(v_arr[idx0]->clip_rej || v_arr[idx1]->clip_rej || v_arr[idx2]->clip_rej)
 		{
 			temp_a[ 0 ] = *v_arr[ idx0 ];
 			temp_a[ 1 ] = *v_arr[ idx1 ];
@@ -1063,18 +1061,18 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
                 return;
         }
     }
-    #endif
 
     struct LoadedVertex clipped_vertices[16];
     size_t clipped_vertices_num = 0;
-    gfx_clip_single_vert(&clipped_vertices, &clipped_vertices_num, v_arr);
-    
-    /*
-    clipped_vertices[0] = *v_arr[0];
-    clipped_vertices[1] = *v_arr[1];
-    clipped_vertices[2] = *v_arr[2];
-    clipped_vertices_num=3;
-    */
+
+    if((v1->clip_rej || v2->clip_rej || v3->clip_rej) && CLIP_TEST_FLAGS) {
+        gfx_clip_single_vert((struct LoadedVertex **)&clipped_vertices, &clipped_vertices_num, v_arr);
+    } else {
+        clipped_vertices[0] = *v_arr[0];
+        clipped_vertices[1] = *v_arr[1];
+        clipped_vertices[2] = *v_arr[2];
+        clipped_vertices_num=3;
+    }
 
     bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
     if (depth_test != rendering_state.depth_test) {
@@ -1170,7 +1168,8 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     uint32_t tex_width = (rdp.texture_tile.lrs - rdp.texture_tile.uls + 4) / 4;
     uint32_t tex_height = (rdp.texture_tile.lrt - rdp.texture_tile.ult + 4) / 4;
     
-    for (int i = 0; i < clipped_vertices_num; i++) {
+    size_t i;
+    for (i = 0; i < clipped_vertices_num; i++) {
 
         buf_vbo[buf_num_vert].x = clipped_vertices[i].x;
         buf_vbo[buf_num_vert].y = clipped_vertices[i].y;
@@ -1201,10 +1200,10 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
         }
         */
         struct RGBA white = (struct RGBA){0xff, 0xff, 0xff, 0xff};
-        struct RGBA tmp = (struct RGBA){0x00, 0x00, 0x00, 0x00};
+        //struct RGBA tmp = (struct RGBA){0x00, 0x00, 0x00, 0x00};
         struct RGBA *color = &white;
         
-        const int hack = (num_inputs > 1) * ((int)used_textures[0]);
+        //const int hack = (num_inputs > 1) * ((int)used_textures[0]);
         for (int j = 0; j < num_inputs; j++) {
             for (int k = 0; k < 1 + (use_alpha ? 1 : 0); k++) {
                 switch (comb->shader_input_mapping[k][j]) {
