@@ -4,7 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#if defined(TARGET_PSP)
+extern int isspace(int c);
+#else
 #include <ctype.h>
+#endif
 
 #include "configfile.h"
 
