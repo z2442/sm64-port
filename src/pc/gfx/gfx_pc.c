@@ -21,11 +21,12 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
 #include "gfx_screen_config.h"
+#include "macros.h"
 
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
 #define INFO_MSG(x) printf("%s %s\n", __FILE__ ":" TOSTRING(__LINE__), x)
-#define _GL_UNUSED(x) (void)(x)
+#define _UNUSED(x) (void)(x)
 
 #define SUPPORT_CHECK(x) assert(x)
 
@@ -1568,7 +1569,7 @@ static void gfx_sp_movemem(uint8_t index, uint8_t offset, const void* data) {
 }
 
 static void gfx_sp_moveword(uint8_t index, uint16_t offset, uint32_t data) {
-    _GL_UNUSED(offset);
+    _UNUSED(offset);
 
     switch (index) {
         case G_MW_NUMLIGHT:
@@ -1589,16 +1590,16 @@ static void gfx_sp_moveword(uint8_t index, uint16_t offset, uint32_t data) {
 }
 
 static void gfx_sp_texture(uint16_t sc, uint16_t tc, uint8_t level, uint8_t tile, uint8_t on) {
-    _GL_UNUSED(level);
-    _GL_UNUSED(tile);
-    _GL_UNUSED(on);
+    _UNUSED(level);
+    _UNUSED(tile);
+    _UNUSED(on);
 
     rsp.texture_scaling_factor.s = sc;
     rsp.texture_scaling_factor.t = tc;
 }
 
 static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32_t lrx, uint32_t lry) {
-    _GL_UNUSED(mode);
+    _UNUSED(mode);
 
     float x = ulx / 4.0f * RATIO_X;
     float y = (SCREEN_HEIGHT - lry / 4.0f) * RATIO_Y;
@@ -1614,18 +1615,18 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
 }
 
 static void gfx_dp_set_texture_image(uint32_t format, uint32_t size, uint32_t width, const void* addr) {
-    _GL_UNUSED(format);
-    _GL_UNUSED(width);
+    _UNUSED(format);
+    _UNUSED(width);
 
     rdp.texture_to_load.addr = addr;
     rdp.texture_to_load.siz = size;
 }
 
-static void gfx_dp_set_tile(uint8_t fmt, uint32_t siz, uint32_t line, uint32_t tmem, uint8_t tile, uint32_t palette, uint32_t cmt, uint32_t maskt, uint32_t shiftt, uint32_t cms, uint32_t masks, uint32_t shifts) {
-    _GL_UNUSED(maskt);
-    _GL_UNUSED(shiftt);
-    _GL_UNUSED(masks);
-    _GL_UNUSED(shifts);
+static void gfx_dp_set_tile(uint8_t fmt, uint32_t siz, uint32_t line, uint32_t tmem, uint8_t tile, UNUSED uint32_t palette, uint32_t cmt, uint32_t maskt, uint32_t shiftt, uint32_t cms, uint32_t masks, uint32_t shifts) {
+    _UNUSED(maskt);
+    _UNUSED(shiftt);
+    _UNUSED(masks);
+    _UNUSED(shifts);
 
     if (tile == G_TX_RENDERTILE) {
         SUPPORT_CHECK(palette == 0); // palette should set upper 4 bits of color index in 4b mode
@@ -1654,16 +1655,16 @@ static void gfx_dp_set_tile_size(uint8_t tile, uint16_t uls, uint16_t ult, uint1
     }
 }
 
-static void gfx_dp_load_tlut(uint8_t tile, uint32_t high_index) {
-    _GL_UNUSED(high_index);
+static void gfx_dp_load_tlut(UNUSED uint8_t tile, uint32_t high_index) {
+    _UNUSED(high_index);
 
     SUPPORT_CHECK(tile == G_TX_LOADTILE);
     SUPPORT_CHECK(rdp.texture_to_load.siz == G_IM_SIZ_16b);
     rdp.palette = rdp.texture_to_load.addr;
 }
 
-static void gfx_dp_load_block(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t lrs, uint32_t dxt) {
-    _GL_UNUSED(dxt);
+static void gfx_dp_load_block(uint8_t tile, UNUSED uint32_t uls, UNUSED uint32_t ult, uint32_t lrs, uint32_t dxt) {
+    _UNUSED(dxt);
 
     if (tile == 1) return;
     SUPPORT_CHECK(tile == G_TX_LOADTILE);
@@ -1853,7 +1854,7 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
 }
 
 static void gfx_dp_texture_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry, uint8_t tile, int16_t uls, int16_t ult, int16_t dsdx, int16_t dtdy, bool flip) {
-    _GL_UNUSED(tile);
+    _UNUSED(tile);
 
     uint32_t saved_combine_mode = rdp.combine_mode;
     if ((rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_COPY) {
@@ -1936,9 +1937,9 @@ static void gfx_dp_set_z_image(void *z_buf_address) {
 }
 
 static void gfx_dp_set_color_image(uint32_t format, uint32_t size, uint32_t width, void* address) {
-    _GL_UNUSED(format);
-    _GL_UNUSED(size);
-    _GL_UNUSED(width);
+    _UNUSED(format);
+    _UNUSED(size);
+    _UNUSED(width);
 
     rdp.color_image_address = address;
 }
@@ -2196,7 +2197,6 @@ void gfx_init(struct GfxWindowManagerAPI *wapi, struct GfxRenderingAPI *rapi, co
     time_first_200 = 0;
     total_frame_counter = 0;
 
-    #if 0
     // Used in the 120 star TAS
     static uint32_t precomp_shaders[] = {
         0x01200200,
@@ -2229,7 +2229,6 @@ void gfx_init(struct GfxWindowManagerAPI *wapi, struct GfxRenderingAPI *rapi, co
     for (size_t i = 0; i < sizeof(precomp_shaders) / sizeof(uint32_t); i++) {
         gfx_lookup_or_create_shader_program(precomp_shaders[i]);
     }
-    #endif
 
     memcpy(rsp.P_matrix, identity_matrix, sizeof(identity_matrix));
     memcpy(rsp.modelview_matrix_stack[0], identity_matrix, sizeof(identity_matrix));
@@ -2246,8 +2245,11 @@ struct GfxRenderingAPI *gfx_get_current_rendering_api(void) {
     return gfx_rapi;
 }
 
+unsigned int total_t0, total_t1;
+
 void gfx_start_frame(void) {
     //sceIoWrite(1, "----START FRAME!\n", 18);
+    total_t0 = sceKernelLibcClock();
     gfx_wapi->handle_events();
 }
 
@@ -2272,9 +2274,9 @@ void gfx_run(Gfx *commands) {
     unsigned int t1 = sceKernelLibcClock();
     //printf("Process %f %f\n", t1, t1 - t0);
     //printf("Process %d microsec, %f sec\n", t1 - t0, (t1 - t0)/1000000.0f);
-    times[frame_counter] = (t1 - t0)/1000000.0f;
+    times[frame_counter] = (t1 - t0)/1000.0f;
     frame_counter++;
-    time_first_200  += (t1 - t0)/1000000.0f;
+    time_first_200  += (t1 - t0)/1000.0f;
     total_frame_counter++;
     if(frame_counter>=30){
         frame_counter = 0;
@@ -2282,17 +2284,24 @@ void gfx_run(Gfx *commands) {
         for(i=0;i<30;i++)
             time_avg += times[i];
         time_avg /= 30;
-        printf("TIME AVG: %f FPS %f\n", time_avg, 1/time_avg);
+        //printf("GFX AVG: %2.3f ms FPS %2.3f\n", time_avg, 1000/time_avg);
     }
     if(total_frame_counter == 200){
-        printf("FRAME 250 TIME TAKEN: %f FPS %f, AVG: %f \n",  time_first_200, 250/time_first_200, 1/(250/time_first_200));
+        printf("GFX FRAME 250 TIME TAKEN: %2.3f ms FPS %2.3f, AVG: %2.3f ms \n",  time_first_200, (250*1000)/time_first_200, 1000/(250/time_first_200));
     }
 }
 
 void gfx_end_frame(void) {
+    
     //sceIoWrite(1, "----END FRAME!\n", 16);
     if (!dropped_frame) {
         gfx_rapi->finish_render();
         gfx_wapi->swap_buffers_end();
+    }
+    total_t1 = sceKernelLibcClock();
+    float delta = (total_t1 - total_t0)/1000.0f;
+    (void)delta;
+    if(frame_counter>=29){
+        //printf("TOTAL TIME FRAME: %2.3f ms FPS %2.3f\n", delta, 1000/delta);
     }
 }

@@ -15,12 +15,18 @@
 #define SCR_WIDTH (480)
 #define SCR_HEIGHT (272)
 
-static int force_30fps = 1;
+static int force_30fps = 0;
 extern void J_Init(int foo);
 
 /* I forgot why we need this */
-void __assert_func(const char *file, int line, const char *method, const char *expression) {
+void __assert_func(UNUSED const char *file, UNUSED int line, UNUSED const char *method, UNUSED const char *expression) {
 
+}
+
+int isspace(int _c)
+{
+    char c = (char)_c;
+    return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
 }
 
 static unsigned int GetTicks(void) {
