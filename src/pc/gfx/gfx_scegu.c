@@ -79,14 +79,14 @@ printf("%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n", shader_id,
 */
 
 /* Shader Working List:
-
+84168773    - Menu Overlays
 */
 
 /* Shader Broken List: 
-153092165
-153092608
-153093005
-153094656
+153092165   - Noise
+153092608   - Noise
+153093005   - Noise
+153094656   - Noise
 */
 
 static uint32_t shader_ids[27] =
@@ -151,74 +151,11 @@ static uint32_t shader_remap[27*2] = {
 };
 
 static uint32_t shader_broken[27] ={
-153092165,
-153092608,
-153093005,
-153094656
+    153092165,  // Noise
+    153092608,  // Noise
+    153093005,  // Noise
+    153094656   // Noise
 };
-
-static bool draw_enabled = true;
-
-
-#if 0
-static uint32_t shader_remap[27*2] = {
-69       ,69       ,
-512      ,512      ,
-909      ,909      ,
-1361     ,1361     ,
-2560     ,2560     ,
-17059909 ,17059909 ,
-17062400 ,17062400 ,
-17305729 ,17305729 ,
-18092101 ,18092101 ,
-18874437 ,18874437 ,
-18874880 ,18874880 ,
-18875277 ,18875277 ,
-18876928 ,18876928 ,
-27263045 ,27263045 ,
-27265536 ,27265536 ,
-27265647 ,27265647 ,
-52428869 ,52428869 ,
-52429312 ,52429312 ,
-52431360 ,52431360 ,
-84168773 ,84168773 ,
-85983744 ,85983744 ,
-94374400 ,94374400 ,
-127928832,127928832,
-153092165,153092165,
-153092608,153092608,
-153093005,153093005,
-153094656,153094656
-}
-#endif
-
-static inline uint32_t get_shader_index(uint32_t id){
-    size_t i;
-    for(i = 0;i<27;i++){
-        if(shader_ids[i] == id){
-            return shader_ids[i];
-        }
-    }
-    char msg[32];
-    sprintf(msg, "ERROR! Shader not known %u\n", id);
-    sceIoWrite(2, msg, strlen(msg));
-    return 0;
-}
-
-static inline uint32_t get_shader_remap(uint32_t id){
-    size_t index = get_shader_index(id);
-    return shader_remap[index*2+1];
-}
-
-static inline bool is_shader_enabled(uint32_t id){
-    size_t i;
-    for(i = 0;i<27;i++){
-        if(shader_broken[i] == id){
-            return false;
-        }
-    }
-    return true;
-}
 
 unsigned int __attribute__((aligned(16))) list[262144];
 
@@ -334,11 +271,46 @@ static struct ShaderProgram shader_program_pool[64];
 static uint8_t shader_program_pool_size;
 static struct ShaderProgram *cur_shader = NULL;
 
-static const Vertex *cur_buf = NULL;
-static const Vertex *cur_fog_ofs = NULL;
-static size_t cur_buf_num_tris = 0;
 static bool gl_blend = false;
 static bool gl_adv_fog = false;
+
+static inline uint32_t get_shader_index(uint32_t id){
+    size_t i;
+    for(i = 0;i<27;i++){
+        if(shader_ids[i] == id){
+            return i;//return shader_ids[i];
+        }
+    }
+    char msg[32];
+    sprintf(msg, "ERROR! Shader not known %u\n", id);
+    sceIoWrite(2, msg, strlen(msg));
+    return 0;
+}
+
+static inline uint32_t get_shader_remap(uint32_t id){
+    size_t index = get_shader_index(id);
+    return shader_remap[index*2+1];
+}
+
+static inline bool is_shader_enabled(uint32_t id){
+    size_t i;
+    for(i = 0;i<27;i++){
+        if(shader_broken[i] == id){
+            return false;
+        }
+    }
+    return true;
+}
+
+static struct ShaderProgram *get_shader_from_id(uint32_t id){
+    size_t i;
+    for(i = 0;i<shader_program_pool_size;i++){
+        if(shader_program_pool[i].shader_id == id){
+            return &shader_program_pool[i];
+        }
+    }
+    return NULL;
+}
 
 static bool gfx_scegu_z_is_from_0_to_1(void) {
     return true;
