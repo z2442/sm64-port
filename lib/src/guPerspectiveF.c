@@ -33,6 +33,7 @@ void guPerspectiveF(float mf[4][4], u16 *perspNorm, float fovy, float aspect, fl
 void guPerspective(Mtx *m, u16 *perspNorm, float fovy, float aspect, float near, float far,
                    float scale) {
     float mat[4][4];
-    guPerspectiveF(mat, perspNorm, fovy, aspect, near, far, scale);
+    /*Note: Changes our perspective to 16/9 */
+    guPerspectiveF(mat, perspNorm, fovy, aspect/0.75555555555f, near, far, scale);
     guMtxF2L(mat, m);
 }
