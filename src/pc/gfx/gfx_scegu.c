@@ -368,7 +368,6 @@ static bool gfx_scegu_z_is_from_0_to_1(void) {
     } while (0)
 
 static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
-    sceGuEnable(GU_BLEND);
     if (prg->mix_flags & SH_MF_OVERRIDE_ALPHA) {
         TEXENV_COMBINE_ON();
         if (prg->mix_flags & SH_MF_SINGLE_ALPHA) {
@@ -384,14 +383,14 @@ static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
                 // somehow makes it keep the color while taking the alpha from primary color
                 //TEXENV_COMBINE_SET1(RGB, GL_REPLACE, GL_TEXTURE);
                 sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA );
-                printf("SH_MF_SINGLE_ALPHA & !SH_MF_MULTIPLY_ALPHA\n");
+                //printf("SH_MF_SINGLE_ALPHA & !SH_MF_MULTIPLY_ALPHA\n");
             }
         } else { // if (prg->mix_flags & SH_MF_SINGLE) {
             if (prg->mix_flags & SH_MF_MULTIPLY_ALPHA) {
                 // modulate the alpha but keep the color
                 //TEXENV_COMBINE_SET2(ALPHA, GL_MODULATE, GL_TEXTURE, GL_PRIMARY_COLOR);
                 //TEXENV_COMBINE_SET1(RGB, GL_REPLACE, GL_TEXTURE);
-                /*@Note Used in intro, maybe for letter? */
+                sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA );
                 //printf("!SH_MF_SINGLE_ALPHA & SH_MF_MULTIPLY_ALPHA\n");
             } else {
                 // somehow makes it keep the alpha
@@ -424,7 +423,6 @@ static inline void texenv_set_texture_color(struct ShaderProgram *prg) {
 }
 
 static inline void texenv_set_texture_texture(UNUSED struct ShaderProgram *prg) {
-    sceGuEnable(GU_BLEND);
     //glActiveTexture(GL_TEXTURE0);
     //TEXENV_COMBINE_OFF();
     //glActiveTexture(GL_TEXTURE1);
@@ -498,17 +496,14 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
     // configure formulae
     switch (prg->mix) {
         case SH_MT_TEXTURE:
-            sceGuEnable(GU_BLEND);
             TEXENV_COMBINE_OFF();
             break;
 
         case SH_MT_TEXTURE_COLOR:
-            /* texenv_set_texture_color is right */
             texenv_set_texture_color(prg);
             break;
 
         case SH_MT_TEXTURE_TEXTURE:
-            sceGuDisable(GU_BLEND);
             texenv_set_texture_texture(prg);
             break;
 
@@ -532,9 +527,7 @@ static void gfx_scegu_unload_shader(struct ShaderProgram *old_prg) {
     //glDisable(GL_TEXTURE0);
     //glDisable(GL_TEXTURE_2D);
     sceGuDisable(GU_ALPHA_TEST);
-    sceGuDisable(GU_BLEND);
     sceGuDisable(GU_FOG);
-    cur_fog_ofs = NULL; // clear fog colors
 
     //if (gl_adv_fog) glDisableClientState(GL_FOG_COORD_ARRAY);
 }
@@ -642,15 +635,8 @@ static void gfx_scegu_set_sampler_parameters(UNUSED int tile, bool linear_filter
 }
 
 static void gfx_scegu_select_texture(int tile, unsigned int texture_id) {
-    /* Do we need to know tile? */
-    (void)tile;
     texman_bind_tex(texture_id);
     gfx_scegu_set_sampler_parameters(tile, false, 0, 0);
-}
-
-static void gfx_scegu_texture_mode(uint32_t mode){
-    /* mode, no mips, no clut, swizzle */
-    //sceGuTexMode(mode, 0, 0, GU_TRUE);
 }
 
 /* Used for rescaling textures ROUGHLY into pow2 dims */
@@ -728,9 +714,6 @@ static inline int ispow2(uint32_t x)
 
 static void gfx_scegu_upload_texture(const uint8_t *rgba32_buf, int width, int height, unsigned int type) {
     if(ispow2(width) && ispow2(height)){
-        if(type == GU_PSM_8888)
-        texman_upload_swizzle(width,  height, type, (void*)rgba32_buf);
-        else
         texman_upload_swizzle(width,  height, type, (void*)rgba32_buf);
     } else {
         int scaled_width, scaled_height;
@@ -784,7 +767,7 @@ static void gfx_scegu_set_depth_mask(bool z_upd) {
 static void gfx_scegu_set_zmode_decal(bool zmode_decal) {
     if (zmode_decal) {
         sceGuDepthOffset(2);
-        //sceGuDepthOffset(16); /* I think we need a little more on vita */
+        //sceGuDepthOffset(4); /* I think we need a little more on psp */
     } else {
         sceGuDepthOffset(0);
     }
@@ -899,10 +882,10 @@ static void gfx_scegu_init(void) {
     sceGuDrawBuffer(GU_PSM_5650,fbp0,BUF_WIDTH);
     sceGuDispBuffer(SCR_WIDTH,SCR_HEIGHT,fbp1,BUF_WIDTH);
     sceGuDepthBuffer(zbp,BUF_WIDTH);
-    sceGuOffset(2048 - (SCR_WIDTH/2),2048 - (SCR_HEIGHT/2));
-	sceGuViewport(2048,2048,SCR_WIDTH,SCR_HEIGHT);
-	sceGuDepthRange(0xffff,0);
-	sceGuScissor(0,0,SCR_WIDTH,SCR_HEIGHT);
+    sceGuOffset(2048 - (SCR_WIDTH / 2), 2048 - (SCR_HEIGHT / 2));
+	sceGuViewport(2048, 2048, SCR_WIDTH, SCR_HEIGHT);
+	sceGuDepthRange(0xffff, 0);
+	sceGuScissor(0, 0, SCR_WIDTH,SCR_HEIGHT);
     sceGuEnable(GU_SCISSOR_TEST);
 	sceGuEnable(GU_DEPTH_TEST);
 	sceGuDepthFunc(GU_GEQUAL);
@@ -914,11 +897,11 @@ static void gfx_scegu_init(void) {
 	sceGuDisable(GU_LIGHTING);
 	sceGuDisable(GU_BLEND);
     sceGuDisable(GU_CULL_FACE);
-    sceGuFrontFace(GU_CCW);  
+    sceGuFrontFace(GU_CCW);
 	sceGuDepthMask(GU_FALSE);
     sceGuTexEnvColor(0xffffffff);
-	sceGuTexOffset(0.0f,0.0f);
-	sceGuTexWrap(GU_REPEAT,GU_REPEAT);
+	sceGuTexOffset(0.0f, 0.0f);
+	sceGuTexWrap(GU_REPEAT, GU_REPEAT);
 #if 0 
     // Broken 
     sceGuViewport(2048,2048,SCR_WIDTH,SCR_HEIGHT);
@@ -938,14 +921,6 @@ static void gfx_scegu_init(void) {
 
 	sceDisplayWaitVblankStart();
 	sceGuDisplay(GU_TRUE);
-
-    // This disables FPU exceptions
-    __asm__ volatile (
-        "cfc1    $2, $31\n" 
-        "lui     $8, 0x80\n" 
-        "and     $8, $2, $8\n" // Mask off all bits except for 23 of FCR 
-        "ctc1    $8, $31\n" 
-        :::);
 
     void *texman_buffer = malloc(TEXMAN_BUFFER_SIZE);
     void *texman_aligned = (void *) ((((unsigned int) texman_buffer + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT) * TEX_ALIGNMENT);
