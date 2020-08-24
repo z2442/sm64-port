@@ -819,31 +819,7 @@ static void calculate_normal_dir(const Light_t *light, float coeffs[3]) {
     gfx_normalize_vector(coeffs);
 }
 
-void MatrixMultiplyAligned(float m_out[4][4], const float mat_a[4][4], const float mat_b[4][4])
-{
-	__asm__ volatile (
-
-		"lv.q   R000, 0  + %1\n"
-		"lv.q   R001, 16 + %1\n"
-		"lv.q   R002, 32 + %1\n"
-		"lv.q   R003, 48 + %1\n"
-
-		"lv.q   R100, 0  + %2\n"
-		"lv.q   R101, 16 + %2\n"
-		"lv.q   R102, 32 + %2\n"
-		"lv.q   R103, 48 + %2\n"
-
-		"vmmul.q   M200, M000, M100\n"
-
-		"sv.q   R200, 0  + %0\n"
-		"sv.q   R201, 16 + %0\n"
-		"sv.q   R202, 32 + %0\n"
-		"sv.q   R203, 48 + %0\n"
-
-		: "=m" (*m_out) : "m" (*mat_a) ,"m" (*mat_b) : "memory" );
-}
-
-#if 0
+#if !defined(TARGET_PSP)
 static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4][4]) {
     float tmp[4][4];
     for (int i = 0; i < 4; i++) {
@@ -858,7 +834,27 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
 }
 #else 
 static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4][4]) {
-    MatrixMultiplyAligned(res, a, b);
+  	__asm__ volatile (
+        ".set			push\n"					// save assember option
+        ".set			noreorder\n"			// suppress reordering
+		"lv.q   R000, 0  + %1\n"
+		"lv.q   R001, 16 + %1\n"
+		"lv.q   R002, 32 + %1\n"
+		"lv.q   R003, 48 + %1\n"
+
+		"lv.q   R100, 0  + %2\n"
+		"lv.q   R101, 16 + %2\n"
+		"lv.q   R102, 32 + %2\n"
+		"lv.q   R103, 48 + %2\n"
+
+		"vmmul.q   M700, M000, M100\n"
+
+		"sv.q   R700, 0  + %0\n"
+		"sv.q   R701, 16 + %0\n"
+		"sv.q   R702, 32 + %0\n"
+		"sv.q   R703, 48 + %0\n"
+        ".set			pop\n"					// restore assember option
+		: "=m" (*res) : "m" (*a) ,"m" (*b) : "memory" );
 }
 #endif
 
@@ -912,10 +908,10 @@ static void gfx_sp_pop_matrix(uint32_t count) {
     while (count--) {
         if (rsp.modelview_matrix_stack_size > 0) {
             --rsp.modelview_matrix_stack_size;
-            if (rsp.modelview_matrix_stack_size > 0) {
-                gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
-            }
         }
+    }
+    if (rsp.modelview_matrix_stack_size > 0) {
+        gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
     }
 }
 
@@ -924,17 +920,38 @@ static float gfx_adjust_x_for_aspect_ratio(float x) {
 }
 
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *vertices) {
+    float temp_vec[4] __attribute__((aligned(16)));
+    float proj_vec[4] __attribute__((aligned(16)));
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         const Vtx_t *v = &vertices[i].v;
         const Vtx_tn *vn = &vertices[i].n;
         struct LoadedVertex *d = &rsp.loaded_vertices[dest_index];
+
+        temp_vec[0] = v->ob[0];
+        temp_vec[1] = v->ob[1];
+        temp_vec[2] = v->ob[2];
+        temp_vec[3] = 1.0f;
         
-        float x = v->ob[0] * rsp.MP_matrix[0][0] + v->ob[1] * rsp.MP_matrix[1][0] + v->ob[2] * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
-        float y = v->ob[0] * rsp.MP_matrix[0][1] + v->ob[1] * rsp.MP_matrix[1][1] + v->ob[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
-        float z = v->ob[0] * rsp.MP_matrix[0][2] + v->ob[1] * rsp.MP_matrix[1][2] + v->ob[2] * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
-        float w = v->ob[0] * rsp.MP_matrix[0][3] + v->ob[1] * rsp.MP_matrix[1][3] + v->ob[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
-        
-        //x = gfx_adjust_x_for_aspect_ratio(x);
+        __asm__ volatile (
+            ".set			push\n"					// save assember option
+            ".set			noreorder\n"			// suppress reordering
+            "lv.q			c700,  0 + %1\n"		// c700 = MP_matrix->x
+            "lv.q			c710, 16 + %1\n"		// c710 = MP_matrix->y
+            "lv.q			c720, 32 + %1\n"		// c720 = MP_matrix->z
+            "lv.q			c730, 48 + %1\n"		// c730 = MP_matrix->w
+            "lv.q			c200, %2\n"				// c200 = *temp_vec
+            "vtfm4.q		c000, e700, c200\n"		// c000 = e700 * c200
+            "sv.q			c000, %0\n"				// *proj_vec = c000
+            ".set			pop\n"					// restore assember option
+            : "=m"(*proj_vec)
+            : "m"(*rsp.MP_matrix), "m"(*temp_vec)
+        );
+
+        //const float x = proj_vec[0];
+        const float x = gfx_adjust_x_for_aspect_ratio(proj_vec[0]);
+        const float y = proj_vec[1];
+        const float z = proj_vec[2];
+        const float w = proj_vec[3];
 
         short U = v->tc[0] * rsp.texture_scaling_factor.s >> 16;
         short V = v->tc[1] * rsp.texture_scaling_factor.t >> 16;
@@ -1039,21 +1056,18 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     struct LoadedVertex *v3 = &rsp.loaded_vertices[vtx3_idx];
     struct LoadedVertex *v_arr[3] = {v1, v2, v3};
 
-    #if 1
-    /*@Note: unsure if needed anymore? */
     if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
         // The whole triangle lies outside the visible area
         return;
     }
-
     if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
-        float dx1 = v1->_x / (v1->w) - v2->_x / (v2->w);
-        float dy1 = v1->_y / (v1->w) - v2->_y / (v2->w);
-        float dx2 = v3->_x / (v3->w) - v2->_x / (v2->w);
-        float dy2 = v3->_y / (v3->w) - v2->_y / (v2->w);
+        float dx1 = v1->_x / (v1->_w) - v2->_x / (v2->_w);
+        float dy1 = v1->_y / (v1->_w) - v2->_y / (v2->_w);
+        float dx2 = v3->_x / (v3->_w) - v2->_x / (v2->_w);
+        float dy2 = v3->_y / (v3->_w) - v2->_y / (v2->_w);
         float cross = dx1 * dy2 - dy1 * dx2;
         
-        if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
+        if ((v1->_w < 0) ^ (v2->_w < 0) ^ (v3->_w < 0)) {
             // If one vertex lies behind the eye, negating cross will give the correct result.
             // If all vertices lie behind the eye, the triangle will be rejected anyway.
             cross = -cross;
