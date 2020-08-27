@@ -36,10 +36,22 @@ A prior copy of the game is required to extract the assets.
 7. The executable binary will be located at `build/<VERSION>_pc/sm64.<VERSION>.f3dex2e.exe` inside the repository.
 
 #### PSP
-Notes:Currently only building under linux and WSL
+Notes:Currently only supported building under linux and WSL
 1. Install the PSP toolchain https://github.com/pspdev/psptoolchain.
 2. Place a Super Mario 64 ROM called `baserom.<VERSION>.z64` into the repository's root directory for asset extraction, where `VERSION` can be `us`, `jp`, or `eu`.
 3. Run `make TARGET_PSP=1`
+
+Windows Possible Guide: NOTE UNSUPPORTED currently
+1. Install the PSP toolchain https://darksectordds.github.io/html/MinimalistPSPSDK/index.html
+2. Install Python3 from python.org, NOT the Windows Store
+3. Copy files in `tools/` from the windows pack to `tools` folder in source, next to makefile and baserom
+4. Copy the files from `pspsdk_bin/` from the windows pack into the `bin` folder where you installed the pspsdk.
+5. Copy `python3.exe` from the windows pack, next to makefile and baserom
+6. Make a folder called `tmp`, next to makefile and baserom
+7. Place a Super Mario 64 ROM called `baserom.<VERSION>.z64` into the repository's root directory for asset extraction, where `VERSION` can be `us`, `jp`, or `eu`.
+8. Open Powershell and run both of these:
+9. Run `$PSDefaultParameterValues['*:Encoding'] = 'utf8'`
+9. Run `make TARGET_PSP=1 SHELL=sh PYTHON=py`
 
 #### Troubleshooting
 
