@@ -44,14 +44,17 @@ Notes:Currently only supported building under linux and WSL
 Windows Possible Guide: NOTE UNSUPPORTED currently
 1. Install the PSP toolchain https://darksectordds.github.io/html/MinimalistPSPSDK/index.html
 2. Install Python3 from python.org, NOT the Windows Store
-3. Copy files in `tools/` from the windows pack to `tools` folder in source, next to makefile and baserom
-4. Copy the files from `pspsdk_bin/` from the windows pack into the `bin` folder where you installed the pspsdk.
-5. Copy `python3.exe` from the windows pack, next to makefile and baserom
-6. Make a folder called `tmp`, next to makefile and baserom
-7. Place a Super Mario 64 ROM called `baserom.<VERSION>.z64` into the repository's root directory for asset extraction, where `VERSION` can be `us`, `jp`, or `eu`.
-8. Open Powershell and run both of these:
-9. Run `$PSDefaultParameterValues['*:Encoding'] = 'utf8'`
-9. Run `make TARGET_PSP=1 SHELL=sh PYTHON=py`
+3. Add the full path of where you installed the pspsdk eg. ``C:\pspsdk\bin`` to your environment variables
+3. Copy the files from `pspsdk_bin/` from the windows pack into the `bin` folder where you installed the pspsdk. The same folder you used above.
+4. Copy `python3.exe` from the windows pack, next to makefile and baserom
+5. Make a folder called `tmp`, next to makefile and baserom
+6. Place a Super Mario 64 ROM called `baserom.<VERSION>.z64` into the repository's root directory for asset extraction, where `VERSION` can be `us`, `jp`, or `eu`.
+7. Open Powershell and run this:
+8. Run `make -t -s -C .\tools\`
+9. Copy files in `tools/` from the windows pack to `tools` folder in source, next to makefile and baserom
+10. Go back to powershell window:
+11. Run `$PSDefaultParameterValues['*:Encoding'] = 'utf8'` Only needed if using Powershell, if using cmd.exe you can skip this.
+12. Run `make TARGET_PSP=1 SHELL=sh PYTHON=py`
 
 #### Troubleshooting
 
