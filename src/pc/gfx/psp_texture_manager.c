@@ -19,6 +19,7 @@
 
 static struct PSP_Texture textures[512];
 static void *psp_tex_buffer = NULL;
+static void *psp_tex_buffer_start = NULL;
 static void *psp_tex_buffer_max = NULL;
 static unsigned int psp_tex_number = 0;
 unsigned int psp_tex_bound = 0;
@@ -107,16 +108,29 @@ int texman_inited(void) {
 void texman_reset(void *buf, unsigned int size) {
     memset(textures, 0, sizeof(textures));
     psp_tex_number = 0;
-    psp_tex_buffer = buf;
+    psp_tex_buffer = psp_tex_buffer_start = buf;
     psp_tex_buffer_max = buf + size;
     char msg[64];
-    sprintf(msg, "TEXMAN reset @ %p[%d] size %d bytes\n", buf, ((unsigned int) buf) % 16, size);
+    sprintf(msg, "TEXMAN reset @ %p size %d bytes\n", buf, size);
+    sceIoWrite(1, msg, strlen(msg));
+}
+
+void texman_clear(void) {
+    memset(textures, 0, sizeof(textures));
+    psp_tex_number = 0;
+    psp_tex_buffer = psp_tex_buffer_start;
+    char msg[64];
+    sprintf(msg, "TEXMAN clear %p size %d bytes!\n", psp_tex_buffer, TEXMAN_BUFFER_SIZE);
     sceIoWrite(1, msg, strlen(msg));
 }
 
 void texman_set_buffer(void *buf, unsigned int size) {
     psp_tex_buffer = buf;
     psp_tex_buffer_max = buf + size;
+}
+
+int gfx_vram_space_available(void) {
+    return (psp_tex_buffer_max - psp_tex_buffer) > (32*1024);
 }
 
 unsigned char *texman_get_tex_data(unsigned int num) {
@@ -150,7 +164,7 @@ unsigned int texman_create(void) {
     };
     psp_tex_bound = psp_tex_number;
 
-    // printf("TEX_MAN new tex [%d]\n", psp_tex_number);
+    // printf("TEX_MAN new tex [%d] @ %x\n", psp_tex_number, psp_tex_buffer);
     return psp_tex_number;
 }
 

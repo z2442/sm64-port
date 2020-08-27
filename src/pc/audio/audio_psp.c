@@ -9,14 +9,14 @@
 
 #define PSP_AUDIO_CHANNELS 2
 #define PSP_AUDIO_FREQUENCY 32000
-#define PSP_AUDIO_SAMPLES_DESIRED (544 * 4) /* At worst, 4 whole frames */
+#define PSP_AUDIO_SAMPLES_DESIRED (544 * 2)
 
 static int chan = -1;
 static int samples = 0;
 
 /* Double Buffer */
 static int cur_snd_buf = 0;
-uint16_t snd_buffer_internal[PSP_AUDIO_SAMPLES_DESIRED * PSP_AUDIO_CHANNELS * 2]
+uint16_t snd_buffer_internal[PSP_AUDIO_SAMPLES_DESIRED * 2 * PSP_AUDIO_CHANNELS * 2] /* At worst, 4 whole frames */
     __attribute__((aligned(64)));
 void *snd_buffer[2] = { snd_buffer_internal,
                         snd_buffer_internal + (PSP_AUDIO_SAMPLES_DESIRED * PSP_AUDIO_CHANNELS) };
@@ -53,9 +53,11 @@ static int audio_psp_get_desired_buffered(void) {
 }
 
 static void audio_psp_play(const uint8_t *buf, size_t len) {
-    int new_samples = len / (2 * PSP_AUDIO_CHANNELS);
+    int new_samples = len / (sizeof(short) * PSP_AUDIO_CHANNELS);
 
+    sceKernelDcacheWritebackInvalidateRange(buf, len);
     memcpy(snd_buffer[cur_snd_buf], buf, len);
+    sceKernelDcacheWritebackInvalidateRange(snd_buffer[cur_snd_buf], len);
 
     /* Check if we need to reacquire channel or num samples */
     if (chan < 0) {
