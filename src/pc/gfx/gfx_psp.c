@@ -4,6 +4,7 @@
 #include "macros.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <pspkernel.h>
 #include <psppower.h>
 #include <pspdisplay.h>
@@ -21,6 +22,14 @@ extern void J_Init(int foo);
 /* I forgot why we need this */
 void __assert_func(UNUSED const char *file, UNUSED int line, UNUSED const char *method, UNUSED const char *expression) {
 
+}
+
+/* Minimalist PSP SDK 0.15.0 for Windows whines about missing this, linux built toolchain doesn't care */
+char *stpcpy(char *__restrict__ dest, const char *__restrict__ src)
+{
+       while ((*dest++ = *src++) != '\0')
+               /* nothing */;
+       return --dest;
 }
 
 int isspace(int _c)
