@@ -245,7 +245,7 @@ static inline void vec4_sub(float *out, const float* lhs, const float*rhs){
     out[3] = lhs[3]-rhs[3];
 }
 
-void gfx_clip_interpolate_vert(struct LoadedVertex* out, const struct  LoadedVertex* lhs, const struct LoadedVertex* rhs, float factor )
+void gfx_clip_interpolate_vert(struct LoadedVertex* out, const struct  LoadedVertex* lhs, const struct LoadedVertex* rhs, const float factor )
 {
     // projected pos
     out->x = lhs->x + (rhs->x - lhs->x) * factor;
@@ -258,17 +258,13 @@ void gfx_clip_interpolate_vert(struct LoadedVertex* out, const struct  LoadedVer
     out->_z = lhs->_z + (rhs->_z - lhs->_z) * factor;
     out->_w = lhs->_w + (rhs->_w - lhs->_w) * factor;
     // color
-    out->color = lhs->color;
+    out->color.r = lhs->color.r + (rhs->color.r - lhs->color.r) * factor;
+    out->color.g = lhs->color.g + (rhs->color.g - lhs->color.g) * factor;
+    out->color.b = lhs->color.b + (rhs->color.b - lhs->color.b) * factor;
+    out->color.a = lhs->color.a + (rhs->color.a - lhs->color.a) * factor;
     // texture
     out->u = lhs->u + (rhs->u - lhs->u) * factor;
     out->v = lhs->v + (rhs->v - lhs->v) * factor;
-
-	/* Original Daedalus code
-    ProjectedPos = lhs.ProjectedPos + (rhs.ProjectedPos - lhs.ProjectedPos) * factor;
-	TransformedPos = lhs.TransformedPos + (rhs.TransformedPos - lhs.TransformedPos) * factor;
-	Colour = lhs.Colour + (rhs.Colour - lhs.Colour) * factor;
-	Texture = lhs.Texture + (rhs.Texture - lhs.Texture) * factor;
-    */
 }
 
 //*****************************************************************************
@@ -373,10 +369,10 @@ uint32_t clip_to_frustum( struct LoadedVertex * v0, struct LoadedVertex * v1, ui
 	return vOut;
 }
 
-static struct LoadedVertex temp_a[16];
-static struct LoadedVertex temp_b[16];
+static struct LoadedVertex temp_a[12];
+static struct LoadedVertex temp_b[12];
 
-void gfx_clip_single_vert( struct LoadedVertex **p_p_vertices, size_t *p_num_vertices, struct LoadedVertex *v_arr[3])
+void gfx_clip_single_vert( struct LoadedVertex *p_p_vertices, size_t *p_num_vertices, struct LoadedVertex *v_arr[3])
 {
 	//
 	//	At this point all vertices are lit/projected and have both transformed and projected
@@ -388,49 +384,26 @@ void gfx_clip_single_vert( struct LoadedVertex **p_p_vertices, size_t *p_num_ver
 	//	suffers from various precision issues. Carrying around both sets of coordinates gives
 	//	us the best of both worlds :)
 	//
-	struct LoadedVertex clipped_vertices[16];
     size_t clipped_vertices_num = 0;
 
-	for(uint32_t i = 0; i+2 < 3 /*m_dwNumIndices*/; i+=3)
-	{
-        uint32_t idx0 = 0;
-		uint32_t idx1 = 1;
-		uint32_t idx2 = 2;
+    temp_a[ 0 ] = *v_arr[ 0 ];
+    temp_a[ 1 ] = *v_arr[ 1 ];
+    temp_a[ 2 ] = *v_arr[ 2 ];
 
-		if(v_arr[idx0]->clip_rej || v_arr[idx1]->clip_rej || v_arr[idx2]->clip_rej)
-		{
-			temp_a[ 0 ] = *v_arr[ idx0 ];
-			temp_a[ 1 ] = *v_arr[ idx1 ];
-			temp_a[ 2 ] = *v_arr[ idx2 ];
+    uint32_t out = clip_to_frustum( temp_a, temp_b, 3 );
+    if( out < 3 ){
+        *p_num_vertices = 0;
+        return;
+    }
 
-			uint32_t out = clip_to_frustum( temp_a, temp_b, 3 );
-			if( out < 3 )
-				continue;
+    // Retesselate
+    for( uint32_t j = 0; j <= out - 3; ++j )
+    {            
+        p_p_vertices[clipped_vertices_num++] = ( temp_a[ 0 ] );
+        p_p_vertices[clipped_vertices_num++] = ( temp_a[ j + 1 ] );
+        p_p_vertices[clipped_vertices_num++] = ( temp_a[ j + 2 ] );
+    }
 
-			// Retesselate
-			for( uint32_t j = 0; j <= out - 3; ++j )
-			{
-				clipped_vertices[clipped_vertices_num++] = ( temp_a[ 0 ] );
-				clipped_vertices[clipped_vertices_num++] = ( temp_a[ j + 1 ] );
-				clipped_vertices[clipped_vertices_num++] = ( temp_a[ j + 2 ] );
-			}
-		}
-		else
-		{
-			clipped_vertices[clipped_vertices_num++] = *v_arr[ idx0 ];
-			clipped_vertices[clipped_vertices_num++] = *v_arr[ idx1 ];
-			clipped_vertices[clipped_vertices_num++] = *v_arr[ idx2 ];
-		}
-	}
-
-	//
-	//	Now the vertices have been clipped we need to write them into
-	//	a buffer we obtain this from the display list.
-	//	Maybe we should allocate all vertex buffers from VRAM?
-	//
-    memcpy(p_p_vertices, clipped_vertices, sizeof(struct LoadedVertex)*clipped_vertices_num );
-
-	//*p_p_vertices = p_vertices;
 	*p_num_vertices = clipped_vertices_num;
 }
 
@@ -526,6 +499,9 @@ static struct ColorCombiner *gfx_lookup_or_create_color_combiner(uint32_t cc_id)
     return prev_combiner = comb;
 }
 
+extern int gfx_vram_space_available(void);
+extern void texman_clear(void);
+
 static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, const uint8_t *orig_addr, uint32_t fmt, uint32_t siz) {
     size_t hash = (uintptr_t)orig_addr;
     hash = (hash >> 5) & 0x3ff;
@@ -539,9 +515,19 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, co
         }
         node = &(*node)->next;
     }
+    if(!gfx_vram_space_available()) {
+        texman_clear();
+
+        // Pool is full. We just invalidate everything and start over.
+        gfx_texture_cache.pool_pos = 0;
+        memset(gfx_texture_cache.pool, 0, sizeof(gfx_texture_cache.pool));
+        node = &gfx_texture_cache.hashmap[hash];
+        //puts("Clearing texture cache");
+    }
     if (gfx_texture_cache.pool_pos == sizeof(gfx_texture_cache.pool) / sizeof(struct TextureHashmapNode)) {
         // Pool is full. We just invalidate everything and start over.
         gfx_texture_cache.pool_pos = 0;
+        memset(gfx_texture_cache.pool, 0, sizeof(gfx_texture_cache.pool));
         node = &gfx_texture_cache.hashmap[hash];
         //puts("Clearing texture cache");
     }
@@ -1087,16 +1073,24 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
         }
     }
 
-    struct LoadedVertex clipped_vertices[16];
-    size_t clipped_vertices_num = 0;
+    /* Setup to clip but if we dont, we preload correct values and fix up pointers; */
+    struct LoadedVertex **clipped_vertices = v_arr;
+    size_t clipped_vertices_num = 3;
+    struct LoadedVertex _clipped_vertices[18];
+    struct LoadedVertex *ptr_clipped_vertices[18];
 
     if((v1->clip_rej || v2->clip_rej || v3->clip_rej) && CLIP_TEST_FLAGS) {
-        gfx_clip_single_vert((struct LoadedVertex **)&clipped_vertices, &clipped_vertices_num, v_arr);
-    } else {
-        clipped_vertices[0] = *v_arr[0];
-        clipped_vertices[1] = *v_arr[1];
-        clipped_vertices[2] = *v_arr[2];
-        clipped_vertices_num=3;
+        gfx_clip_single_vert(_clipped_vertices, &clipped_vertices_num, v_arr);
+
+        if(!clipped_vertices_num){
+            /* No idea if this is possible */
+            return;
+        }
+        size_t i;
+        for(i = 0;i < clipped_vertices_num;i++){
+            ptr_clipped_vertices[i] = &_clipped_vertices[i];
+        }
+        clipped_vertices = ptr_clipped_vertices;
     }
 
     bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
@@ -1195,14 +1189,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     
     size_t i;
     for (i = 0; i < clipped_vertices_num; i++) {
-
-        buf_vbo[buf_num_vert].x = clipped_vertices[i].x;
-        buf_vbo[buf_num_vert].y = clipped_vertices[i].y;
-        buf_vbo[buf_num_vert].z = clipped_vertices[i].z;
+        buf_vbo[buf_num_vert].x = clipped_vertices[i]->x;
+        buf_vbo[buf_num_vert].y = clipped_vertices[i]->y;
+        buf_vbo[buf_num_vert].z = clipped_vertices[i]->z;
         
         if (use_texture) {
-            float u = (clipped_vertices[i].u - rdp.texture_tile.uls * 8) / 32.0f;
-            float v = (clipped_vertices[i].v - rdp.texture_tile.ult * 8) / 32.0f;
+            float u = (clipped_vertices[i]->u - rdp.texture_tile.uls * 8) / 32.0f;
+            float v = (clipped_vertices[i]->v - rdp.texture_tile.ult * 8) / 32.0f;
             if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT) {
                 // Linear filter adds 0.5f to the coordinates
                 u += 0.5f;
@@ -1236,7 +1229,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
                         color = &rdp.prim_color;
                         break;
                     case CC_SHADE:
-                        color = &clipped_vertices[i].color;
+                        color = &clipped_vertices[i]->color;
                         break;
                     case CC_ENV:
                         color = &rdp.env_color;

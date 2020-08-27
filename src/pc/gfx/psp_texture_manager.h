@@ -34,6 +34,8 @@ Steps:
 note: texture will be bound
 */
 unsigned int texman_create(void);
+void texman_clear(void);
+int gfx_vram_space_available(void) ;
 unsigned char *texman_get_tex_data(unsigned int num);
 struct PSP_Texture *texman_reserve_memory(int width, int height, unsigned int type);
 void texman_upload_swizzle(int width, int height, unsigned int type, const void *buffer);

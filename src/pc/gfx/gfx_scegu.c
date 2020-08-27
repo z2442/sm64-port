@@ -157,7 +157,7 @@ static uint32_t shader_broken[27] ={
     153094656   // Noise
 };
 
-unsigned int __attribute__((aligned(16))) list[262144];
+unsigned int __attribute__((aligned(64))) list[262144*2];
 
 static unsigned int staticOffset = 0;
 
@@ -195,6 +195,15 @@ void* getStaticVramBuffer(unsigned int width, unsigned int height, unsigned int 
 
    return result;
 }
+
+void* getStaticVramBufferBytes(size_t bytes)
+{
+   unsigned int memSize = bytes;
+   void* result = (void*)(staticOffset | 0x40000000);
+   staticOffset += memSize;
+
+   return (void*)(((unsigned int)result) + ((unsigned int)sceGeEdramGetAddr()));
+}
 /*
 void* getStaticVramTexBuffer(unsigned int width, unsigned int height, unsigned int psm)
 {
@@ -219,8 +228,6 @@ void resetStaticTexBuffer(void){
 #include "gfx_cc.h"
 #include "gfx_rendering_api.h"
 #include "macros.h"
-
-static int val;
 
 enum MixFlags {
     SH_MF_OVERRIDE_ALPHA = 1,
@@ -272,7 +279,6 @@ static uint8_t shader_program_pool_size;
 static struct ShaderProgram *cur_shader = NULL;
 
 static bool gl_blend = false;
-static bool gl_adv_fog = false;
 
 static inline uint32_t get_shader_index(uint32_t id){
     size_t i;
@@ -435,23 +441,14 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
         }
     }
 
-    /*
+#if 0
     if (prg->shader_id & SHADER_OPT_FOG) {
-        // fog requested, we can deal with it in one of two ways
-        if (gl_adv_fog) {
-            // if GL_EXT_fog_coord is available, use the provided fog factor as scaled depth for GL fog
-            const float fogrgb[] = { ofs[0], ofs[1], ofs[2] };
-            glEnable(GL_FOG);
-            glFogfv(GL_FOG_COLOR, fogrgb); // color is the same for all verts, only intensity is different
-            glEnableClientState(GL_FOG_COORD_ARRAY);
-            mglFogCoordPointer(GL_FLOAT, cur_buf_stride, ofs + 3); // point it to alpha, which is fog factor
-        } else {
-            // if there's no fog coords available, blend it on top of normal tris later
-            cur_fog_ofs = ofs;
-        }
-        ofs += 4;
+        // Yea this doesnt work at all */
+        //sceGuFog(scegu_fog_near, scegu_fog_far, 0x00FF0000);//scegu_fog_color); // color is the same for all verts, only intensity is different
+        //sceGuEnable(GU_FOG);
+        sceGuEnable(GU_BLEND);
     }
-    */
+#endif
 
     if (prg->num_inputs) {
         // have colors
@@ -745,8 +742,7 @@ static void gfx_scegu_set_depth_mask(bool z_upd) {
 
 static void gfx_scegu_set_zmode_decal(bool zmode_decal) {
     if (zmode_decal) {
-        sceGuDepthOffset(2);
-        //sceGuDepthOffset(4); /* I think we need a little more on psp */
+        sceGuDepthOffset(12); /* I think we need a little more on psp because of 16bit depth buffer */
     } else {
         sceGuDepthOffset(0);
     }
@@ -758,9 +754,14 @@ static void gfx_scegu_set_viewport(int x, int y, int width, int height) {
 }
 
 static void gfx_scegu_set_scissor(int x, int y, int width, int height) {
-    //printf("sceGuScissor(%d, %d, %d, %d)\n", x, y, width, height);
-    /*@Note: maybe this is right */
-    sceGuScissor(x, y, x+width, y+height);
+    /*@Note: maybe this is right, fixes signs so should be correct */
+    if((x || y)){
+        //printf("set_scissor(%d, %d, %d, %d) -> sceGuScissor(%d, %d, %d, %d)\n",x, y, width, height, x, SCR_HEIGHT-y-height, x+width, SCR_HEIGHT-y);
+        sceGuScissor(x, SCR_HEIGHT-y-height, x+width, SCR_HEIGHT-y);
+    } else {
+        //printf("sceGuScissor(%d, %d, %d, %d)\n", x, y, width, height);
+        sceGuScissor(x, y, x+width, y+height);
+    }
 }
 
 static void gfx_scegu_set_use_alpha(bool use_alpha) {
@@ -808,7 +809,8 @@ static void gfx_scegu_draw_triangles(float buf_vbo[], UNUSED size_t buf_vbo_len,
     if(is_shader_enabled(cur_shader->shader_id)){
         gfx_scegu_apply_shader(cur_shader);
     } else {
-        printf("Remapping shader %u -> %u\n", cur_shader->shader_id, get_shader_remap(cur_shader->shader_id));
+        if(cur_shader->shader_id < 153092165)
+            printf("Remapping shader %u -> %u\n", cur_shader->shader_id, get_shader_remap(cur_shader->shader_id));
         gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
 
@@ -837,23 +839,6 @@ void gfx_scegu_draw_triangles_2d(float buf_vbo[], UNUSED size_t buf_vbo_len, UNU
 }
 
 static void gfx_scegu_init(void) {
-
-    gl_adv_fog = false;
-
-#if 0
-    printf("GL_VERSION = %s\n", glGetString(GL_VERSION));
-    printf("GL_EXTENSIONS =\n%s\n", glGetString(GL_EXTENSIONS));
-
-    if (gl_adv_fog) {
-        // set fog params, they never change
-        printf("GL_EXT_fog_coord available, using that for fog\n");
-        glFogi(GL_FOG_COORD_SRC, GL_FOG_COORD);
-        glFogi(GL_FOG_MODE, GL_LINEAR);
-        glFogf(GL_FOG_START, 0.0f);
-        glFogf(GL_FOG_END, 1.0f);
-    }
-#endif
-    val = 0;
 	sceGuInit();
 
     void* fbp0 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_5650);
@@ -904,7 +889,7 @@ static void gfx_scegu_init(void) {
 	sceDisplayWaitVblankStart();
 	sceGuDisplay(GU_TRUE);
 
-    void *texman_buffer = malloc(TEXMAN_BUFFER_SIZE);
+    void *texman_buffer = getStaticVramBufferBytes(TEXMAN_BUFFER_SIZE);
     void *texman_aligned = (void *) ((((unsigned int) texman_buffer + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT) * TEX_ALIGNMENT);
     texman_reset(texman_aligned, TEXMAN_BUFFER_SIZE);
     if(!texman_buffer){

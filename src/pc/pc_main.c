@@ -116,7 +116,7 @@ void produce_one_frame(void) {
     u32 num_audio_samples = samples_left < audio_api->get_desired_buffered() ? SAMPLES_HIGH : SAMPLES_LOW;
     //printf("Audio samples: %d %u\n", samples_left, num_audio_samples);
     
-    #if !defined(TARGET_PSP)
+    #if 1 /* !defined(TARGET_PSP) */
     for (int i = 0; i < 2; i++) {
         /*if (audio_cnt-- == 0) {
             audio_cnt = 2;
