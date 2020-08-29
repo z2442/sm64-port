@@ -734,9 +734,8 @@ static void gfx_scegu_set_depth_test(bool depth_test) {
         sceGuDisable(GU_DEPTH_TEST);
     }
 }
-static bool z_depth = false; 
+
 static void gfx_scegu_set_depth_mask(bool z_upd) {
-    z_depth = !z_upd;
     sceGuDepthMask(z_upd ? GU_FALSE : GU_TRUE);
 }
 
@@ -756,10 +755,8 @@ static void gfx_scegu_set_viewport(int x, int y, int width, int height) {
 static void gfx_scegu_set_scissor(int x, int y, int width, int height) {
     /*@Note: maybe this is right, fixes signs so should be correct */
     if((x || y)){
-        //printf("set_scissor(%d, %d, %d, %d) -> sceGuScissor(%d, %d, %d, %d)\n",x, y, width, height, x, SCR_HEIGHT-y-height, x+width, SCR_HEIGHT-y);
         sceGuScissor(x, SCR_HEIGHT-y-height, x+width, SCR_HEIGHT-y);
     } else {
-        //printf("sceGuScissor(%d, %d, %d, %d)\n", x, y, width, height);
         sceGuScissor(x, y, x+width, y+height);
     }
 }
@@ -869,23 +866,9 @@ static void gfx_scegu_init(void) {
     sceGuTexEnvColor(0xffffffff);
 	sceGuTexOffset(0.0f, 0.0f);
 	sceGuTexWrap(GU_REPEAT, GU_REPEAT);
-#if 0 
-    // Broken 
-    sceGuViewport(2048,2048,SCR_WIDTH,SCR_HEIGHT);
-	sceGuDepthRange(0xffff,0);
-	sceGuScissor(0,0,SCR_WIDTH,SCR_HEIGHT);
-	sceGuEnable(GU_SCISSOR_TEST);
-	sceGuDepthFunc(GU_GREATER);
-	sceGuEnable(GU_DEPTH_TEST);
-	sceGuShadeModel(GU_SMOOTH);
-	sceGuDisable(GU_CULL_FACE);
-	sceGuEnable(GU_CLIP_PLANES);
-    sceGuDepthOffset(-128);
-    sceGuTexEnvColor(0xffffffff);
-#endif
+
     sceGuFinish();
 	sceGuSync(0,0);
-
 	sceDisplayWaitVblankStart();
 	sceGuDisplay(GU_TRUE);
 
@@ -915,6 +898,23 @@ static void gfx_scegu_start_frame(void) {
     sceGuSetMatrix(GU_PROJECTION, (const ScePspFMatrix4 *)identity_matrix);
     sceGuSetMatrix(GU_VIEW, (const ScePspFMatrix4 *)identity_matrix);
     sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)identity_matrix);
+    const int DitherMatrix[2][16] = { { 0, 8, 0, 8,
+                         8, 0, 8, 0,
+                         0, 8, 0, 8,
+                         8, 0, 8, 0 },
+                        { 8, 8, 8, 8,
+                          0, 8, 0, 8,
+                          8, 8, 8, 8,
+                          0, 8, 0, 8 } };
+
+    extern int gDoAA;
+    extern int gFrame;
+    sceGuDisable(GU_DITHER);
+    if(gDoAA){
+        // every frame
+        sceGuSetDither((const ScePspIMatrix4 *)DitherMatrix[(gFrame&1)]);
+        sceGuEnable(GU_DITHER);
+    }
 }
 
 void gfx_scegu_on_resize(void) {
