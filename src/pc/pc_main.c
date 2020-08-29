@@ -108,36 +108,34 @@ int run_me_audio(JobData data){
 }
 #endif
 
+extern int gProcessAudio;
+int gFrame=0;
 void produce_one_frame(void) {
     gfx_start_frame();
     game_loop_one_iteration();
-    
-    int samples_left = audio_api->buffered();
-    u32 num_audio_samples = samples_left < audio_api->get_desired_buffered() ? SAMPLES_HIGH : SAMPLES_LOW;
+    gFrame++;
+
+    const u32 num_audio_samples = SAMPLES_HIGH;
     //printf("Audio samples: %d %u\n", samples_left, num_audio_samples);
     
-    #if 1 /* !defined(TARGET_PSP) */
-    for (int i = 0; i < 2; i++) {
-        /*if (audio_cnt-- == 0) {
-            audio_cnt = 2;
-        }
-        u32 num_audio_samples = audio_cnt < 2 ? 528 : 544;*/
-        create_next_audio_buffer(audio_buffer + i * (num_audio_samples * 2), num_audio_samples);
+    if(gProcessAudio){
+        #if 1 /* !defined(TARGET_PSP) */
+        create_next_audio_buffer(audio_buffer + 0 * (num_audio_samples * 2), num_audio_samples);
+        create_next_audio_buffer(audio_buffer + 1 * (num_audio_samples * 2), num_audio_samples);
+        #else
+        j = (struct Job*)malloc(sizeof(struct Job));
+        j->jobInfo.id = 1;
+        j->jobInfo.execMode = MELIB_EXEC_ME;
+
+        j->function = &run_me_audio;
+        j->data = num_audio_samples;
+        J_AddJob(j);
+        J_Update(0.0f);
+        #endif
+
+        //printf("Audio samples before submitting: %d\n", audio_api->buffered());
+        audio_api->play((u8 *)audio_buffer, 2 /* 2 buffers */ * num_audio_samples * sizeof(short) * 2 /* stereo */);
     }
-    #else
-    j = (struct Job*)malloc(sizeof(struct Job));
-    j->jobInfo.id = 1;
-    j->jobInfo.execMode = MELIB_EXEC_ME;
-
-    j->function = &run_me_audio;
-    j->data = num_audio_samples;
-    J_AddJob(j);
-    J_Update(0.0f);
-    #endif
-
-    //printf("Audio samples before submitting: %d\n", audio_api->buffered());
-    audio_api->play((u8 *)audio_buffer, 2 * num_audio_samples * 4);
-    
     gfx_end_frame();
 }
 
