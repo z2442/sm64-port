@@ -9,14 +9,15 @@
 
 #define PSP_AUDIO_CHANNELS 2
 #define PSP_AUDIO_FREQUENCY 32000
-#define PSP_AUDIO_SAMPLES_DESIRED (544 * 2)
+#define PSP_AUDIO_GIVEN_BUFFERS (2)
+#define PSP_AUDIO_SAMPLES_DESIRED (544 * PSP_AUDIO_GIVEN_BUFFERS)
 
 static int chan = -1;
 static int samples = 0;
 
 /* Double Buffer */
 static int cur_snd_buf = 0;
-uint16_t snd_buffer_internal[PSP_AUDIO_SAMPLES_DESIRED * 2 * PSP_AUDIO_CHANNELS * 2] /* At worst, 4 whole frames */
+uint16_t snd_buffer_internal[PSP_AUDIO_SAMPLES_DESIRED * PSP_AUDIO_GIVEN_BUFFERS * PSP_AUDIO_CHANNELS * 2] /* At worst, 4 whole frames */
     __attribute__((aligned(64)));
 void *snd_buffer[2] = { snd_buffer_internal,
                         snd_buffer_internal + (PSP_AUDIO_SAMPLES_DESIRED * PSP_AUDIO_CHANNELS) };
