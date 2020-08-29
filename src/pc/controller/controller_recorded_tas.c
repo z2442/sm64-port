@@ -5,8 +5,14 @@
 
 static FILE *fp;
 
+#if defined(TARGET_PSP)
+#define FILE_PREFIX "ms0:/"
+#else
+#define FILE_PREFIX ""
+#endif
+
 static void tas_init(void) {
-    fp = fopen("cont.m64", "rb");
+    fp = fopen(FILE_PREFIX"cont.m64", "rb");
     if (fp != NULL) {
         uint8_t buf[0x400];
         fread(buf, 1, sizeof(buf), fp);
