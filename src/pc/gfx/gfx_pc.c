@@ -906,6 +906,16 @@ static float gfx_adjust_x_for_aspect_ratio(float x) {
     return x * (4.0f / 3.0f) / ((float)gfx_current_dimensions.width / (float)gfx_current_dimensions.height);
 }
 
+struct ShaderProgram {
+    bool enabled;
+    uint32_t shader_id;
+    struct CCFeatures cc;
+    int mix;
+    bool texture_used[2];
+    int texture_ord[2];
+    int num_inputs;
+};
+
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *vertices) {
     float temp_vec[4] __attribute__((aligned(16)));
     float proj_vec[4] __attribute__((aligned(16)));
@@ -938,7 +948,7 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
         const float x = gfx_adjust_x_for_aspect_ratio(proj_vec[0]);
         const float y = proj_vec[1];
         const float z = proj_vec[2];
-        const float w = proj_vec[3];
+        float w = proj_vec[3];
 
         short U = v->tc[0] * rsp.texture_scaling_factor.s >> 16;
         short V = v->tc[1] * rsp.texture_scaling_factor.t >> 16;
@@ -1015,6 +1025,7 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
         d->_z = z;
         d->_w = w;
 
+        /*@Note: this is a trainwreck*/
         /*if (rsp.geometry_mode & G_FOG) {
             if (fabsf(w) < 0.001f) {
                 // To avoid division by zero
@@ -1030,6 +1041,17 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
             if (fog_z < 0) fog_z = 0;
             if (fog_z > 255) fog_z = 255;
             d->color.a = fog_z; // Use alpha variable to store fog factor
+            //d->color.r = d->color.r + (rdp.fog_color.r - d->color.r) * (fog_z/255);
+            //d->color.g = d->color.g + (rdp.fog_color.g - d->color.g) * (fog_z/255);
+            //d->color.b = d->color.b + (rdp.fog_color.b - d->color.b) * (fog_z/255);
+            
+            d->color.r = d->color.r + (255 - d->color.r) * (fog_z/255);
+            d->color.g = d->color.g + (0 - d->color.g) * (fog_z/255);
+            d->color.b = d->color.b + (0 - d->color.b) * (fog_z/255);
+            //d->color.r = 255-fog_z;
+            //d->color.g = 255-fog_z;
+            //d->color.b = 255-fog_z;
+            d->color.a = 255;
         } else {
             d->color.a = v->cn[3];
         }*/
@@ -1218,10 +1240,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
         }
         */
         struct RGBA white = (struct RGBA){0xff, 0xff, 0xff, 0xff};
-        //struct RGBA tmp = (struct RGBA){0x00, 0x00, 0x00, 0x00};
+        struct RGBA tmp = (struct RGBA){0x00, 0x00, 0x00, 0x00};
         struct RGBA *color = &white;
-        
-        //const int hack = (num_inputs > 1) * ((int)used_textures[0]);
+
         for (int j = 0; j < num_inputs; j++) {
             for (int k = 0; k < 1 + (use_alpha ? 1 : 0); k++) {
                 switch (comb->shader_input_mapping[k][j]) {
@@ -1234,7 +1255,6 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
                     case CC_ENV:
                         color = &rdp.env_color;
                         break;
-                    /*
                     case CC_LOD:
                     {
                         float distance_frac = (v1->w - 3000.0f) / 3000.0f;
@@ -1243,10 +1263,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
                         tmp.r = tmp.g = tmp.b = tmp.a = distance_frac * 255.0f;
                         color = &tmp;
                         break;
-                    }*/
+                    }
                     default:
-                        //color = &tmp;
-                        color = &white;
+                        color = &tmp;
                         break;
                 }
                 /*@Note: should this be here ? */
@@ -1270,6 +1289,16 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
             }
         }
         memcpy(&buf_vbo[buf_num_vert].color, color, sizeof(struct RGBA));
+        if((rendering_state.shader_program->shader_id == 0x01200200)){
+            /*printf("prim: [ %d %d %d %d] shade [ %d %d %d %d] env [ %d %d %d %d]\n",
+                rdp.prim_color.r, rdp.prim_color.g, rdp.prim_color.b, rdp.prim_color.a,
+                clipped_vertices[0]->color.r, clipped_vertices[0]->color.g, clipped_vertices[0]->color.b, clipped_vertices[0]->color.a,
+                rdp.env_color.r, rdp.env_color.g, rdp.env_color.b, rdp.env_color.a);*/
+            memcpy(&buf_vbo[buf_num_vert].color, &clipped_vertices[0]->color, sizeof(struct RGBA));
+            if(rdp.env_color.a != 255){
+                buf_vbo[buf_num_vert].color.a = rdp.env_color.a;
+            }
+        }
         buf_num_vert++;
         buf_vbo_len += sizeof(psp_fast_t);
     }

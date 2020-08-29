@@ -80,8 +80,11 @@ void osViSetSpecialFeatures(UNUSED u32 func) {
 void osViSwapBuffer(UNUSED void *vaddr) {
 }
 
+#include <psprtc.h>
 OSTime osGetTime(void) {
-    return 0;
+    long long unsigned int temp;
+    sceRtcGetCurrentTick(&temp);
+    return (unsigned int) ((temp) & 0xffffffff);
 }
 
 void osWritebackDCacheAll(void) {

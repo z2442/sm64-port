@@ -16,7 +16,6 @@
 #define SCR_WIDTH (480)
 #define SCR_HEIGHT (272)
 
-static int force_30fps = 0;
 extern void J_Init(int foo);
 
 /* I forgot why we need this */
@@ -36,16 +35,6 @@ int isspace(int _c)
 {
     char c = (char)_c;
     return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
-}
-
-static unsigned int GetTicks(void) {
-    long long unsigned int temp;
-    sceRtcGetCurrentTick(&temp);
-    return (unsigned int) ((temp / 1000) & 0xffffffff);
-}
-
-static inline void Delay(int ms) {
-    sceKernelDelayThread(ms * 1000);
 }
 
 static int exitCallback(UNUSED int arg1, UNUSED int arg2, UNUSED void *common) {
@@ -107,21 +96,7 @@ static bool gfx_psp_start_frame(void) {
     return true;
 }
 
-static void sync_framerate_with_timer(void) {
-    // Number of milliseconds a frame should take (30 fps)
-    const unsigned int FRAME_TIME = 1000 / 30;
-    static unsigned int last_time;
-    unsigned int elapsed = GetTicks() - last_time;
-
-    if (elapsed < FRAME_TIME)
-        Delay(FRAME_TIME - elapsed);
-    last_time += FRAME_TIME;
-}
-
 static void gfx_psp_swap_buffers_begin(void) {
-    if (force_30fps) {
-        sync_framerate_with_timer();
-    }
 }
 
 static void gfx_psp_swap_buffers_end(void) {

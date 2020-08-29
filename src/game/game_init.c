@@ -59,6 +59,61 @@ struct DemoInput *gCurrDemoInput = NULL; // demo input sequence
 u16 gDemoInputListID = 0;
 struct DemoInput gRecordedDemoInput = { 0 }; // possibly removed in EU. TODO: Check
 
+// SDK states that 1 cycle takes about 21.33 nanoseconds
+//#define SECONDS_PER_CYCLE 0.00000002133f
+#define SECONDS_PER_CYCLE (1.0f/1000000.0f)
+
+#define FPS_COUNTER_X_POS 24
+#define FPS_COUNTER_Y_POS 190
+
+static OSTime gLastOSTime = 0;
+static float gFrameTime = 0.0f;
+static u16 gFrames = 0;
+u16 gFPS = 0;
+int gProcessAudio = TRUE;
+int gDoDither = FALSE;
+int gDoAA = FALSE;
+static u8 gRenderFPS = FALSE;
+
+static void calculate_frameTime_from_OSTime(OSTime diff) {
+    gFrameTime += diff * SECONDS_PER_CYCLE;
+    gFrames++;
+}
+
+static void render_fps(void) {
+    // Toggle rendering framerate with the L button.
+    if ((gPlayer1Controller->buttonPressed & L_TRIG) && (gPlayer1Controller->buttonPressed & R_TRIG)) {
+        gRenderFPS ^= 1;
+    }
+
+    if ((gPlayer1Controller->buttonPressed & L_TRIG) && (gPlayer1Controller->buttonPressed & START_BUTTON)) {
+        gProcessAudio ^= 1;
+    }
+
+    if ((gPlayer1Controller->buttonPressed & Z_TRIG)) {
+        gDoDither ^= 1;
+    }
+
+    if ((gPlayer1Controller->buttonPressed & L_TRIG)) {
+        gDoAA ^= 1;
+    }
+
+    OSTime newTime = osGetTime();
+    calculate_frameTime_from_OSTime(newTime - gLastOSTime);
+
+    // If frame time is longer or equal to a second, update FPS counter.
+    if (gFrameTime >= 1.0f) {
+        gFPS = gFrames;
+        gFrames = 0;
+        gFrameTime = 0.0f;
+    }
+    gLastOSTime = newTime;
+
+    if (gRenderFPS) {
+        print_text_fmt_int(FPS_COUNTER_X_POS, FPS_COUNTER_Y_POS, "FPS %d", gFPS);
+    }
+}
+
 /**
  * Initializes the Reality Display Processor (RDP).
  * This function initializes settings such as texture filtering mode,
@@ -652,6 +707,8 @@ void game_loop_one_iteration(void) {
             // amount of free space remaining.
             print_text_fmt_int(180, 20, "BUF %d", gGfxPoolEnd - (u8 *) gDisplayListHead);
         }
+        
+        render_fps();
 #ifdef TARGET_N64
     }
 #endif
