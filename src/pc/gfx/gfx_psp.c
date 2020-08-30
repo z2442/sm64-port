@@ -16,8 +16,6 @@
 #define SCR_WIDTH (480)
 #define SCR_HEIGHT (272)
 
-extern void J_Init(int foo);
-
 /* I forgot why we need this */
 void __assert_func(UNUSED const char *file, UNUSED int line, UNUSED const char *method, UNUSED const char *expression) {
 
@@ -63,7 +61,6 @@ static void gfx_psp_init(UNUSED const char *game_name, UNUSED bool start_in_full
     }
 
     scePowerSetClockFrequency(333, 333, 166);
-    J_Init(0);
 }
 
 static void gfx_psp_set_fullscreen_changed_callback(UNUSED void (*on_fullscreen_changed)(bool is_now_fullscreen)) {

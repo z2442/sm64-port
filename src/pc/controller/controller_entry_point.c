@@ -21,6 +21,7 @@
 static struct ControllerAPI *controller_implementations[] = {
 #if !defined(TARGET_PSP)
     &controller_recorded_tas,
+    &controller_keyboard,
 #endif
 #if defined(_WIN32) || defined(_WIN64)
     &controller_xinput,
@@ -32,7 +33,6 @@ static struct ControllerAPI *controller_implementations[] = {
 #ifdef __linux__
     &controller_wup,
 #endif
-    &controller_keyboard,
 };
 
 s32 osContInit(UNUSED OSMesgQueue *mq, u8 *controllerBits, UNUSED OSContStatus *status) {

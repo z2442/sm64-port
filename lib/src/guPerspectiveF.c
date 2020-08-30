@@ -33,11 +33,6 @@ void guPerspectiveF(float mf[4][4], u16 *perspNorm, float fovy, float aspect, fl
 void guPerspective(Mtx *m, u16 *perspNorm, float fovy, float aspect, float near, float far,
                    float scale) {
     float mat[4][4];
-    extern int gFrame;
-    extern int gDoAA;
-    extern short gFPS;
-    /*@Note: Changes our perspective to 16/9 */
-    /*@Note: Adds optional fake AA if we are at 60fps and relies on shit psp screen to smear for us */
-    guPerspectiveF(mat, perspNorm, fovy + ((((gFrame & 1)  & ( gFPS >= 60)) & gDoAA) * 0.5f), aspect*1.32352941177f, near, far, scale);
+    guPerspectiveF(mat, perspNorm, fovy, aspect*(1.0f/0.75555555555f), near, far, scale);
     guMtxF2L(mat, m);
 }

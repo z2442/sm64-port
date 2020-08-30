@@ -664,20 +664,20 @@ static inline void gfx_scegu_blend_fog_tris(void) {
 #endif
 }
 
+extern void memcpy_vfpu( void* dst, const void* src, size_t size );
+extern void memcpy4(void *dest, const void *src, size_t count);
 static void gfx_scegu_draw_triangles(float buf_vbo[], UNUSED size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     //printf("flushing %d tris\n", buf_vbo_num_tris);
 
     if(is_shader_enabled(cur_shader->shader_id)){
         gfx_scegu_apply_shader(cur_shader);
     } else {
-        if(cur_shader->shader_id < 153092165)
-            printf("Remapping shader %u -> %u\n", cur_shader->shader_id, get_shader_remap(cur_shader->shader_id));
         gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
 
-    sceKernelDcacheWritebackRange (buf_vbo, sizeof(Vertex)* 3 * buf_vbo_num_tris);
-	sceKernelDcacheInvalidateRange(buf_vbo, sizeof(Vertex)* 3 * buf_vbo_num_tris);
-    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * buf_vbo_num_tris, 0, (void *)buf_vbo);
+    void *buf = sceGuGetMemory(sizeof(Vertex) * 3 * buf_vbo_num_tris);
+    memcpy_vfpu(buf, buf_vbo, sizeof(Vertex) * 3 * buf_vbo_num_tris);
+    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * buf_vbo_num_tris, 0, buf);
 
     // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
     //if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
@@ -688,12 +688,11 @@ void gfx_scegu_draw_triangles_2d(float buf_vbo[], UNUSED size_t buf_vbo_len, UNU
     if(is_shader_enabled(cur_shader->shader_id)){
         gfx_scegu_apply_shader(cur_shader);
     } else {
-        printf("Remapping shader %u -> %u\n", cur_shader->shader_id, get_shader_remap(cur_shader->shader_id));
         gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
 
     void *quad_buf = sceGuGetMemory(sizeof(VertexColor)* 2);
-    memcpy(quad_buf, buf_vbo, sizeof(VertexColor)* 2);
+    memcpy4(quad_buf, buf_vbo, sizeof(VertexColor)* 2);
     sceGuDrawArray(GU_SPRITES, GU_TEXTURE_16BIT|GU_COLOR_8888|GU_VERTEX_16BIT|GU_TRANSFORM_2D, 2, 0, quad_buf);
 }
 
@@ -760,6 +759,8 @@ static void gfx_scegu_start_frame(void) {
     sceGuSetMatrix(GU_PROJECTION, (const ScePspFMatrix4 *)identity_matrix);
     sceGuSetMatrix(GU_VIEW, (const ScePspFMatrix4 *)identity_matrix);
     sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)identity_matrix);
+ 
+    #if 0
     const int DitherMatrix[2][16] = { { 0, 8, 0, 8,
                          8, 0, 8, 0,
                          0, 8, 0, 8,
@@ -769,14 +770,16 @@ static void gfx_scegu_start_frame(void) {
                           8, 8, 8, 8,
                           0, 8, 0, 8 } };
 
-    extern int gDoAA;
+    extern int gDoDither;
     extern int gFrame;
+
     sceGuDisable(GU_DITHER);
-    if(gDoAA){
+    if(gDoDither){
         // every frame
         sceGuSetDither((const ScePspIMatrix4 *)DitherMatrix[(gFrame&1)]);
         sceGuEnable(GU_DITHER);
     }
+    #endif
 }
 
 void gfx_scegu_on_resize(void) {

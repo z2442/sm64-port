@@ -183,6 +183,7 @@ void texman_upload_swizzle(int width, int height, unsigned int type, const void 
     texman_bind_tex(psp_tex_number);
 }
 
+extern void memcpy4(void *dest, const void *src, size_t count);
 void texman_upload(int width, int height, unsigned int type, const void *buffer) {
     struct PSP_Texture *current = texman_reserve_memory(width, height, type);
     sceKernelDcacheWritebackRange(buffer, getMemorySize(width, height, type));
@@ -190,7 +191,7 @@ void texman_upload(int width, int height, unsigned int type, const void *buffer)
     current->height = height;
     current->type = type;
     current->swizzled = GU_FALSE;
-    memcpy(current->location, buffer, getMemorySize(width, height, type));
+    memcpy4(current->location, buffer, getMemorySize(width, height, type));
     // printf("TEX_MAN upload plain [%d]\n", psp_tex_number);
     sceKernelDcacheWritebackRange(current->location, getMemorySize(width, height, type));
 	sceKernelDcacheInvalidateRange(current->location, getMemorySize(width, height, type));
