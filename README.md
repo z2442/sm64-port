@@ -40,6 +40,7 @@ Notes:Currently only supported building under linux and WSL
 1. Install the PSP toolchain https://github.com/pspdev/psptoolchain.
 2. Place a Super Mario 64 ROM called `baserom.<VERSION>.z64` into the repository's root directory for asset extraction, where `VERSION` can be `us`, `jp`, or `eu`.
 3. Run `make TARGET_PSP=1`
+4. Optionally if you would prefer an EBOOT.PBP for use on CFW Run `make TARGET_PSP=1 pbp` , and the folder `mario64` will be made in the build folder.
 
 Windows Possible Guide: NOTE UNSUPPORTED currently
 1. Install the PSP toolchain https://darksectordds.github.io/html/MinimalistPSPSDK/index.html
@@ -56,6 +57,8 @@ Windows Possible Guide: NOTE UNSUPPORTED currently
 10. Go back to powershell window:
 11. Run `$PSDefaultParameterValues['*:Encoding'] = 'utf8'` Only needed if using Powershell, if using cmd.exe you can skip this.
 12. Run `make TARGET_PSP=1 SHELL=sh PYTHON=py`
+13. Optionally if you would prefer an EBOOT.PBP for use on CFW Run `make TARGET_PSP=1 SHELL=sh PYTHON=py pbp`, and the folder `mario64` will be made in the build folder.
+
 
 #### Troubleshooting
 
