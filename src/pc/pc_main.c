@@ -21,7 +21,6 @@
 
 #include "audio/audio_api.h"
 #include "audio/audio_psp.h"
-#include "melib.h"
 #include "audio/audio_wasapi.h"
 #include "audio/audio_pulse.h"
 #include "audio/audio_alsa.h"
@@ -101,6 +100,7 @@ void send_display_list(struct SPTask *spTask) {
 static s16 audio_buffer[SAMPLES_HIGH * 2 * 2] __attribute__((aligned(64)));
 struct Job* j = NULL;
 
+typedef int JobData;
 int run_me_audio(JobData data){
     create_next_audio_buffer(audio_buffer + 0 * (data * 2), data);
     create_next_audio_buffer(audio_buffer + 1 * (data * 2), data);

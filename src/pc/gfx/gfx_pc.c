@@ -302,16 +302,17 @@ static uint32_t clipToHyperPlane( struct LoadedVertex *dest, const struct Loaded
 	bDotPlane = vec4_dot(&b->_x, plane);
     size_t i;
 
+#define EPSILON 0.00000001
 	for(i = 1; i < inCount + 1; ++i)
 	{
 		a = &source[i%inCount];
 		aDotPlane = vec4_dot(&a->_x, plane);
 
 		// current point inside
-		if ( aDotPlane <= 0.f )
+		if ( aDotPlane <= EPSILON )
 		{
 			// last point outside
-			if ( bDotPlane > 0.f )
+			if ( bDotPlane > EPSILON )
 			{
 				// intersect line segment with plane
                 // Next 2 lines are "(b->ProjectedPos - a->ProjectedPos).Dot( plane )"
@@ -332,7 +333,7 @@ static uint32_t clipToHyperPlane( struct LoadedVertex *dest, const struct Loaded
 		{
 			// current point outside
 
-			if ( bDotPlane <= 0.f )
+			if ( bDotPlane <= EPSILON )
 			{
 				// previous was inside
 				// intersect line segment with plane
@@ -1314,40 +1315,6 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, UNUSED uint8_t vt
     struct VertexColor *v2 = &rsp.loaded_vertices_2D[vtx2_idx];
     struct VertexColor *v_arr[2] = {v1, v2};
 
-    #if 0
-    /*@Note: unsure if needed anymore? or even possible...*/
-    if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
-        // The whole triangle lies outside the visible area
-        return;
-    }
-
-    if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
-        float dx1 = v1->x / (v1->w) - v2->x / (v2->w);
-        float dy1 = v1->y / (v1->w) - v2->y / (v2->w);
-        float dx2 = v3->x / (v3->w) - v2->x / (v2->w);
-        float dy2 = v3->y / (v3->w) - v2->y / (v2->w);
-        float cross = dx1 * dy2 - dy1 * dx2;
-        
-        if ((v1->w < 0) ^ (v2->w < 0) ^ (v3->w < 0)) {
-            // If one vertex lies behind the eye, negating cross will give the correct result.
-            // If all vertices lie behind the eye, the triangle will be rejected anyway.
-            cross = -cross;
-        }
-        
-        switch (rsp.geometry_mode & G_CULL_BOTH) {
-            case G_CULL_FRONT:
-                if (cross <= 0) return;
-                break;
-            case G_CULL_BACK:
-                if (cross >= 0) return;
-                break;
-            case G_CULL_BOTH:
-                // Why is this even an option?
-                return;
-        }
-    }
-    #endif
-
     bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
     if (depth_test != rendering_state.depth_test) {
         gfx_flush();
@@ -1442,7 +1409,7 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, UNUSED uint8_t vt
     //uint32_t tex_width = (rdp.texture_tile.lrs - rdp.texture_tile.uls + 4) / 4;
     //uint32_t tex_height = (rdp.texture_tile.lrt - rdp.texture_tile.ult + 4) / 4;
 
-    static VertexColor tri_buf[2] = {{0}};
+    VertexColor tri_buf[2] = {{0}};
     int tri_num_vert = 0;
     
     for (int i = 0; i < 2; i++) {
