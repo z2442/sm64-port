@@ -309,9 +309,7 @@ static inline int texenv_set_texture(UNUSED struct ShaderProgram *prg) {
 
 static inline int texenv_set_texture_color(struct ShaderProgram *prg) {
     int mode;
-
-    // HACK: lord forgive me for this, but this is easier
-
+    /*@Hack: lord forgive me for this, but this is easier */
     switch (prg->shader_id) {
         case 0x0000038D: // mario's eyes
         case 0x01045A00: // peach letter
@@ -330,8 +328,8 @@ static inline int texenv_set_texture_color(struct ShaderProgram *prg) {
 }
 
 static inline int texenv_set_texture_texture(UNUSED struct ShaderProgram *prg) {
-    return GU_TFX_MODULATE;
-
+    /*@Note: hack shader 0x1A00A6F for Bowser/Peach Paintings (still broken, but just fixed on peach)*/
+    return GU_TFX_DECAL;
 }
 
 static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
@@ -340,8 +338,8 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
         sceGuEnable(GU_TEXTURE_2D);
     } else {
         sceGuDisable(GU_TEXTURE_2D);
+        return;
     }
-
 /*@Note: Revisit one day! */
 #if 0
     if (prg->shader_id & SHADER_OPT_FOG) {
@@ -373,15 +371,24 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
         sceGuDisable(GU_ALPHA_TEST);
     }
 
-    // configure formulae
-    int mode;
-    switch (prg->mix) {
-        case SH_MT_TEXTURE:         mode = texenv_set_texture(prg); break;
-        case SH_MT_TEXTURE_TEXTURE: mode = texenv_set_texture_texture(prg); break;
-        case SH_MT_TEXTURE_COLOR:   mode = texenv_set_texture_color(prg); break;
-        default:                    mode = texenv_set_color(prg); break;
+    if (!prg->enabled) {
+        // configure formulae, we only need to do this once
+        prg->enabled = true;
+
+        int mode;
+        switch (prg->mix) {
+            case SH_MT_TEXTURE:         mode = texenv_set_texture(prg); break;
+            case SH_MT_TEXTURE_TEXTURE: mode = texenv_set_texture_texture(prg); break;
+            case SH_MT_TEXTURE_COLOR:   mode = texenv_set_texture_color(prg); break;
+            default:                    mode = texenv_set_color(prg); break;
+        }
+
+        /* Transition Screens */
+        if(prg->shader_id == 0x01A00045){
+            mode = GU_TFX_REPLACE;
+        }
+        sceGuTexFunc(mode, GU_TCC_RGBA);
     }
-    sceGuTexFunc(mode, GU_TCC_RGBA);
 }
 
 static void gfx_scegu_unload_shader(struct ShaderProgram *old_prg) {
@@ -667,11 +674,7 @@ static inline void gfx_scegu_blend_fog_tris(void) {
 extern void memcpy_vfpu( void* dst, const void* src, size_t size );
 extern void memcpy4(void *dest, const void *src, size_t count);
 static void gfx_scegu_draw_triangles(float buf_vbo[], UNUSED size_t buf_vbo_len, size_t buf_vbo_num_tris) {
-    //printf("flushing %d tris\n", buf_vbo_num_tris);
-
-    if(is_shader_enabled(cur_shader->shader_id)){
-        gfx_scegu_apply_shader(cur_shader);
-    } else {
+    if(!is_shader_enabled(cur_shader->shader_id)){
         gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
 
@@ -685,9 +688,7 @@ static void gfx_scegu_draw_triangles(float buf_vbo[], UNUSED size_t buf_vbo_len,
 }
 
 void gfx_scegu_draw_triangles_2d(float buf_vbo[], UNUSED size_t buf_vbo_len, UNUSED size_t buf_vbo_num_tris) {
-    if(is_shader_enabled(cur_shader->shader_id)){
-        gfx_scegu_apply_shader(cur_shader);
-    } else {
+    if(!is_shader_enabled(cur_shader->shader_id)){
         gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
 
