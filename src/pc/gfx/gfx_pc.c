@@ -1266,7 +1266,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
                         break;
                     }
                     default:
-                        color = &tmp;
+                        color = &white;
                         break;
                 }
                 /*@Note: should this be here ? */
@@ -1290,11 +1290,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
             }
         }
         memcpy(&buf_vbo[buf_num_vert].color, color, sizeof(struct RGBA));
+
+        /*@Note: Blue Star color */
         if((rendering_state.shader_program->shader_id == 0x01200200)){
-            /*printf("prim: [ %d %d %d %d] shade [ %d %d %d %d] env [ %d %d %d %d]\n",
-                rdp.prim_color.r, rdp.prim_color.g, rdp.prim_color.b, rdp.prim_color.a,
-                clipped_vertices[0]->color.r, clipped_vertices[0]->color.g, clipped_vertices[0]->color.b, clipped_vertices[0]->color.a,
-                rdp.env_color.r, rdp.env_color.g, rdp.env_color.b, rdp.env_color.a);*/
             memcpy(&buf_vbo[buf_num_vert].color, &clipped_vertices[0]->color, sizeof(struct RGBA));
             if(rdp.env_color.a != 255){
                 buf_vbo[buf_num_vert].color.a = rdp.env_color.a;
@@ -1444,7 +1442,6 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, UNUSED uint8_t vt
         }
         */
         struct RGBA white = (struct RGBA){0xff, 0xff, 0xff, 0xff};
-        //struct RGBA tmp = (struct RGBA){0x00, 0x00, 0x00, 0x00};
         struct RGBA *color = &white;
         
         //const int hack = (num_inputs > 1) * ((int)used_textures[0]);
@@ -1471,7 +1468,6 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, UNUSED uint8_t vt
                         break;
                     }*/
                     default:
-                        //color = &tmp;
                         color = &white;
                         break;
                 }

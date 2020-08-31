@@ -16,9 +16,9 @@ static void controller_psp_init(void) {
 // PSP -> N64 control mapping
 //  SQUARE   -> B
 //  CROSS    -> A
-//  TRIANGLE -> Z Trigger
+//  TRIANGLE -> L Trigger /* Literally unused in the game */
 //  CIRCLE   -> Z Trigger
-//  L Trig   -> L Trigger
+//  L Trig   -> Z Trigger
 //  R Trig   -> R Trigger
 //  Analog   -> Move
 //  Start    -> Start
@@ -44,11 +44,11 @@ static void controller_psp_read(OSContPad *pad) {
     if (data.Buttons & PSP_CTRL_CROSS)
         pad->button |= A_BUTTON;
     if (data.Buttons & PSP_CTRL_TRIANGLE)
-        pad->button |= Z_TRIG;
+        pad->button |= L_TRIG;
     if (data.Buttons & PSP_CTRL_CIRCLE)
         pad->button |= Z_TRIG;
     if (data.Buttons & PSP_CTRL_LTRIGGER)
-        pad->button |= L_TRIG;
+        pad->button |= Z_TRIG;
     if (data.Buttons & PSP_CTRL_RTRIGGER)
         pad->button |= R_TRIG;
     if (data.Buttons & PSP_CTRL_UP)
