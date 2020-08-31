@@ -612,7 +612,7 @@ static void gfx_scegu_set_depth_mask(bool z_upd) {
 
 static void gfx_scegu_set_zmode_decal(bool zmode_decal) {
     if (zmode_decal) {
-        sceGuDepthOffset(12); /* I think we need a little more on psp because of 16bit depth buffer */
+        sceGuDepthOffset(32); /* I think we need a little more on psp because of 16bit depth buffer */
     } else {
         sceGuDepthOffset(0);
     }

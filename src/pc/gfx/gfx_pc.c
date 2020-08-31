@@ -1102,7 +1102,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     struct LoadedVertex _clipped_vertices[18];
     struct LoadedVertex *ptr_clipped_vertices[18];
 
-    if((v1->clip_rej || v2->clip_rej || v3->clip_rej) && CLIP_TEST_FLAGS) {
+    if((v1->clip_rej || v2->clip_rej || v3->clip_rej) & CLIP_TEST_FLAGS) {
         gfx_clip_single_vert(_clipped_vertices, &clipped_vertices_num, v_arr);
 
         if(!clipped_vertices_num){
@@ -1297,6 +1297,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
             if(rdp.env_color.a != 255){
                 buf_vbo[buf_num_vert].color.a = rdp.env_color.a;
             }
+        }
+        if((rendering_state.shader_program->shader_id == 0x01A00045)){
+            color = &tmp;
         }
         buf_num_vert++;
         buf_vbo_len += sizeof(psp_fast_t);
