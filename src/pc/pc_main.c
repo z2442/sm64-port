@@ -35,6 +35,8 @@
 
 #if defined(TARGET_PSP)
 #include <pspsdk.h>
+#include <pspkernel.h>
+#include "melib.h"
 #define MODULE_NAME "SM64 for PSP"
 #ifndef SRC_VER
 #define SRC_VER "UNKNOWN"
@@ -97,8 +99,23 @@ void send_display_list(struct SPTask *spTask) {
 #endif
 
 #if defined(TARGET_PSP)
+
+int MEAudioActive = 0;
+int MEAudioReady = 0;
+int MEAudioCreateBuffer = 0;
+
+//Cache function for the ME barrowed from the main Media Engine PRX
+void dcache_wbinv_all()
+{
+   for(int i = 0; i < 8192; i += 64)
+   {
+      __builtin_allegrex_cache(0x14, i);
+      __builtin_allegrex_cache(0x14, i);
+   }
+}
+
 static s16 audio_buffer[SAMPLES_HIGH * 2 * 2] __attribute__((aligned(64)));
-struct Job* j = NULL;
+
 
 typedef int JobData;
 int run_me_audio(JobData data){
@@ -106,6 +123,51 @@ int run_me_audio(JobData data){
     create_next_audio_buffer(audio_buffer + 1 * (data * 2), data);
     return 0;
 }
+
+static int MEAudioLoop(){
+while(MEAudioActive > 0)
+{
+dcache_wbinv_all();
+if(MEAudioCreateBuffer == 1){
+run_me_audio(656);
+MEAudioReady = 1;
+MEAudioCreateBuffer = 0;
+}
+dcache_wbinv_all();
+}
+return 0;
+}
+
+static int audioOutput(SceSize args, void *argp){
+
+        struct Job* j = (struct Job*)malloc(sizeof(struct Job));
+        j->jobInfo.id = 1;
+        j->jobInfo.execMode = MELIB_EXEC_ME;
+
+        j->function = &MEAudioLoop;
+        j->data = 656;
+        J_AddJob(j);
+        J_Update(0.0f);
+
+        sceKernelDcacheWritebackInvalidateAll();
+        while(MEAudioReady < 1){
+            sceKernelDelayThread(100);
+            sceKernelDcacheWritebackInvalidateAll();
+        }
+
+        MEAudioReady = 0;
+        sceKernelDcacheWritebackInvalidateAll();
+
+        //printf("Audio samples before submitting: %d\n", audio_api->buffered());
+        audio_api->play((u8 *)audio_buffer, 2 /* 2 buffers */ * 656 * sizeof(short) * 2 /* stereo */);
+
+    return 0;
+}
+
+
+
+
+
 #endif
 
 extern int gProcessAudio;
@@ -119,23 +181,20 @@ void produce_one_frame(void) {
     //printf("Audio samples: %d %u\n", samples_left, num_audio_samples);
     
     if(gProcessAudio){
-        #if 1 /* !defined(TARGET_PSP) */
+        #if !defined(TARGET_PSP) 
         create_next_audio_buffer(audio_buffer + 0 * (num_audio_samples * 2), num_audio_samples);
         create_next_audio_buffer(audio_buffer + 1 * (num_audio_samples * 2), num_audio_samples);
-        #else
-        j = (struct Job*)malloc(sizeof(struct Job));
-        j->jobInfo.id = 1;
-        j->jobInfo.execMode = MELIB_EXEC_ME;
-
-        j->function = &run_me_audio;
-        j->data = num_audio_samples;
-        J_AddJob(j);
-        J_Update(0.0f);
-        #endif
 
         //printf("Audio samples before submitting: %d\n", audio_api->buffered());
         audio_api->play((u8 *)audio_buffer, 2 /* 2 buffers */ * num_audio_samples * sizeof(short) * 2 /* stereo */);
+
+        #else
+        int audioThid = sceKernelCreateThread("AudioOutput", audioOutput, 0x15, 0x1800, PSP_THREAD_ATTR_USER, NULL);
+     sceKernelStartThread(audioThid, 0, NULL);
+        #endif
+
     }
+
     gfx_end_frame();
 }
 
