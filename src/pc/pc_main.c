@@ -100,11 +100,12 @@ void send_display_list(struct SPTask *spTask) {
 
 #if defined(TARGET_PSP)
 
-int MEAudioActive = 0;
-int MEAudioReady = 0;
-int MEAudioCreateBuffer = 0;
+volatile int MEAudioActive = 0;
+volatile int MEAudioReady = 0;
+volatile int MEAudioCreateBuffer = 0;
+int Audiostarted = 0;
 
-//Cache function for the ME barrowed from the main Media Engine PRX
+//Cache function for the ME barrowed from the main Media Engine PRX in Daedalus
 void dcache_wbinv_all()
 {
    for(int i = 0; i < 8192; i += 64)
@@ -113,6 +114,8 @@ void dcache_wbinv_all()
       __builtin_allegrex_cache(0x14, i);
    }
 }
+
+
 
 static s16 audio_buffer[SAMPLES_HIGH * 2 * 2] __attribute__((aligned(64)));
 
@@ -125,21 +128,15 @@ int run_me_audio(JobData data){
 }
 
 static int MEAudioLoop(){
-while(MEAudioActive > 0)
-{
-dcache_wbinv_all();
 if(MEAudioCreateBuffer == 1){
 run_me_audio(656);
 MEAudioReady = 1;
 MEAudioCreateBuffer = 0;
 }
-dcache_wbinv_all();
-}
 return 0;
 }
 
 static int audioOutput(SceSize args, void *argp){
-
         struct Job* j = (struct Job*)malloc(sizeof(struct Job));
         j->jobInfo.id = 1;
         j->jobInfo.execMode = MELIB_EXEC_ME;
@@ -149,17 +146,18 @@ static int audioOutput(SceSize args, void *argp){
         J_AddJob(j);
         J_Update(0.0f);
 
+        MEAudioCreateBuffer = 1;
         sceKernelDcacheWritebackInvalidateAll();
         while(MEAudioReady < 1){
             sceKernelDelayThread(100);
             sceKernelDcacheWritebackInvalidateAll();
         }
 
-        MEAudioReady = 0;
-        sceKernelDcacheWritebackInvalidateAll();
-
         //printf("Audio samples before submitting: %d\n", audio_api->buffered());
         audio_api->play((u8 *)audio_buffer, 2 /* 2 buffers */ * 656 * sizeof(short) * 2 /* stereo */);
+
+        MEAudioReady = 0;
+        sceKernelDcacheWritebackInvalidateAll();
 
     return 0;
 }
@@ -189,8 +187,13 @@ void produce_one_frame(void) {
         audio_api->play((u8 *)audio_buffer, 2 /* 2 buffers */ * num_audio_samples * sizeof(short) * 2 /* stereo */);
 
         #else
+        if(Audiostarted == 0){
+        J_Init(false);
+       
+        Audiostarted = 1;
+        }
         int audioThid = sceKernelCreateThread("AudioOutput", audioOutput, 0x15, 0x1800, PSP_THREAD_ATTR_USER, NULL);
-     sceKernelStartThread(audioThid, 0, NULL);
+        sceKernelStartThread(audioThid, 0, NULL);
         #endif
 
     }
