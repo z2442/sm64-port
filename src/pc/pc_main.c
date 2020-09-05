@@ -142,7 +142,7 @@ int run_me_audio(JobData data){
 
 static int MEAudioLoop(){
 if(MEAudioCreateBuffer == 1){
-run_me_audio(656);
+run_me_audio(544);
 MEAudioReady = 1;
 MEAudioCreateBuffer = 0;
 }
@@ -150,7 +150,7 @@ return 0;
 }
 static int audioOutput(SceSize args, void *argp){
     while(1){
-        BeginME( mei, (int)&MEAudioLoop, (int)656, -1, NULL, -1, NULL);
+        BeginME( mei, (int)&MEAudioLoop, (int)544, -1, NULL, -1, NULL);
         MEAudioCreateBuffer = 1;
         sceKernelDcacheWritebackInvalidateAll();
         while(1){
@@ -162,7 +162,7 @@ static int audioOutput(SceSize args, void *argp){
         }
 
         //printf("Audio samples before submitting: %d\n", audio_api->buffered());
-        audio_api->play((u8 *)audio_buffer, 2 /* 2 buffers */ * 656 * sizeof(short) * 2 /* stereo */);
+        audio_api->play((u8 *)audio_buffer, 2 /* 2 buffers */ * 544 * sizeof(short) * 2 /* stereo */);
 
         MEAudioReady = 0;
         sceKernelDcacheWritebackInvalidateAll();
