@@ -1,5 +1,3 @@
-#ifndef me_h
-#define me_h
 
 #include <pspsdk.h>
 #include <pspkernel.h>
@@ -34,4 +32,3 @@ unsigned int SignalME(volatile struct me_struct *mei, unsigned int sigmask, unsi
 }
 #endif
 
-#endif

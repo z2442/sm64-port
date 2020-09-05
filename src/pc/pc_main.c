@@ -36,11 +36,13 @@
 #if defined(TARGET_PSP)
 #include <pspsdk.h>
 #include <pspkernel.h>
-#include "melib.h"
+#include "driver/me.h"
 #define MODULE_NAME "SM64 for PSP"
 #ifndef SRC_VER
 #define SRC_VER "UNKNOWN"
 #endif
+
+
 
 PSP_MODULE_INFO(MODULE_NAME, 0, 1, 1);
 PSP_HEAP_SIZE_MAX();
@@ -104,6 +106,17 @@ volatile int MEAudioActive = 0;
 volatile int MEAudioReady = 0;
 volatile int MEAudioCreateBuffer = 0;
 int Audiostarted = 0;
+volatile struct me_struct *mei;
+
+
+int LoadPRX(const char *path ){
+int loaded = pspSdkLoadStartModule(path, PSP_MEMORY_PARTITION_KERNEL);
+if( loaded < 0){
+    printf("Failed to load prx");
+}
+printf("Loaded prx");
+return loaded;
+}
 
 //Cache function for the ME barrowed from the main Media Engine PRX in Daedalus
 void dcache_wbinv_all()
@@ -135,20 +148,15 @@ MEAudioCreateBuffer = 0;
 }
 return 0;
 }
-
 static int audioOutput(SceSize args, void *argp){
-        struct Job* j = (struct Job*)malloc(sizeof(struct Job));
-        j->jobInfo.id = 1;
-        j->jobInfo.execMode = MELIB_EXEC_ME;
-
-        j->function = &MEAudioLoop;
-        j->data = 656;
-        J_AddJob(j);
-        J_Update(0.0f);
-
+    while(1){
+        BeginME( mei, (int)&MEAudioLoop, (int)656, -1, NULL, -1, NULL);
         MEAudioCreateBuffer = 1;
         sceKernelDcacheWritebackInvalidateAll();
-        while(MEAudioReady < 1){
+        while(1){
+            if(CheckME(mei)){
+            break;
+            }
             sceKernelDelayThread(100);
             sceKernelDcacheWritebackInvalidateAll();
         }
@@ -158,6 +166,7 @@ static int audioOutput(SceSize args, void *argp){
 
         MEAudioReady = 0;
         sceKernelDcacheWritebackInvalidateAll();
+    }
 
     return 0;
 }
@@ -188,12 +197,13 @@ void produce_one_frame(void) {
 
         #else
         if(Audiostarted == 0){
-        J_Init(false);
-       
-        Audiostarted = 1;
-        }
+        LoadPRX("mediaengine.prx");
+        InitME(mei);
         int audioThid = sceKernelCreateThread("AudioOutput", audioOutput, 0x15, 0x1800, PSP_THREAD_ATTR_USER, NULL);
         sceKernelStartThread(audioThid, 0, NULL);
+        Audiostarted = 1;
+        }
+
         #endif
 
     }
