@@ -246,12 +246,12 @@ LEVEL_DIRS := $(patsubst levels/%,%,$(dir $(wildcard levels/*/header.h)))
 
 # Directories containing source files
 SRC_DIRS := src src/engine src/game src/audio src/menu src/buffers actors levels bin bin/$(VERSION) data assets
-ASM_DIRS := lib
+ASM_DIRS := lib src/pc/driver
 ifeq ($(TARGET_N64),1)
   ASM_DIRS := asm $(ASM_DIRS)
 else
-  SRC_DIRS := $(SRC_DIRS) src/pc src/pc/gfx src/pc/audio src/pc/controller
-  ASM_DIRS :=
+  SRC_DIRS := $(SRC_DIRS) src/pc/driver src/pc src/pc/gfx src/pc/audio src/pc/controller 
+  ASM_DIRS := 
 endif
 BIN_DIRS := bin bin/$(VERSION)
 
@@ -300,7 +300,7 @@ include Makefile.split
 LEVEL_C_FILES := $(wildcard levels/*/leveldata.c) $(wildcard levels/*/script.c) $(wildcard levels/*/geo.c)
 C_FILES := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.c)) $(LEVEL_C_FILES)
 CXX_FILES := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.cpp))
-S_FILES := $(foreach dir,$(ASM_DIRS),$(wildcard $(dir)/*.s))
+S_FILES := $(foreach dir,$(ASM_DIRS),$(wildcard $(dir)/*.s)) 
 ULTRA_C_FILES := $(foreach dir,$(ULTRA_SRC_DIRS),$(wildcard $(dir)/*.c))
 GODDARD_C_FILES := $(foreach dir,$(GODDARD_SRC_DIRS),$(wildcard $(dir)/*.c))
 ifeq ($(TARGET_N64),1)
@@ -418,7 +418,7 @@ ifeq ($(TARGET_N64),1)
   CC_CFLAGS := -fno-builtin
 endif
 
-INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
+INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I . 
 
 ifeq ($(TARGET_PSP),1)
   CC := psp-gcc
@@ -798,6 +798,8 @@ $(BUILD_DIR)/lib/src/ldiv.o: OPT_FLAGS := -O2
 $(BUILD_DIR)/lib/src/string.o: OPT_FLAGS := -O2
 $(BUILD_DIR)/lib/src/gu%.o: OPT_FLAGS := -O3
 $(BUILD_DIR)/lib/src/al%.o: OPT_FLAGS := -O3
+$(BUILD_DIR)/src/pc/driver/%.o: OPT_FLAGS := -O3
+$(BUILD_DIR)/src/pc/driver/MeidaEngine.s: OPT_FLAGS := -O3
 
 ifeq ($(VERSION),eu)
 $(BUILD_DIR)/lib/src/_Litob.o: OPT_FLAGS := -O3

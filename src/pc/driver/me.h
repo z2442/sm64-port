@@ -1,3 +1,5 @@
+#ifndef me_h
+#define me_h
 
 #include <pspsdk.h>
 #include <pspkernel.h>
@@ -18,6 +20,7 @@ struct me_struct
 	int postcache_len;		// amount of space to flush after running func, -1 = all
 	void *postcache_addr;	// address of space to flush after running func
 	unsigned int signals;
+	int init;
 };
 
 int InitME(volatile struct me_struct *mei );
@@ -32,3 +35,4 @@ unsigned int SignalME(volatile struct me_struct *mei, unsigned int sigmask, unsi
 }
 #endif
 
+#endif
