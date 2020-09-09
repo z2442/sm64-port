@@ -619,17 +619,12 @@ static void gfx_scegu_set_zmode_decal(bool zmode_decal) {
 }
 
 static void gfx_scegu_set_viewport(int x, int y, int width, int height) {
-    printf("sceGuViewport(%d, %d, %d, %d)\n", x, y, width, height);
-    //sceGuViewport(x, y, width, height);
+    sceGuViewport(2048 - (SCR_WIDTH / 2) + x + (width / 2), 2048 + (SCR_HEIGHT / 2) - y - (height / 2), width, height);
+    sceGuScissor(x, SCR_HEIGHT - y - height, x + width, SCR_HEIGHT - y);
 }
 
 static void gfx_scegu_set_scissor(int x, int y, int width, int height) {
-    /*@Note: maybe this is right, fixes signs so should be correct */
-    if((x || y)){
-        sceGuScissor(x, SCR_HEIGHT-y-height, x+width, SCR_HEIGHT-y);
-    } else {
-        sceGuScissor(x, y, x+width, y+height);
-    }
+    sceGuScissor(x, SCR_HEIGHT - y - height, x + width, SCR_HEIGHT - y);
 }
 
 static void gfx_scegu_set_use_alpha(bool use_alpha) {
