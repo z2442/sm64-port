@@ -61,7 +61,7 @@ struct DemoInput gRecordedDemoInput = { 0 }; // possibly removed in EU. TODO: Ch
 
 // SDK states that 1 cycle takes about 21.33 nanoseconds
 //#define SECONDS_PER_CYCLE 0.00000002133f
-#define SECONDS_PER_CYCLE (1.0f/1000000.0f)
+#define SECONDS_PER_CYCLE (1.0f/1000000.0f) /* psp tick rate obtained from sceRtcGetTickResolution() */
 
 #define FPS_COUNTER_X_POS 24
 #define FPS_COUNTER_Y_POS 190

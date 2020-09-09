@@ -181,7 +181,7 @@ static void on_fullscreen_changed(bool is_now_fullscreen) {
 }
 
 void main_func(void) {
-    static u64 pool[0x165000/8 / 4 * sizeof(void *)];
+    static u32 pool[0x165000/8 / 4 * sizeof(void *) * 4];
     main_pool_init(pool, pool + sizeof(pool) / sizeof(pool[0]));
     gEffectsMemoryPool = mem_pool_init(0x4000, MEMORY_POOL_LEFT);
 
