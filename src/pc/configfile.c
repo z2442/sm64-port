@@ -210,9 +210,9 @@ void configfile_load(const char *filename) {
                         default:
                             assert(0); // bad type
                     }
-                    //#ifdef DEBUG
+                    #ifdef DEBUG
                     printf("option: '%s', value: '%s'\n", tokens[0], tokens[1]);
-                    //#endif
+                    #endif
                 }
             } else
                 puts("error: expected value");
