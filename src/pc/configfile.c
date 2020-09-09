@@ -35,19 +35,21 @@ struct ConfigOption {
  */
 bool configFullscreen            = false;
 // Keyboard mappings (scancode values)
-unsigned int configKeyA          = 0x26;
-unsigned int configKeyB          = 0x33;
-unsigned int configKeyStart      = 0x39;
-unsigned int configKeyR          = 0x36;
-unsigned int configKeyZ          = 0x25;
-unsigned int configKeyCUp        = 0x148;
-unsigned int configKeyCDown      = 0x150;
-unsigned int configKeyCLeft      = 0x14B;
-unsigned int configKeyCRight     = 0x14D;
+unsigned int configKeyA          = 0x004000;
+unsigned int configKeyB          = 0x008000;
+unsigned int configKeyStart      = 0x000008;
+unsigned int configKeyL          = 0x001000 | 0x002000;
+unsigned int configKeyR          = 0x000200;
+unsigned int configKeyZ          = 0x000100;
+unsigned int configKeyCUp        = 0x000010;
+unsigned int configKeyCDown      = 0x000040;
+unsigned int configKeyCLeft      = 0x000080;
+unsigned int configKeyCRight     = 0x000020;
 unsigned int configKeyStickUp    = 0x11;
 unsigned int configKeyStickDown  = 0x1F;
 unsigned int configKeyStickLeft  = 0x1E;
 unsigned int configKeyStickRight = 0x20;
+unsigned int configDeadzone      = 0x20;
 
 
 static const struct ConfigOption options[] = {
@@ -55,6 +57,7 @@ static const struct ConfigOption options[] = {
     {.name = "key_a",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyA},
     {.name = "key_b",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyB},
     {.name = "key_start",      .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStart},
+    {.name = "key_l",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyL},
     {.name = "key_r",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyR},
     {.name = "key_z",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyZ},
     {.name = "key_cup",        .type = CONFIG_TYPE_UINT, .uintValue = &configKeyCUp},
@@ -65,6 +68,7 @@ static const struct ConfigOption options[] = {
     {.name = "key_stickdown",  .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickDown},
     {.name = "key_stickleft",  .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickLeft},
     {.name = "key_stickright", .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickRight},
+    {.name = "deadzone",       .type = CONFIG_TYPE_UINT, .uintValue = &configDeadzone},
 };
 
 // Reads an entire line from a file (excluding the newline character) and returns an allocated string
@@ -206,7 +210,9 @@ void configfile_load(const char *filename) {
                         default:
                             assert(0); // bad type
                     }
+                    #ifdef DEBUG
                     printf("option: '%s', value: '%s'\n", tokens[0], tokens[1]);
+                    #endif
                 }
             } else
                 puts("error: expected value");

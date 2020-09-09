@@ -5,6 +5,7 @@
 #include <ultra64.h>
 
 #include "controller_api.h"
+#include "../configfile.h"
 
 static void controller_psp_init(void) {
     sceCtrlSetSamplingCycle(0);
@@ -30,36 +31,39 @@ static void controller_psp_read(OSContPad *pad) {
     if (!sceCtrlPeekBufferPositive(&data, 1))
         return;
 
-    /* flip, scale and deadzone */
-    #define DEADZONE (12) /* 12/80 = 15% */
-    char stick_x = (char)((((float)data.Lx)*0.625f)-80);
-    char stick_y = (char)(((((float)data.Ly)*0.625f)-80)*-1);
-    pad->stick_x = stick_x * !(stick_x < DEADZONE && stick_x > -DEADZONE);
-    pad->stick_y = stick_y * !(stick_y < DEADZONE && stick_y > -DEADZONE);
+    const char stickH = data.Lx+0x80;
+    const char stickV = 0xff-(data.Ly+0x80);
+    uint32_t magnitude_sq = (uint32_t)(stickH * stickH) + (uint32_t)(stickV * stickV);
 
-    if (data.Buttons & PSP_CTRL_START)
+    if (magnitude_sq > (uint32_t)(configDeadzone * configDeadzone)) {
+        pad->stick_x = stickH;
+        pad->stick_y = stickV;
+    }
+
+    if (data.Buttons & configKeyStart)
         pad->button |= START_BUTTON;
-    if (data.Buttons & PSP_CTRL_SQUARE)
+    if (data.Buttons & configKeyB)
         pad->button |= B_BUTTON;
-    if (data.Buttons & PSP_CTRL_CROSS)
+    if (data.Buttons & configKeyA)
         pad->button |= A_BUTTON;
-    if (data.Buttons & PSP_CTRL_TRIANGLE)
+    if (data.Buttons & configKeyL)
         pad->button |= L_TRIG;
-    if (data.Buttons & PSP_CTRL_CIRCLE)
+    if (data.Buttons & configKeyZ)
         pad->button |= Z_TRIG;
-    if (data.Buttons & PSP_CTRL_LTRIGGER)
-        pad->button |= Z_TRIG;
-    if (data.Buttons & PSP_CTRL_RTRIGGER)
+    if (data.Buttons & configKeyR)
         pad->button |= R_TRIG;
-    if (data.Buttons & PSP_CTRL_UP)
+    if (data.Buttons & configKeyCUp)
         pad->button |= U_CBUTTONS;
-    if (data.Buttons & PSP_CTRL_DOWN)
+    if (data.Buttons & configKeyCDown)
         pad->button |= D_CBUTTONS;
-    if (data.Buttons & PSP_CTRL_LEFT)
+    if (data.Buttons & configKeyCLeft)
         pad->button |= L_CBUTTONS;
-    if (data.Buttons & PSP_CTRL_RIGHT)
+    if (data.Buttons & configKeyCRight)
         pad->button |= R_CBUTTONS;
 
+    /* Always push start if home pushed */
+    if (data.Buttons & PSP_CTRL_HOME)
+        pad->button |= START_BUTTON;
 }
 
 struct ControllerAPI controller_psp = {
