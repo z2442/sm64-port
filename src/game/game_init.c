@@ -81,17 +81,31 @@ static void calculate_frameTime_from_OSTime(OSTime diff) {
 }
 
 static void render_fps(void) {
+    extern int mediaengine_available;
+    extern int volatile mediaengine_sound;
+
     // Toggle rendering framerate with the L button.
-    if ((gPlayer1Controller->buttonPressed & L_TRIG) && (gPlayer1Controller->buttonPressed & R_TRIG)) {
+    if ((gPlayer1Controller->buttonPressed & R_TRIG) && (gPlayer1Controller->buttonPressed & L_TRIG)) {
         gRenderFPS ^= 1;
     }
 
-    if ((gPlayer1Controller->buttonPressed & L_TRIG) && (gPlayer1Controller->buttonPressed & START_BUTTON)) {
+    if ((gPlayer1Controller->buttonPressed & R_TRIG) && (gPlayer1Controller->buttonPressed & B_BUTTON)) {
         gProcessAudio ^= 1;
+        if(mediaengine_available){
+            mediaengine_sound ^= 1;
+        }
     }
 
-    if ((gPlayer1Controller->buttonPressed & Z_TRIG)) {
+    if ((gPlayer1Controller->buttonPressed & R_TRIG) && (gPlayer1Controller->buttonPressed & Z_TRIG)) {
         gDoDither ^= 1;
+        extern void init_mediaengine(void);
+        extern void kill_audiomanager(void);
+        extern void init_audiomanager(void);
+        kill_audiomanager();
+        init_mediaengine();
+        init_audiomanager();
+        mediaengine_available = 0;
+        mediaengine_sound = 0;
     }
 
     if ((gPlayer1Controller->buttonPressed & L_TRIG)) {
