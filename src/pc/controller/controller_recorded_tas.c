@@ -5,11 +5,7 @@
 
 static FILE *fp;
 
-#if defined(TARGET_PSP)
-#define FILE_PREFIX "ms0:/"
-#else
 #define FILE_PREFIX ""
-#endif
 
 static void tas_init(void) {
     fp = fopen(FILE_PREFIX"cont.m64", "rb");

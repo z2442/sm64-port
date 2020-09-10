@@ -929,7 +929,7 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
         temp_vec[1] = v->ob[1];
         temp_vec[2] = v->ob[2];
         temp_vec[3] = 1.0f;
-        
+
         __asm__ volatile (
             ".set			push\n"					// save assember option
             ".set			noreorder\n"			// suppress reordering
@@ -1082,7 +1082,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
             // If all vertices lie behind the eye, the triangle will be rejected anyway.
             cross = -cross;
         }
-        
+
         switch (rsp.geometry_mode & G_CULL_BOTH) {
             case G_CULL_FRONT:
                 if (cross <= 0) return;

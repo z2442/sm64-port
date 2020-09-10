@@ -110,18 +110,22 @@ void texman_reset(void *buf, unsigned int size) {
     psp_tex_number = 0;
     psp_tex_buffer = psp_tex_buffer_start = buf;
     psp_tex_buffer_max = buf + size;
+#ifdef DEBUG
     char msg[64];
     sprintf(msg, "TEXMAN reset @ %p size %d bytes\n", buf, size);
     sceIoWrite(1, msg, strlen(msg));
+#endif
 }
 
 void texman_clear(void) {
     memset(textures, 0, sizeof(textures));
     psp_tex_number = 0;
     psp_tex_buffer = psp_tex_buffer_start;
+#ifdef DEBUG
     char msg[64];
     sprintf(msg, "TEXMAN clear %p size %d bytes!\n", psp_tex_buffer, TEXMAN_BUFFER_SIZE);
     sceIoWrite(1, msg, strlen(msg));
+#endif
 }
 
 void texman_set_buffer(void *buf, unsigned int size) {
@@ -130,7 +134,7 @@ void texman_set_buffer(void *buf, unsigned int size) {
 }
 
 int gfx_vram_space_available(void) {
-    return (psp_tex_buffer_max - psp_tex_buffer) > (32*1024);
+    return (psp_tex_buffer_max - psp_tex_buffer) > (32 * 1024);
 }
 
 unsigned char *texman_get_tex_data(unsigned int num) {
@@ -146,10 +150,11 @@ struct PSP_Texture *texman_reserve_memory(int width, int height, unsigned int ty
     psp_tex_buffer =
         (void *) ((((unsigned int) psp_tex_buffer + tex_size + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT)
                   * TEX_ALIGNMENT);
-
-    /*printf("TEX_MAN tex [%d] reserved %d bytes @ %x left: %d kb\n", psp_tex_number, tex_size,
+#ifdef DEBUG
+    printf("TEX_MAN tex [%d] reserved %d bytes @ %x left: %d kb\n", psp_tex_number, tex_size,
            (unsigned int) textures[psp_tex_number].location,
-           (psp_tex_buffer_max - psp_tex_buffer) / 1024);*/
+           (psp_tex_buffer_max - psp_tex_buffer) / 1024);
+#endif
     return &textures[psp_tex_number];
 }
 
@@ -164,7 +169,9 @@ unsigned int texman_create(void) {
     };
     psp_tex_bound = psp_tex_number;
 
-    // printf("TEX_MAN new tex [%d] @ %x\n", psp_tex_number, psp_tex_buffer);
+#ifdef DEBUG
+    printf("TEX_MAN new tex [%d] @ %x\n", psp_tex_number, psp_tex_buffer);
+#endif
     return psp_tex_number;
 }
 
@@ -177,13 +184,14 @@ void texman_upload_swizzle(int width, int height, unsigned int type, const void 
     /* 32bpp = 4 bytes, width is in bytes */
     swizzle_fast(current->location, buffer, getTexWidthBytes(width, type), height);
     current->swizzled = GU_TRUE;
-    // printf("TEX_MAN upload swizzled [%d]\n", psp_tex_number);
+#ifdef DEBUG
+    printf("TEX_MAN upload swizzled [%d]\n", psp_tex_number);
+#endif
     sceKernelDcacheWritebackRange(current->location, getMemorySize(width, height, type));
-	sceKernelDcacheInvalidateRange(current->location, getMemorySize(width, height, type));
+    sceKernelDcacheInvalidateRange(current->location, getMemorySize(width, height, type));
     texman_bind_tex(psp_tex_number);
 }
 
-extern void memcpy4(void *dest, const void *src, size_t count);
 void texman_upload(int width, int height, unsigned int type, const void *buffer) {
     struct PSP_Texture *current = texman_reserve_memory(width, height, type);
     sceKernelDcacheWritebackRange(buffer, getMemorySize(width, height, type));
@@ -191,17 +199,22 @@ void texman_upload(int width, int height, unsigned int type, const void *buffer)
     current->height = height;
     current->type = type;
     current->swizzled = GU_FALSE;
-    memcpy4(current->location, buffer, getMemorySize(width, height, type));
+    memcpy(current->location, buffer, getMemorySize(width, height, type));
+#ifdef DEBUG
     // printf("TEX_MAN upload plain [%d]\n", psp_tex_number);
+#endif
     sceKernelDcacheWritebackRange(current->location, getMemorySize(width, height, type));
-	sceKernelDcacheInvalidateRange(current->location, getMemorySize(width, height, type));
+    sceKernelDcacheInvalidateRange(current->location, getMemorySize(width, height, type));
     texman_bind_tex(psp_tex_number);
 }
 
 void texman_bind_tex(unsigned int num) {
     const struct PSP_Texture *current = &textures[num];
+#ifdef DEBUG
+    /* Note this will SPAM if you enable */
     // if (psp_tex_bound != num)
     //    printf("TEX_MAN bind tex [%d]\n", num);
+#endif
     sceGuTexMode(current->type, 0, 0, current->swizzled);
     sceGuTexImage(0, current->width, current->height, current->width, current->location);
     psp_tex_bound = num;
