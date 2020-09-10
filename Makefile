@@ -889,6 +889,7 @@ TITLE := "sm64-port $(SRC_VER)"
 
 pbp: $(EXE)
 	@mkdir -p $(BUILD_DIR)/mario64
+	cp psp/snd_eng.prx $(BUILD_DIR)/mario64/
 	mksfoex -d MEMSIZE=1 $(TITLE) $(BUILD_DIR)/PARAM.SFO
 	pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(EXE).prx NULL
 
