@@ -5,11 +5,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <assert.h>
-#include <malloc.h>
 
 #ifndef _LANGUAGE_C
-# define _LANGUAGE_C
+#define _LANGUAGE_C
 #endif
 #include <PR/gbi.h>
 
@@ -26,38 +24,37 @@
 #define SCR_WIDTH (480)
 #define SCR_HEIGHT (272)
 
-float identity_matrix[4][4] __attribute__((aligned(16))) = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
-
+float identity_matrix[4][4] __attribute__((aligned(16))) = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 }, { 0, 0, 0, 1 } };
 
 /* Shader IDs
 id        alp fog edg nse ut0 ut1 num sin0 sin1 mul0 mul1 mix0 mix1 cas
 -----------------------------------------------------------------------
-69        0   0   0   0   1   0   1   0    1    1    1    1    1    0  
-512       0   0   0   0   0   0   1   1    1    0    1    0    1    0  
-909       0   0   0   0   1   0   1   0    1    0    1    1    1    0  
-1361      0   0   0   0   1   0   2   0    1    0    1    1    1    0  
-2560      0   0   0   0   1   0   0   1    1    0    1    0    1    0  
-17059909  1   0   0   0   1   0   1   0    0    1    1    1    1    1  
-17062400  1   0   0   0   1   0   1   1    0    0    1    0    1    0  
-17305729  1   0   0   0   0   0   2   0    0    1    1    1    1    1  
-18092101  1   0   0   0   1   0   1   0    0    1    1    1    1    0  
-18874437  1   0   0   0   1   0   1   0    1    1    0    1    0    0  
-18874880  1   0   0   0   0   0   1   1    1    0    0    0    0    1  
-18875277  1   0   0   0   1   0   1   0    1    0    0    1    0    0  
+69        0   0   0   0   1   0   1   0    1    1    1    1    1    0
+512       0   0   0   0   0   0   1   1    1    0    1    0    1    0
+909       0   0   0   0   1   0   1   0    1    0    1    1    1    0
+1361      0   0   0   0   1   0   2   0    1    0    1    1    1    0
+2560      0   0   0   0   1   0   0   1    1    0    1    0    1    0
+17059909  1   0   0   0   1   0   1   0    0    1    1    1    1    1
+17062400  1   0   0   0   1   0   1   1    0    0    1    0    1    0
+17305729  1   0   0   0   0   0   2   0    0    1    1    1    1    1
+18092101  1   0   0   0   1   0   1   0    0    1    1    1    1    0
+18874437  1   0   0   0   1   0   1   0    1    1    0    1    0    0
+18874880  1   0   0   0   0   0   1   1    1    0    0    0    0    1
+18875277  1   0   0   0   1   0   1   0    1    0    0    1    0    0
 18876928  1   0   0   0   1   0   1   1    1    0    0    0    0    0
-27263045  1   0   0   0   1   0   1   0    1    1    0    1    0    0  
-27265536  1   0   0   0   1   0   0   1    1    0    0    0    0    1  
-27265647  1   0   0   0   1   1   1   0    1    0    0    1    0    0  
-52428869  1   1   0   0   1   0   1   0    1    1    0    1    0    0  
-52429312  1   1   0   0   0   0   1   1    1    0    0    0    0    1  
-52431360  1   1   0   0   1   0   1   1    1    0    0    0    0    0  
-84168773  1   0   1   0   1   0   1   0    0    1    1    1    1    1  
-85983744  1   0   1   0   0   0   1   1    1    0    0    0    0    1  
-94374400  1   0   1   0   1   0   0   1    1    0    0    0    0    1  
-127928832 1   1   1   0   1   0   0   1    1    0    0    0    0    1  
-153092165 1   0   0   1   1   0   1   0    1    1    0    1    0    0  
-153092608 1   0   0   1   0   0   1   1    1    0    0    0    0    1  
-153093005 1   0   0   1   1   0   1   0    1    0    0    1    0    0  
+27263045  1   0   0   0   1   0   1   0    1    1    0    1    0    0
+27265536  1   0   0   0   1   0   0   1    1    0    0    0    0    1
+27265647  1   0   0   0   1   1   1   0    1    0    0    1    0    0
+52428869  1   1   0   0   1   0   1   0    1    1    0    1    0    0
+52429312  1   1   0   0   0   0   1   1    1    0    0    0    0    1
+52431360  1   1   0   0   1   0   1   1    1    0    0    0    0    0
+84168773  1   0   1   0   1   0   1   0    0    1    1    1    1    1
+85983744  1   0   1   0   0   0   1   1    1    0    0    0    0    1
+94374400  1   0   1   0   1   0   0   1    1    0    0    0    0    1
+127928832 1   1   1   0   1   0   0   1    1    0    0    0    0    1
+153092165 1   0   0   1   1   0   1   0    1    1    0    1    0    0
+153092608 1   0   0   1   0   0   1   1    1    0    0    0    0    1
+153093005 1   0   0   1   1   0   1   0    1    0    0    1    0    0
 153094656 1   0   0   1   1   0   1   1    1    0    0    0    0    0
 
 printf("%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n", shader_id,
@@ -82,13 +79,14 @@ printf("%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n", shader_id,
 84168773    - Menu Overlays
 */
 
-/* Shader Broken List: 
+/* Shader Broken List:
 153092165   - Noise
 153092608   - Noise
 153093005   - Noise
 153094656   - Noise
 */
 
+// clang-format off
 static uint32_t shader_ids[27] =
 {
 69       ,
@@ -149,61 +147,58 @@ static uint32_t shader_remap[27*2] = {
 153093005,69,
 153094656,69
 };
+// clang-format on
 
-static uint32_t shader_broken[27] ={
-    153092165,  // Noise
-    153092608,  // Noise
-    153093005,  // Noise
-    153094656   // Noise
+static uint32_t shader_broken[27] = {
+    153092165, // Noise
+    153092608, // Noise
+    153093005, // Noise
+    153094656  // Noise
 };
 
-unsigned int __attribute__((aligned(64))) list[262144*2];
+unsigned int __attribute__((aligned(64))) list[262144 * 2];
 
 static unsigned int staticOffset = 0;
 unsigned int scegu_fog_color = 0;
 
-static unsigned int getMemorySize(unsigned int width, unsigned int height, unsigned int psm)
-{
-   switch (psm)
-   {
-      case GU_PSM_T4:
-         return (width * height) >> 1;
+static unsigned int getMemorySize(unsigned int width, unsigned int height, unsigned int psm) {
+    switch (psm) {
+        case GU_PSM_T4:
+            return (width * height) >> 1;
 
-      case GU_PSM_T8:
-         return width * height;
+        case GU_PSM_T8:
+            return width * height;
 
-      case GU_PSM_5650:
-      case GU_PSM_5551:
-      case GU_PSM_4444:
-      case GU_PSM_T16:
-         return 2 * width * height;
+        case GU_PSM_5650:
+        case GU_PSM_5551:
+        case GU_PSM_4444:
+        case GU_PSM_T16:
+            return 2 * width * height;
 
-      case GU_PSM_8888:
-      case GU_PSM_T32:
-         return 4 * width * height;
+        case GU_PSM_8888:
+        case GU_PSM_T32:
+            return 4 * width * height;
 
-      default:
-         return 0;
-   }
+        default:
+            return 0;
+    }
 }
 
 #define TEX_ALIGNMENT (16)
-void* getStaticVramBuffer(unsigned int width, unsigned int height, unsigned int psm)
-{
-   unsigned int memSize = getMemorySize(width,height,psm);
-   void* result = (void*)(staticOffset | 0x40000000);
-   staticOffset += memSize;
+void *getStaticVramBuffer(unsigned int width, unsigned int height, unsigned int psm) {
+    unsigned int memSize = getMemorySize(width, height, psm);
+    void *result = (void *) (staticOffset | 0x40000000);
+    staticOffset += memSize;
 
-   return result;
+    return result;
 }
 
-void* getStaticVramBufferBytes(size_t bytes)
-{
-   unsigned int memSize = bytes;
-   void* result = (void*)(staticOffset | 0x40000000);
-   staticOffset += memSize;
+void *getStaticVramBufferBytes(size_t bytes) {
+    unsigned int memSize = bytes;
+    void *result = (void *) (staticOffset | 0x40000000);
+    staticOffset += memSize;
 
-   return (void*)(((unsigned int)result) + ((unsigned int)sceGeEdramGetAddr()));
+    return (void *) (((unsigned int) result) + ((unsigned int) sceGeEdramGetAddr()));
 }
 
 #include "gfx_cc.h"
@@ -237,18 +232,16 @@ struct SamplerState {
     uint32_t tex;
 };
 
-typedef struct Vertex
-{
-	float u, v;
-	unsigned int color;
-	float x,y,z;
+typedef struct Vertex {
+    float u, v;
+    unsigned int color;
+    float x, y, z;
 } Vertex;
 
-typedef struct VertexColor
-{
-	unsigned short a, b;
-	unsigned long color;
-	unsigned short x, y, z;
+typedef struct VertexColor {
+    unsigned short a, b;
+    unsigned long color;
+    unsigned short x, y, z;
 } VertexColor;
 
 static struct ShaderProgram shader_program_pool[64];
@@ -257,10 +250,10 @@ static struct ShaderProgram *cur_shader = NULL;
 static struct SamplerState tmu_state[2];
 static bool gl_blend = false;
 
-static inline uint32_t get_shader_index(uint32_t id){
+static inline uint32_t get_shader_index(uint32_t id) {
     size_t i;
-    for(i = 0;i<27;i++){
-        if(shader_ids[i] == id){
+    for (i = 0; i < 27; i++) {
+        if (shader_ids[i] == id) {
             return i;
         }
     }
@@ -270,25 +263,25 @@ static inline uint32_t get_shader_index(uint32_t id){
     return 0;
 }
 
-static inline uint32_t get_shader_remap(uint32_t id){
+static inline uint32_t get_shader_remap(uint32_t id) {
     size_t index = get_shader_index(id);
-    return shader_remap[index*2+1];
+    return shader_remap[index * 2 + 1];
 }
 
-static inline bool is_shader_enabled(uint32_t id){
+static inline bool is_shader_enabled(uint32_t id) {
     size_t i;
-    for(i = 0;i<27;i++){
-        if(shader_broken[i] == id){
+    for (i = 0; i < 27; i++) {
+        if (shader_broken[i] == id) {
             return false;
         }
     }
     return true;
 }
 
-static struct ShaderProgram *get_shader_from_id(uint32_t id){
+static struct ShaderProgram *get_shader_from_id(uint32_t id) {
     size_t i;
-    for(i = 0;i<shader_program_pool_size;i++){
-        if(shader_program_pool[i].shader_id == id){
+    for (i = 0; i < shader_program_pool_size; i++) {
+        if (shader_program_pool[i].shader_id == id) {
             return &shader_program_pool[i];
         }
     }
@@ -353,7 +346,8 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
     if (prg->num_inputs) {
         // have colors
         // TODO: more than one color (maybe glSecondaryColorPointer?)
-        // HACK: if there's a texture and two colors, one of them is likely for speculars or some shit (see mario head)
+        // HACK: if there's a texture and two colors, one of them is likely for speculars or some shit
+        // (see mario head)
         //       if there's two colors but no texture, the real color is likely the second one
         /*
         const int hack = (prg->num_inputs > 1) * (4 - (int)prg->texture_used[0]);
@@ -377,14 +371,22 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
 
         int mode;
         switch (prg->mix) {
-            case SH_MT_TEXTURE:         mode = texenv_set_texture(prg); break;
-            case SH_MT_TEXTURE_TEXTURE: mode = texenv_set_texture_texture(prg); break;
-            case SH_MT_TEXTURE_COLOR:   mode = texenv_set_texture_color(prg); break;
-            default:                    mode = texenv_set_color(prg); break;
+            case SH_MT_TEXTURE:
+                mode = texenv_set_texture(prg);
+                break;
+            case SH_MT_TEXTURE_TEXTURE:
+                mode = texenv_set_texture_texture(prg);
+                break;
+            case SH_MT_TEXTURE_COLOR:
+                mode = texenv_set_texture_color(prg);
+                break;
+            default:
+                mode = texenv_set_color(prg);
+                break;
         }
 
         /* Transition Screens */
-        if(prg->shader_id == 0x01A00045){
+        if (prg->shader_id == 0x01A00045) {
             mode = GU_TFX_REPLACE;
         }
         sceGuTexFunc(mode, GU_TCC_RGBA);
@@ -466,11 +468,10 @@ static uint32_t gfx_cm_to_opengl(uint32_t val) {
     if (val & G_TX_CLAMP)
         return GU_CLAMP;
     return GU_REPEAT;
-    //return (val & G_TX_MIRROR) ? GL_MIRRORED_REPEAT : GL_REPEAT;
 }
 
 static inline int ispow2(uint32_t x) {
-	return (x & (x - 1)) == 0;
+    return (x & (x - 1)) == 0;
 }
 
 // compute the next highest power of 2 of 32-bit v
@@ -500,100 +501,102 @@ static void gfx_scegu_set_sampler_parameters(const int tile, const bool linear_f
     tmu_state[tile].wrap_t = wrap_t;
 
     // set state for the first texture right away
-    if (!tile) gfx_scegu_apply_tmu_state(tile);
+    if (!tile)
+        gfx_scegu_apply_tmu_state(tile);
 }
 
 static void gfx_scegu_select_texture(int tile, unsigned int texture_id) {
-    tmu_state[tile].tex = texture_id;
-    texman_bind_tex(texture_id);
-    gfx_scegu_set_sampler_parameters(tile, false, 0, 0);
+    if (tmu_state[tile].tex != texture_id) {
+        tmu_state[tile].tex = texture_id;
+        texman_bind_tex(texture_id);
+        gfx_scegu_set_sampler_parameters(tile, false, 0, 0);
+    }
 }
 
 /* Used for rescaling textures ROUGHLY into pow2 dims */
 static unsigned int __attribute__((aligned(16))) scaled[256 * 256 * sizeof(unsigned int)]; /* 16kb */
 static void gfx_scegu_resample_32bit(const unsigned int *in, int inwidth, int inheight, unsigned int *out, int outwidth, int outheight) {
-  int i, j;
-  const unsigned int *inrow;
-  unsigned int frac, fracstep;
+    int i, j;
+    const unsigned int *inrow;
+    unsigned int frac, fracstep;
 
-  fracstep = inwidth * 0x10000 / outwidth;
-  for (i = 0; i < outheight; i++, out += outwidth) {
-    inrow = in + inwidth * (i * inheight / outheight);
-    frac = fracstep >> 1;
-    for (j = 0; j < outwidth; j += 4) {
-      out[j] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 1] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 2] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 3] = inrow[frac >> 16];
-      frac += fracstep;
+    fracstep = inwidth * 0x10000 / outwidth;
+    for (i = 0; i < outheight; i++, out += outwidth) {
+        inrow = in + inwidth * (i * inheight / outheight);
+        frac = fracstep >> 1;
+        for (j = 0; j < outwidth; j += 4) {
+            out[j] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 1] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 2] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 3] = inrow[frac >> 16];
+            frac += fracstep;
+        }
     }
-  }
 }
 
 static void gfx_scegu_resample_16bit(const unsigned short *in, int inwidth, int inheight, unsigned short *out, int outwidth, int outheight) {
-  int i, j;
-  const unsigned short *inrow;
-  unsigned int frac, fracstep;
+    int i, j;
+    const unsigned short *inrow;
+    unsigned int frac, fracstep;
 
-  fracstep = inwidth * 0x10000 / outwidth;
-  for (i = 0; i < outheight; i++, out += outwidth) {
-    inrow = in + inwidth * (i * inheight / outheight);
-    frac = fracstep >> 1;
-    for (j = 0; j < outwidth; j += 4) {
-      out[j] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 1] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 2] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 3] = inrow[frac >> 16];
-      frac += fracstep;
+    fracstep = inwidth * 0x10000 / outwidth;
+    for (i = 0; i < outheight; i++, out += outwidth) {
+        inrow = in + inwidth * (i * inheight / outheight);
+        frac = fracstep >> 1;
+        for (j = 0; j < outwidth; j += 4) {
+            out[j] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 1] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 2] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 3] = inrow[frac >> 16];
+            frac += fracstep;
+        }
     }
-  }
 }
 
 static void gfx_scegu_resample_8bit(const unsigned char *in, int inwidth, int inheight, unsigned char *out, int outwidth, int outheight) {
-  int i, j;
-  const unsigned char *inrow;
-  unsigned int frac, fracstep;
+    int i, j;
+    const unsigned char *inrow;
+    unsigned int frac, fracstep;
 
-  fracstep = inwidth * 0x10000 / outwidth;
-  for (i = 0; i < outheight; i++, out += outwidth) {
-    inrow = in + inwidth * (i * inheight / outheight);
-    frac = fracstep >> 1;
-    for (j = 0; j < outwidth; j += 4) {
-      out[j] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 1] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 2] = inrow[frac >> 16];
-      frac += fracstep;
-      out[j + 3] = inrow[frac >> 16];
-      frac += fracstep;
+    fracstep = inwidth * 0x10000 / outwidth;
+    for (i = 0; i < outheight; i++, out += outwidth) {
+        inrow = in + inwidth * (i * inheight / outheight);
+        frac = fracstep >> 1;
+        for (j = 0; j < outwidth; j += 4) {
+            out[j] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 1] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 2] = inrow[frac >> 16];
+            frac += fracstep;
+            out[j + 3] = inrow[frac >> 16];
+            frac += fracstep;
+        }
     }
-  }
 }
 
-
 static void gfx_scegu_upload_texture(const uint8_t *rgba32_buf, int width, int height, unsigned int type) {
-    if(ispow2(width) && ispow2(height)){
-        texman_upload_swizzle(width,  height, type, (void*)rgba32_buf);
+    if (ispow2(width) && ispow2(height)) {
+        texman_upload_swizzle(width, height, type, (void *) rgba32_buf);
     } else {
         int scaled_width = nextpow2(width);
         int scaled_height = nextpow2(height);
 
-        if(type == GU_PSM_8888){
-            gfx_scegu_resample_32bit((const unsigned int*)rgba32_buf, width, height, (void*)scaled, scaled_width, scaled_height);
-            texman_upload_swizzle(scaled_width, scaled_height, type, (void*)scaled);
-        } else if(type == GU_PSM_5551){
-            gfx_scegu_resample_16bit((const unsigned short*)rgba32_buf, width, height, (void*)scaled, scaled_width, scaled_height);
-            texman_upload_swizzle(scaled_width, scaled_height, type, (void*)scaled);
-        }else{ 
-            gfx_scegu_resample_8bit((const unsigned char*)rgba32_buf, width, height, (void*)scaled, scaled_width, scaled_height);
-            texman_upload_swizzle(scaled_width, scaled_height, type, (void*)scaled);
+        if (type == GU_PSM_8888) {
+            gfx_scegu_resample_32bit((const unsigned int *) rgba32_buf, width, height, (void *) scaled, scaled_width, scaled_height);
+            texman_upload_swizzle(scaled_width, scaled_height, type, (void *) scaled);
+        } else if (type == GU_PSM_5551) {
+            gfx_scegu_resample_16bit((const unsigned short *) rgba32_buf, width, height, (void *) scaled, scaled_width, scaled_height);
+            texman_upload_swizzle(scaled_width, scaled_height, type, (void *) scaled);
+        } else {
+            gfx_scegu_resample_8bit((const unsigned char *) rgba32_buf, width, height, (void *) scaled, scaled_width, scaled_height);
+            texman_upload_swizzle(scaled_width, scaled_height, type, (void *) scaled);
         }
     }
 }
@@ -619,17 +622,12 @@ static void gfx_scegu_set_zmode_decal(bool zmode_decal) {
 }
 
 static void gfx_scegu_set_viewport(int x, int y, int width, int height) {
-    printf("sceGuViewport(%d, %d, %d, %d)\n", x, y, width, height);
-    //sceGuViewport(x, y, width, height);
+    sceGuViewport(2048 - (SCR_WIDTH / 2) + x + (width / 2), 2048 + (SCR_HEIGHT / 2) - y - (height / 2), width, height);
+    sceGuScissor(x, SCR_HEIGHT - y - height, x + width, SCR_HEIGHT - y);
 }
 
 static void gfx_scegu_set_scissor(int x, int y, int width, int height) {
-    /*@Note: maybe this is right, fixes signs so should be correct */
-    if((x || y)){
-        sceGuScissor(x, SCR_HEIGHT-y-height, x+width, SCR_HEIGHT-y);
-    } else {
-        sceGuScissor(x, y, x+width, y+height);
-    }
+    sceGuScissor(x, SCR_HEIGHT - y - height, x + width, SCR_HEIGHT - y);
 }
 
 static void gfx_scegu_set_use_alpha(bool use_alpha) {
@@ -645,7 +643,7 @@ static void gfx_scegu_set_use_alpha(bool use_alpha) {
 // on top of the normal tris and blends them to achieve sort of the same effect
 // as fog would
 static inline void gfx_scegu_blend_fog_tris(void) {
-      /*@Todo: figure this out! */
+    /*@Todo: figure this out! */
     return;
 #if 0
     // if a texture was used, replace it with fog color instead, but still keep the alpha
@@ -671,73 +669,71 @@ static inline void gfx_scegu_blend_fog_tris(void) {
 #endif
 }
 
-extern void memcpy_vfpu( void* dst, const void* src, size_t size );
-extern void memcpy4(void *dest, const void *src, size_t count);
+extern void memcpy_vfpu(void *dst, const void *src, size_t size);
 static void gfx_scegu_draw_triangles(float buf_vbo[], UNUSED size_t buf_vbo_len, size_t buf_vbo_num_tris) {
-    if(!is_shader_enabled(cur_shader->shader_id)){
+    if (!is_shader_enabled(cur_shader->shader_id)) {
         gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
 
     void *buf = sceGuGetMemory(sizeof(Vertex) * 3 * buf_vbo_num_tris);
     memcpy_vfpu(buf, buf_vbo, sizeof(Vertex) * 3 * buf_vbo_num_tris);
-    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D, 3 * buf_vbo_num_tris, 0, buf);
+    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D, 3 * buf_vbo_num_tris, 0, buf);
 
     // cur_fog_ofs is only set if GL_EXT_fog_coord isn't used
-    //if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
-
+    // if (cur_fog_ofs) gfx_scegu_blend_fog_tris();
 }
 
 void gfx_scegu_draw_triangles_2d(float buf_vbo[], UNUSED size_t buf_vbo_len, UNUSED size_t buf_vbo_num_tris) {
-    if(!is_shader_enabled(cur_shader->shader_id)){
+    if (!is_shader_enabled(cur_shader->shader_id)) {
         gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
     }
 
-    void *quad_buf = sceGuGetMemory(sizeof(VertexColor)* 2);
-    memcpy4(quad_buf, buf_vbo, sizeof(VertexColor)* 2);
-    sceGuDrawArray(GU_SPRITES, GU_TEXTURE_16BIT|GU_COLOR_8888|GU_VERTEX_16BIT|GU_TRANSFORM_2D, 2, 0, quad_buf);
+    void *quad_buf = sceGuGetMemory(sizeof(VertexColor) * 2);
+    memcpy(quad_buf, buf_vbo, sizeof(VertexColor) * 2);
+    sceGuDrawArray(GU_SPRITES, GU_TEXTURE_16BIT | GU_COLOR_8888 | GU_VERTEX_16BIT | GU_TRANSFORM_2D, 2, 0, quad_buf);
 }
 
 static void gfx_scegu_init(void) {
-	sceGuInit();
+    sceGuInit();
 
-    void* fbp0 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_5650);
-    void* fbp1 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_5650);
-    void* zbp = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_4444);
+    void *fbp0 = getStaticVramBuffer(BUF_WIDTH, SCR_HEIGHT, GU_PSM_5650);
+    void *fbp1 = getStaticVramBuffer(BUF_WIDTH, SCR_HEIGHT, GU_PSM_5650);
+    void *zbp = getStaticVramBuffer(BUF_WIDTH, SCR_HEIGHT, GU_PSM_4444);
 
-	sceGuStart(GU_DIRECT,list);
-    sceGuDrawBuffer(GU_PSM_5650,fbp0,BUF_WIDTH);
-    sceGuDispBuffer(SCR_WIDTH,SCR_HEIGHT,fbp1,BUF_WIDTH);
-    sceGuDepthBuffer(zbp,BUF_WIDTH);
+    sceGuStart(GU_DIRECT, list);
+    sceGuDrawBuffer(GU_PSM_5650, fbp0, BUF_WIDTH);
+    sceGuDispBuffer(SCR_WIDTH, SCR_HEIGHT, fbp1, BUF_WIDTH);
+    sceGuDepthBuffer(zbp, BUF_WIDTH);
     sceGuOffset(2048 - (SCR_WIDTH / 2), 2048 - (SCR_HEIGHT / 2));
-	sceGuViewport(2048, 2048, SCR_WIDTH, SCR_HEIGHT);
-	sceGuDepthRange(0xffff, 0);
-	sceGuScissor(0, 0, SCR_WIDTH,SCR_HEIGHT);
+    sceGuViewport(2048 - (SCR_WIDTH / 2), 2048 - (SCR_HEIGHT / 2), SCR_WIDTH, SCR_HEIGHT);
+    sceGuDepthRange(0xffff, 0);
+    sceGuScissor(0, 0, SCR_WIDTH, SCR_HEIGHT);
     sceGuEnable(GU_SCISSOR_TEST);
-	sceGuEnable(GU_DEPTH_TEST);
-	sceGuDepthFunc(GU_GEQUAL);
-	sceGuShadeModel(GU_SMOOTH);
-	sceGuEnable(GU_CLIP_PLANES);
+    sceGuEnable(GU_DEPTH_TEST);
+    sceGuDepthFunc(GU_GEQUAL);
+    sceGuShadeModel(GU_SMOOTH);
+    sceGuEnable(GU_CLIP_PLANES);
     sceGuEnable(GU_ALPHA_TEST);
     sceGuAlphaFunc(GU_GREATER, 0x55, 0xff); /* 0.3f  */
     sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
-	sceGuDisable(GU_LIGHTING);
-	sceGuDisable(GU_BLEND);
+    sceGuDisable(GU_LIGHTING);
+    sceGuDisable(GU_BLEND);
     sceGuDisable(GU_CULL_FACE);
     sceGuFrontFace(GU_CCW);
-	sceGuDepthMask(GU_FALSE);
+    sceGuDepthMask(GU_FALSE);
     sceGuTexEnvColor(0xffffffff);
-	sceGuTexOffset(0.0f, 0.0f);
-	sceGuTexWrap(GU_REPEAT, GU_REPEAT);
+    sceGuTexOffset(0.0f, 0.0f);
+    sceGuTexWrap(GU_REPEAT, GU_REPEAT);
 
     sceGuFinish();
-	sceGuSync(0,0);
-	sceDisplayWaitVblankStart();
-	sceGuDisplay(GU_TRUE);
+    sceGuSync(0, 0);
+    sceDisplayWaitVblankStart();
+    sceGuDisplay(GU_TRUE);
 
     void *texman_buffer = getStaticVramBufferBytes(TEXMAN_BUFFER_SIZE);
     void *texman_aligned = (void *) ((((unsigned int) texman_buffer + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT) * TEX_ALIGNMENT);
     texman_reset(texman_aligned, TEXMAN_BUFFER_SIZE);
-    if(!texman_buffer){
+    if (!texman_buffer) {
         char msg[32];
         sprintf(msg, "OUT OF MEMORY!\n");
         sceIoWrite(1, msg, strlen(msg));
@@ -755,13 +751,13 @@ static void gfx_scegu_start_frame(void) {
     sceGuClear(GU_COLOR_BUFFER_BIT | GU_DEPTH_BUFFER_BIT);
     sceGuEnable(GU_SCISSOR_TEST);
     sceGuDepthMask(GU_FALSE);
-   
-    //Identity every frame? unsure.
-    sceGuSetMatrix(GU_PROJECTION, (const ScePspFMatrix4 *)identity_matrix);
-    sceGuSetMatrix(GU_VIEW, (const ScePspFMatrix4 *)identity_matrix);
-    sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)identity_matrix);
- 
-    #if 0
+
+    // Identity every frame? unsure.
+    //sceGuSetMatrix(GU_PROJECTION, (const ScePspFMatrix4 *) identity_matrix);
+    sceGuSetMatrix(GU_VIEW, (const ScePspFMatrix4 *) identity_matrix);
+    //sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *) identity_matrix);
+
+#if 0
     const int DitherMatrix[2][16] = { { 0, 8, 0, 8,
                          8, 0, 8, 0,
                          0, 8, 0, 8,
@@ -780,7 +776,7 @@ static void gfx_scegu_start_frame(void) {
         sceGuSetDither((const ScePspIMatrix4 *)DitherMatrix[(gFrame&1)]);
         sceGuEnable(GU_DITHER);
     }
-    #endif
+#endif
 }
 
 void gfx_scegu_on_resize(void) {
@@ -788,7 +784,7 @@ void gfx_scegu_on_resize(void) {
 
 static void gfx_scegu_end_frame(void) {
     sceGuFinish();
-    sceGuSync(0,0);
+    sceGuSync(0, 0);
     sceDisplayWaitVblankStart();
     sceGuSwapBuffers();
 }
@@ -797,6 +793,7 @@ static void gfx_scegu_finish_render(void) {
     /* There should be something here! */
 }
 
+// clang-format off
 struct GfxRenderingAPI gfx_opengl_api = {
     gfx_scegu_z_is_from_0_to_1,
     gfx_scegu_unload_shader,

@@ -105,7 +105,7 @@ static inline int32_t clamp32(int64_t v) {
     return (int32_t)v;
 }
 
-#include <stdio.h>
+void memcpy4(void *dest, const void *src, size_t count);
 #if defined(TARGET_PSP)
 void memcpy_vfpu( void* dst, const void* src, size_t size )
 {
@@ -113,7 +113,6 @@ void memcpy_vfpu( void* dst, const void* src, size_t size )
 	if( ((u32)src&0x3) != ((u32)dst&0x3) && (size<16) )
     {
         memcpy( dst, src, size );
-        printf("Couldn't align fast memcpy!\n");
         return;
     }
 
@@ -246,7 +245,6 @@ void memcpy_vfpu( void* dst, const void* src, size_t size )
     }
 }
 
-
 void __attribute__((noinline))  memcpy_vfpu_simple(void *dst, void *src, size_t size) 
 {
     __asm__ volatile (
@@ -262,9 +260,9 @@ void __attribute__((noinline))  memcpy_vfpu_simple(void *dst, void *src, size_t 
     "r"(dst), "r"( src), "r"(size));
 }
 #else
-void* memcpy_vfpu( void* dst, const void* src, unsigned int size )
+void memcpy_vfpu( void* dst, const void* src, unsigned int size )
 {
-	return memcpy( dst, src, size );
+	memcpy( dst, src, size );
 }
 #endif
 
@@ -284,15 +282,15 @@ void aClearBufferImpl(uint16_t addr, int nbytes) {
 }
 
 void aLoadBufferImpl(const void *source_addr) {
-    memcpy_vfpu(rspa.buf.as_u8 + rspa.in, source_addr, ROUND_UP_8(rspa.nbytes));
+    memcpy(rspa.buf.as_u8 + rspa.in, source_addr, ROUND_UP_8(rspa.nbytes));
 }
 
 void aSaveBufferImpl(int16_t *dest_addr) {
-    memcpy_vfpu(dest_addr, rspa.buf.as_s16 + rspa.out / sizeof(int16_t), ROUND_UP_8(rspa.nbytes));
+    memcpy(dest_addr, rspa.buf.as_s16 + rspa.out / sizeof(int16_t), ROUND_UP_8(rspa.nbytes));
 }
 
 void aLoadADPCMImpl(int num_entries_times_16, const int16_t *book_source_addr) {
-    memcpy_vfpu(rspa.adpcm_table, book_source_addr, num_entries_times_16);
+    memcpy(rspa.adpcm_table, book_source_addr, num_entries_times_16);
 }
 
 void aSetBufferImpl(uint8_t flags, uint16_t in, uint16_t out, uint16_t nbytes) {

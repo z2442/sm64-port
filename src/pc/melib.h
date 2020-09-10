@@ -10,7 +10,6 @@ extern "C" {
 #include <psptypes.h>
 #include <psprtc.h>
 
-#include "driver/me.h"
 
 /**
 * The mode of execution for a specific job.
@@ -29,8 +28,6 @@ struct JobInfo {
 	unsigned char execMode; /** Uses execution mode to specify where the code will run and/or if said code can be dynamically rebalanced */
 };
 
-struct Job;
-
 /**
 * Job Data is an integer pointer to an address with the data.
 */
@@ -45,16 +42,16 @@ typedef int (*JobFunction)(JobData ptr);
 * This structure is used to give job information alongside the job itself and the data needed.
 */
 struct Job {
-	struct JobInfo jobInfo;
 	JobFunction function;
 	JobData data;
+	struct JobInfo jobInfo;
 };
 
 /** 
 * JobManager class. This class only can have one instance for the ME.
 */
 
-void J_Init(bool dynamicRebalance); /** Initialize the job manager with the option to dynamically rebalance loads. */
+int J_Init(bool dynamicRebalance); /** Initialize the job manager with the option to dynamically rebalance loads. */
 void J_Cleanup(); /** Cleans up and ends execution. */
 
 void J_AddJob(struct Job* job); /** Adds a job to the queue. If the queue is full (max 256) then it will force a dispatch before adding more. */

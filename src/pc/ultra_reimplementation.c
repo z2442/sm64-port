@@ -7,11 +7,7 @@
 #include <emscripten.h>
 #endif
 
-#if defined(TARGET_PSP)
-#define FILE_PREFIX "ms0:/"
-#else
 #define FILE_PREFIX ""
-#endif
 
 extern OSMgrArgs piMgrArgs;
 
