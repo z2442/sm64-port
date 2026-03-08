@@ -36,13 +36,18 @@
 #if defined(TARGET_PSP)
 #include <pspsdk.h>
 #include <pspkernel.h>
+#include <pspmoduleinfo.h>
 #define MODULE_NAME "SM64 for PSP"
 #ifndef SRC_VER
 #define SRC_VER "UNKNOWN"
 #endif
 
 PSP_MODULE_INFO(MODULE_NAME, 0, 1, 1);
+#if defined(PSP_HEAP_SIZE_MAX)
 PSP_HEAP_SIZE_MAX();
+#elif defined(PSP_HEAP_SIZE_KB)
+PSP_HEAP_SIZE_KB(-1);
+#endif
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
 
 const char _srcver[] __attribute__((section (".version"), used)) = MODULE_NAME " - " SRC_VER ;
@@ -101,7 +106,7 @@ void send_display_list(struct SPTask *spTask) {
 #ifdef ME_EXEC
 #include "melib.h"
 static struct Job j __attribute__((aligned(64)));
-#else 
+#else
 typedef int JobData;
 #endif
 
@@ -270,10 +275,10 @@ void main_func(void) {
 #endif
 
     gfx_init(wm_api, rendering_api, "Super Mario 64 PC-Port", configFullscreen);
-    
+
     wm_api->set_fullscreen_changed_callback(on_fullscreen_changed);
     wm_api->set_keyboard_callbacks(keyboard_on_key_down, keyboard_on_key_up, keyboard_on_all_keys_up);
-    
+
 #if HAVE_WASAPI
     if (audio_api == NULL && audio_wasapi.init()) {
         audio_api = &audio_wasapi;

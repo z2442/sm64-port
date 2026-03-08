@@ -221,7 +221,6 @@ static void assign_tile_positions() {
 void write_tiles() {
     const ImageProps props = IMAGE_PROPERTIES[type][true];
     char buffer[PATH_MAX];
-    char skyboxName[PATH_MAX];
 
     if (realpath(writeDir, buffer) == NULL) {
         fprintf(stderr, "err: Could not find find img dir %s", writeDir);
@@ -513,7 +512,7 @@ static int parse_arguments(int argc, char *argv[]) {
 
             output = argv[i];
         }
-        
+
         if (strcmp(argv[i], "--type") == 0) {
             if (++i >= argc || type != InvalidType) {
                 goto invalid;
@@ -622,7 +621,7 @@ int main(int argc, char *argv[]) {
             }
 
             allocate_tiles();
-            
+
             init_tiles(image, expanded);
             switch (type) {
                 case Skybox:

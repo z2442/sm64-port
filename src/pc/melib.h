@@ -1,8 +1,8 @@
 #pragma once
 
-#ifdef __cplusplus  
+#ifdef __cplusplus
 extern "C" {
-#endif 
+#endif
 
 #include <time.h>
 #include <stdbool.h>
@@ -32,7 +32,7 @@ struct JobInfo {
 * Job Data is an integer pointer to an address with the data.
 */
 typedef int JobData;
-	
+
 /**
 * This typedef defines a JobFunction as an integer function with given data.
 */
@@ -47,7 +47,7 @@ struct Job {
 	struct JobInfo jobInfo;
 };
 
-/** 
+/**
 * JobManager class. This class only can have one instance for the ME.
 */
 
@@ -63,8 +63,8 @@ void J_Update(float cpuTime); /** Dispatches and runs jobs on this thread. See a
 float J_GetMETime();
 float J_GetCPUTime();
 
-struct me_struct* mei;
+extern struct me_struct* mei;
 
-#ifdef __cplusplus  
+#ifdef __cplusplus
 }
-#endif 
+#endif

@@ -72,7 +72,7 @@ static u32 menuSoundsExtra[] = {
 };
 static s8 paintingEjectSoundPlayed = FALSE;
 
-void play_menu_sounds_extra(int a, void *b);
+void play_menu_sounds_extra(s32 a, void *b);
 
 void reset_volume(void) {
     D_8032C6C0 = 0;
