@@ -333,15 +333,16 @@ static void gfx_scegu_apply_shader(struct ShaderProgram *prg) {
         sceGuDisable(GU_TEXTURE_2D);
         return;
     }
-/*@Note: Revisit one day! */
-#if 0
+
     if (prg->shader_id & SHADER_OPT_FOG) {
-        // Yea this doesnt work at all */
-        //sceGuFog(scegu_fog_near, scegu_fog_far, 0x00FF0000);//scegu_fog_color); // color is the same for all verts, only intensity is different
-        //sceGuEnable(GU_FOG);
-        sceGuEnable(GU_BLEND);
+        sceGuEnable(GU_FOG);
+
+        // Set fog parameters
+        //sceGuFog(1.0f, 10.0f, scegu_fog_color);
+        sceGuFog(3600.0f, 32000.0f, 0xFFFFFFFF);
+    } else {
+        sceGuDisable(GU_FOG);
     }
-#endif
 
     if (prg->num_inputs) {
         // have colors

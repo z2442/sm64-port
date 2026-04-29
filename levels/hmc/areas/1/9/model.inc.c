@@ -96,7 +96,7 @@ static const Gfx hmc_seg7_dl_0700FDF0[] = {
 const Gfx hmc_seg7_dl_0700FEF0[] = {
     gsDPPipeSync(),
     gsDPSetEnvColor(255, 255, 255, 128),
-    gsDPSetCombineMode(G_CC_DECALFADEA, G_CC_DECALFADEA),
+    gsDPSetCombineMode(G_CC_BLENDRGBA, G_CC_BLENDRGBA),
     gsSPClearGeometryMode(G_LIGHTING | G_CULL_BACK),
     gsDPSetTile(G_IM_FMT_RGBA, G_IM_SIZ_16b, 0, 0, G_TX_LOADTILE, 0, G_TX_WRAP | G_TX_NOMIRROR, G_TX_NOMASK, G_TX_NOLOD, G_TX_WRAP | G_TX_NOMIRROR, G_TX_NOMASK, G_TX_NOLOD),
     gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON),

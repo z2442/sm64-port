@@ -45,7 +45,7 @@ ALIGNED8 static const u8 explosion_seg3_texture_03003A08[] = {
 
 // 0x03004208 - 0x03004298
 const Gfx explosion_seg3_dl_03004208[] = {
-    gsDPSetCombineMode(G_CC_DECALFADEA, G_CC_DECALFADEA),
+    gsDPSetCombineMode(G_CC_BLENDRGBA, G_CC_BLENDRGBA),
     gsDPSetEnvColor(255, 255, 255, 150),
     gsSPClearGeometryMode(G_LIGHTING),
     gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON),
