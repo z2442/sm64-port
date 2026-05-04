@@ -39,10 +39,10 @@ typedef f32 Vec2f[2];
 typedef f32 Vec3f[3]; // X, Y, Z, where Y is up
 typedef s16 Vec3s[3];
 typedef s32 Vec3i[3];
-typedef f32 Vec4f[4];
+typedef f32 Vec4f[4] __attribute__((aligned(16)));
 typedef s16 Vec4s[4];
 
-typedef f32 Mat4[4][4];
+typedef f32 Mat4[4][4] __attribute__((aligned(16)));
 
 typedef uintptr_t GeoLayout;
 typedef uintptr_t LevelScript;

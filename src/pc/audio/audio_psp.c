@@ -61,7 +61,7 @@ static int audio_psp_get_desired_buffered(void) {
 static void audio_psp_play(const uint8_t *buf, size_t len) {
     int new_samples = len / (sizeof(short) * PSP_AUDIO_CHANNELS);
 
-    sceKernelDcacheInvalidateRange(buf, len);
+    //sceKernelDcacheInvalidateRange(buf, len);
     memcpy_vfpu(snd_buffer[cur_snd_buf], buf, len);
     sceKernelDcacheWritebackInvalidateRange(snd_buffer[cur_snd_buf], len);
 
@@ -69,7 +69,7 @@ static void audio_psp_play(const uint8_t *buf, size_t len) {
     if (chan < 0) {
         /* Sleep while still playing last sound, 7ms is half a frame at 60fps */
         while (sceAudioOutput2GetRestSample() > 0)
-            sceKernelDelayThread(1000);
+            sceKernelDelayThread(500);
         if (chan >= 0)
             sceAudioSRCChRelease();
         chan = sceAudioSRCChReserve(new_samples, PSP_AUDIO_FREQUENCY, PSP_AUDIO_CHANNELS);

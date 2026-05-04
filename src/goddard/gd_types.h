@@ -17,7 +17,7 @@ struct GdTriangleF {
     struct GdVec3f p0, p1, p2;
 };
 
-typedef f32 Mat4f[4][4];
+typedef f32 Mat4f[4][4] __attribute__((aligned(16)));
 
 struct GdColour {
     f32 r, g, b;

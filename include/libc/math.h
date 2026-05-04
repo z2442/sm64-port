@@ -10,4 +10,20 @@ double cos(double);
 
 float sqrtf(float);
 
+static inline float rsqrtf(float x) {
+#ifdef TARGET_PSP
+    float out;
+    __asm__ volatile (
+        "mtv    %1, S000\n"
+        "vrsq.s S000, S000\n"
+        "mfv    %0, S000\n"
+        : "=r"(out)
+        : "r"(x)
+    );
+    return out;
+#else
+    return 1.0f / sqrtf(x);
+#endif
+}
+
 #endif

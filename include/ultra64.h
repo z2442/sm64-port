@@ -2,6 +2,7 @@
 #define _ULTRA64_H_
 
 #include <math.h>
+#include "libc/math.h"
 
 #ifndef _LANGUAGE_C
 #define _LANGUAGE_C
