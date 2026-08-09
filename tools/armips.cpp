@@ -3,6 +3,8 @@
 // To simplify compilation, all files have been concatenated into one.
 // MIPS only, ARM is not included.
 
+#include <cstdint>
+
 /*
 The MIT License (MIT)
 
@@ -19904,4 +19906,3 @@ int main(int argc, char* argv[])
 }
 
 #endif
-
