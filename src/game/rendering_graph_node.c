@@ -277,7 +277,7 @@ static void geo_process_level_of_detail(struct GraphNodeLevelOfDetail *node) {
     s16 distanceFromCam = -GET_HIGH_S16_OF_32(mtx->m[1][3]); // z-component of the translation column
 #endif
 
-#ifndef TARGET_N64
+#if !defined(TARGET_N64) && !defined(TARGET_PSP)
     // We assume modern hardware is powerful enough to draw the most detailed variant
     distanceFromCam = 0;
 #endif
