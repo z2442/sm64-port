@@ -221,35 +221,31 @@ void create_dl_ortho_matrix_menu_hack(void) {
     hack_adjust = 50;
 }
 
-static u8 *alloc_ia8_text_from_i1(u16 *in, s16 width, s16 height) {
+ #if defined(VERSION_JP) || defined(VERSION_SH)
+ static void unpack_ia8_text_from_i1(const u8 *in, u8 *out, s16 width, s16 height) {
     s32 inPos;
-    u16 bitMask;
-    u8 *out;
-    s16 outPos = 0;
+    s32 outPos = 0;
+    u8 bitMask;
 
-    out = alloc_display_list((u32) width * (u32) height);
-
-    if (out == NULL) {
-        return NULL;
-    }
-
-    for (inPos = 0; inPos < (width * height) / 16; inPos++) {
-        bitMask = 0x8000;
-
-        while (bitMask != 0) {
-            if (in[inPos] & bitMask) {
-                out[outPos] = 0xFF;
-            } else {
-                out[outPos] = 0x00;
-            }
-
-            bitMask /= 2;
-            outPos++;
+        for (inPos = 0; inPos < (width * height) / 8; inPos++) {
+        for (bitMask = 0x80; bitMask != 0; bitMask >>= 1) {
+            out[outPos++] = (in[inPos] & bitMask) ? 0xFF : 0x00;
         }
     }
-
-    return out;
 }
+ #define JP_GLYPH_W 8
+ #define JP_GLYPH_H 16
+ static u8 sJpGlyphCache[256][JP_GLYPH_W * JP_GLYPH_H] __attribute__((aligned(16)));
+ static u8 sJpGlyphReady[256];
+ 
+ static u8 *get_ia8_text_glyph(u8 c, const u8 *packed) {
+     if (!sJpGlyphReady[c]) {
+         unpack_ia8_text_from_i1(packed, sJpGlyphCache[c], JP_GLYPH_W, JP_GLYPH_H);
+         sJpGlyphReady[c] = TRUE;
+     }
+     return sJpGlyphCache[c];
+}
+#endif
 
 void render_generic_char(u8 c) {
     void **fontLUT;
@@ -262,7 +258,7 @@ void render_generic_char(u8 c) {
     packedTexture = segmented_to_virtual(fontLUT[c]);
 
 #if defined(VERSION_JP) || defined(VERSION_SH)
-    unpackedTexture = alloc_ia8_text_from_i1(packedTexture, 8, 16);
+    unpackedTexture = get_ia8_text_glyph(c, packedTexture);
 
     gDPPipeSync(gDisplayListHead++);
     gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_IA, G_IM_SIZ_8b, 1, VIRTUAL_TO_PHYSICAL(unpackedTexture));

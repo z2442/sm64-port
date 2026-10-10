@@ -900,21 +900,28 @@ $(BUILD_DIR)/$(TARGET).objdump: $(ELF)
 else
 $(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES)
 	$(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
-ifeq ($(TARGET_PSP),1)
+ifeq ($(TARGET_PSP),1) 
+
 	psp-fixup-imports $@
 	@if [ "$(PROFILE_PSP)" != "1" ]; then \
 		psp-prxgen $@ $@.prx; \
 	fi
-
-TITLE := "sm64-port $(SRC_VER)"
+	
+ifeq ($(VERSION),jp)
+  TITLE      := "スーパーマリオ64"
+  EBOOT_DIR  := psp/JP_EBOOT
+else
+  TITLE      := "Super Mario 64" 
+  EBOOT_DIR  := psp/EBOOT
+endif
 
 pbp: $(EXE)
 	@mkdir -p $(BUILD_DIR)/mario64
 	mksfoex -d MEMSIZE=1 $(TITLE) $(BUILD_DIR)/PARAM.SFO
 	@if [ "$(PROFILE_PSP)" = "1" ]; then \
-		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(EXE) NULL; \
+		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO $(EBOOT_DIR)/ICON0.png NULL NULL $(EBOOT_DIR)/PIC0.png $(EBOOT_DIR)/SND0.at3 $(EXE) NULL; \
 	else \
-		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(EXE).prx NULL; \
+		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO $(EBOOT_DIR)/ICON0.png NULL NULL $(EBOOT_DIR)/PIC0.png $(EBOOT_DIR)/SND0.at3 $(EXE).prx NULL; \
 	fi
 
 .PHONY: pbp
