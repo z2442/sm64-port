@@ -72,3 +72,7 @@ sm64config.txt
 !/sound/**/*custom*/**/*.aiff
 !/assets/**/*custom*.bin
 !/assets/**/*custom*/**/*.bin
+
+build_O2/
+Makefile.bak*
+*Zone.Identifier

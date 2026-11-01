@@ -24,6 +24,7 @@
 #include "object_helpers.h"
 #include "object_list_processor.h"
 #include "rendering_graph_node.h"
+#include "game/psp_options.h"
 #include "spawn_object.h"
 #include "spawn_sound.h"
 
@@ -1187,16 +1188,16 @@ static void apply_drag_to_value(f32 *value, f32 dragStrength) {
 
     if (*value != 0) {
         //! Can overshoot if |*value| > 1/(dragStrength * 0.0001)
-        decel = (*value) * (*value) * (dragStrength * 0.0001L);
+        decel = (*value) * (*value) * (dragStrength * 0.0001f);
 
         if (*value > 0) {
             *value -= decel;
-            if (*value < 0.001L) {
+            if (*value < 0.001f) {
                 *value = 0;
             }
         } else {
             *value += decel;
-            if (*value > -0.001L) {
+            if (*value > -0.001f) {
                 *value = 0;
             }
         }
@@ -1268,7 +1269,7 @@ static s32 cur_obj_move_xz(f32 steepSlopeNormalY, s32 careAboutEdgesAndSteepSlop
 }
 
 static void cur_obj_move_update_underwater_flags(void) {
-    f32 decelY = (f32)(sqrtf(o->oVelY * o->oVelY) * (o->oDragStrength * 7.0f)) / 100.0L;
+    f32 decelY = (f32)(sqrtf(o->oVelY * o->oVelY) * (o->oDragStrength * 7.0f)) / 100.0f;
 
     if (o->oVelY > 0) {
         o->oVelY -= decelY;
@@ -1400,7 +1401,7 @@ static s32 clear_move_flag(u32 *bitSet, s32 flag) {
 }
 
 void cur_obj_unused_resolve_wall_collisions(f32 offsetY, f32 radius) {
-    if (radius > 0.1L) {
+    if (radius > 0.1f) {
         f32_find_wall_collision(&o->oPosX, &o->oPosY, &o->oPosZ, offsetY, radius);
     }
 }
@@ -1554,6 +1555,7 @@ void cur_obj_set_pos_to_home(void) {
     o->oPosX = o->oHomeX;
     o->oPosY = o->oHomeY;
     o->oPosZ = o->oHomeZ;
+    o->header.gfx.skipInterpolationTimestamp = gGlobalTimer;
 }
 
 void cur_obj_set_pos_to_home_and_stop(void) {
@@ -1709,7 +1711,7 @@ s32 cur_obj_resolve_wall_collisions(void) {
     f32 offsetY = 10.0f;
     f32 radius = o->oWallHitboxRadius;
 
-    if (radius > 0.1L) {
+    if (radius > 0.1f) {
         collisionData.offsetY = offsetY;
         collisionData.radius = radius;
         collisionData.x = (s16) o->oPosX;
@@ -2293,7 +2295,7 @@ void cur_obj_set_pos_to_home_with_debug(void) {
     o->oPosX = o->oHomeX + gDebugInfo[5][0];
     o->oPosY = o->oHomeY + gDebugInfo[5][1];
     o->oPosZ = o->oHomeZ + gDebugInfo[5][2];
-    cur_obj_scale(gDebugInfo[5][3] / 100.0f + 1.0l);
+    cur_obj_scale(gDebugInfo[5][3] / 100.0f + 1.0f);
 }
 
 void stub_obj_helpers_4(void) {
@@ -2493,7 +2495,7 @@ void cur_obj_if_hit_wall_bounce_away(void) {
 }
 
 s32 cur_obj_hide_if_mario_far_away_y(f32 distY) {
-    if (absf(o->oPosY - gMarioObject->oPosY) < distY) {
+    if (absf(o->oPosY - gMarioObject->oPosY) < PSP_OBJ_DIST(distY)) {
         cur_obj_unhide();
         return FALSE;
     } else {

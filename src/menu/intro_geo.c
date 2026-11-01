@@ -1,5 +1,6 @@
 #include <PR/ultratypes.h>
 
+#include "engine/math_util.h"
 #include "game/memory.h"
 #include "game/segment2.h"
 #include "game/segment7.h"
@@ -7,6 +8,8 @@
 #include "sm64.h"
 #include "textures.h"
 #include "types.h"
+#include "engine/math_util.h"
+#include "gfx_dimensions.h"
 #include "prevent_bss_reordering.h"
 
 // frame counts for the zoom in, hold, and zoom out of title model
@@ -23,6 +26,8 @@ struct GraphNodeMore {
     /*0x14*/ void *todo;
     /*0x18*/ u32 unk18;
 };
+
+extern void interpolate_vectors(Vec3f res, Vec3f a, Vec3f b);
 
 // intro geo bss
 s32 gGameOverFrameCounter;
@@ -68,6 +73,23 @@ s8 gameOverBackgroundTable[] = {
 s8 gameOverBackgroundFlipOrder[] = { 0x00, 0x01, 0x02, 0x03, 0x07, 0x0B,
                                      0x0a, 0x09, 0x08, 0x04, 0x05, 0x06 };
 
+/* 60 fps: escala del logo del titulo (el primer cuadro usa la escala interpolada, el segundo la real) */
+static Gfx *sIntroScalePos;
+static Vec3f sIntroScale;
+
+#ifdef TARGET_PSP
+int psp_title_patch_pending(void) { return sIntroScalePos != NULL; }
+#endif
+
+void patch_title_screen_scales(void) {
+    if (sIntroScalePos != NULL) {
+        Mtx *scaleMat = alloc_display_list(sizeof(*scaleMat));
+        guScale(scaleMat, sIntroScale[0], sIntroScale[1], sIntroScale[2]);
+        gSPMatrix(sIntroScalePos, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+        sIntroScalePos = NULL;
+    }
+}
+
 Gfx *geo_title_screen(s32 sp50, struct GraphNode *sp54, UNUSED void *context) {
     struct GraphNode *graphNode; // sp4c
     Gfx *displayList;            // sp48
@@ -78,6 +100,8 @@ Gfx *geo_title_screen(s32 sp50, struct GraphNode *sp54, UNUSED void *context) {
     f32 scaleX;                  // sp34
     f32 scaleY;                  // sp30
     f32 scaleZ;                  // sp2c
+    Vec3f scale;
+    Vec3f scaleInterpolated;
     graphNode = sp54;
     displayList = NULL;
     displayListIter = NULL;
@@ -108,7 +132,11 @@ Gfx *geo_title_screen(s32 sp50, struct GraphNode *sp54, UNUSED void *context) {
             scaleY = 0.0f;
             scaleZ = 0.0f;
         }
-        guScale(scaleMat, scaleX, scaleY, scaleZ);
+        vec3f_set(scale, scaleX, scaleY, scaleZ);
+        interpolate_vectors(scaleInterpolated, sIntroScale, scale);
+        vec3f_set(sIntroScale, scaleX, scaleY, scaleZ);
+        guScale(scaleMat, scaleInterpolated[0], scaleInterpolated[1], scaleInterpolated[2]);
+        sIntroScalePos = displayListIter;
         gSPMatrix(displayListIter++, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
         gSPDisplayList(displayListIter++, &intro_seg7_dl_0700B3A0);
         gSPPopMatrix(displayListIter++, G_MTX_MODELVIEW);
@@ -116,6 +144,57 @@ Gfx *geo_title_screen(s32 sp50, struct GraphNode *sp54, UNUSED void *context) {
         gTitleZoomCounter++;
     }
     return displayList;
+}
+
+
+/* PSP 16:9: el renderer encoge las proyecciones 2D (0..320 x 0..240) a una caja 4:3 centrada. En vez de
+ * estirar el fondo para llenar los 16:9 (los cuadros salian ensanchados), se dibujan columnas extra de
+ * cuadros de 80x80 a cada lado de la caja: la columna izquierda extra copia el estado de la columna 0 de su
+ * fila y la derecha el de la columna 3 (la vecina). Asi el orden de cambio de Game Over a Super Mario 64
+ * (esquina sup. izq. -> derecha -> abajo -> izquierda -> fila del medio) se ve igual que en la N64 y las
+ * columnas extra solo acompanan a su vecina. */
+#ifdef WIDESCREEN
+#define INTRO_BG_EXTRA_TILES 6
+#else
+#define INTRO_BG_EXTRA_TILES 0
+#endif
+
+static Gfx *intro_backdrop_tile(s32 index, s8 *backgroundTable, f32 offsetX, f32 offsetY) {
+    Mtx *mtx;
+    Gfx *displayList;
+    Gfx *displayListIter;
+    const u8 *const *vIntroBgTable;
+    s32 i;
+    mtx = alloc_display_list(sizeof(*mtx));
+    displayList = alloc_display_list(36 * sizeof(*displayList));
+    displayListIter = displayList;
+    vIntroBgTable = segmented_to_virtual(introBackgroundTextureType[backgroundTable[index]]);
+    guTranslate(mtx, offsetX, offsetY, 0.0f);
+    gSPMatrix(displayListIter++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_PUSH);
+    gSPDisplayList(displayListIter++, &title_screen_bg_dl_0A000118);
+    for (i = 0; i < 4; ++i) {
+        gDPLoadTextureBlock(displayListIter++, vIntroBgTable[i], G_IM_FMT_RGBA, G_IM_SIZ_16b, 80, 20, 0,
+                            G_TX_CLAMP, G_TX_CLAMP, 7, 6, G_TX_NOLOD, G_TX_NOLOD)
+        gSPDisplayList(displayListIter++, introBackgroundDlRows[i]);
+    }
+    gSPPopMatrix(displayListIter++, G_MTX_MODELVIEW);
+    gSPEndDisplayList(displayListIter);
+    return displayList;
+}
+
+/* Agrega las columnas extra del fondo (solo PSP 16:9). */
+static Gfx *intro_backdrop_extra(Gfx *dl, s8 *backgroundTable) {
+#ifdef WIDESCREEN
+    s32 row;
+    for (row = 0; row < 3; row++) {
+        const f32 y = introBackgroundOffsetY[row * 4];
+        gSPDisplayList(dl++, intro_backdrop_tile(row * 4 + 0, backgroundTable, -80.0f, y));
+        gSPDisplayList(dl++, intro_backdrop_tile(row * 4 + 3, backgroundTable, 320.0f, y));
+    }
+#else
+    (void) backgroundTable;
+#endif
+    return dl;
 }
 
 Gfx *geo_fade_transition(s32 sp40, struct GraphNode *sp44, UNUSED void *context) {
@@ -153,26 +232,7 @@ Gfx *geo_fade_transition(s32 sp40, struct GraphNode *sp44, UNUSED void *context)
 }
 
 Gfx *intro_backdrop_one_image(s32 index, s8 *backgroundTable) {
-    Mtx *mtx;                         // sp5c
-    Gfx *displayList;                 // sp58
-    Gfx *displayListIter;             // sp54
-    const u8 *const *vIntroBgTable;   // sp50
-    s32 i;                            // sp4c
-    mtx = alloc_display_list(sizeof(*mtx));
-    displayList = alloc_display_list(36 * sizeof(*displayList));
-    displayListIter = displayList;
-    vIntroBgTable = segmented_to_virtual(introBackgroundTextureType[backgroundTable[index]]);
-    guTranslate(mtx, introBackgroundOffsetX[index], introBackgroundOffsetY[index], 0.0f);
-    gSPMatrix(displayListIter++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_PUSH);
-    gSPDisplayList(displayListIter++, &title_screen_bg_dl_0A000118);
-    for (i = 0; i < 4; ++i) {
-        gDPLoadTextureBlock(displayListIter++, vIntroBgTable[i], G_IM_FMT_RGBA, G_IM_SIZ_16b, 80, 20, 0, 
-                            G_TX_CLAMP, G_TX_CLAMP, 7, 6, G_TX_NOLOD, G_TX_NOLOD)    
-        gSPDisplayList(displayListIter++, introBackgroundDlRows[i]);
-    }
-    gSPPopMatrix(displayListIter++, G_MTX_MODELVIEW);
-    gSPEndDisplayList(displayListIter);
-    return displayList;
+    return intro_backdrop_tile(index, backgroundTable, introBackgroundOffsetX[index], introBackgroundOffsetY[index]);
 }
 
 Gfx *geo_intro_backdrop(s32 sp48, struct GraphNode *sp4c, UNUSED void *context) {
@@ -188,7 +248,7 @@ Gfx *geo_intro_backdrop(s32 sp48, struct GraphNode *sp4c, UNUSED void *context) 
     displayList = NULL;
     displayListIter = NULL;
     if (sp48 == 1) {
-        displayList = alloc_display_list(16 * sizeof(*displayList));
+        displayList = alloc_display_list((17 + INTRO_BG_EXTRA_TILES) * sizeof(*displayList));
         displayListIter = displayList;
         graphNode->node.flags = (graphNode->node.flags & 0xFF) | 0x100;
         gSPDisplayList(displayListIter++, &dl_proj_mtx_fullscreen);
@@ -196,6 +256,7 @@ Gfx *geo_intro_backdrop(s32 sp48, struct GraphNode *sp4c, UNUSED void *context) 
         for (i = 0; i < 12; ++i) {
             gSPDisplayList(displayListIter++, intro_backdrop_one_image(i, backgroundTable));
         }
+        displayListIter = intro_backdrop_extra(displayListIter, backgroundTable);
         gSPDisplayList(displayListIter++, &title_screen_bg_dl_0A000190);
         gSPEndDisplayList(displayListIter);
     }
@@ -218,7 +279,7 @@ Gfx *geo_game_over_tile(s32 sp40, struct GraphNode *sp44, UNUSED void *context) 
             gameOverBackgroundTable[i] = INTRO_BACKGROUND_GAME_OVER;
         }
     } else {
-        displayList = alloc_display_list(16 * sizeof(*displayList));
+        displayList = alloc_display_list((17 + INTRO_BG_EXTRA_TILES) * sizeof(*displayList));
         displayListIter = displayList;
         if (gGameOverTableIndex == -2) {
             if (gGameOverFrameCounter == 180) {
@@ -242,6 +303,7 @@ Gfx *geo_game_over_tile(s32 sp40, struct GraphNode *sp44, UNUSED void *context) 
         for (j = 0; j < (s32) sizeof(gameOverBackgroundTable); ++j) {
             gSPDisplayList(displayListIter++, intro_backdrop_one_image(j, gameOverBackgroundTable));
         }
+        displayListIter = intro_backdrop_extra(displayListIter, gameOverBackgroundTable);
         gSPDisplayList(displayListIter++, &title_screen_bg_dl_0A000190);
         gSPEndDisplayList(displayListIter);
     }

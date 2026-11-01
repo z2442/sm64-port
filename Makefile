@@ -504,11 +504,21 @@ ifeq ($(TARGET_LINUX),1)
   PLATFORM_LDFLAGS := -lm -lpthread `pkg-config --libs libusb-1.0` -lasound -lpulse -no-pie
 endif
 ifeq ($(TARGET_PSP),1)
+  # Optimizacion de la PSP (se puede cambiar por linea de comandos, p. ej. "make PSP_OPT=-O2", o editando aqui).
+  # La PSP solo tiene 16 KB de cache de instrucciones: -O3 con las funciones alineadas a 64 bytes agranda el codigo y a veces es mas
+  # lento que -O2 (los puertos de Sonic R / Sonic Mania para PSP usan -O2). Probar: PSP_OPT=-O2 y PSP_FALIGN= (vacio).
+  # Al cambiar estas opciones hay que borrar la carpeta build (make no sabe que cambiaron las banderas).
+  PSP_OPT ?= -O3
+  PSP_FALIGN ?= -falign-functions=64 -flimit-function-alignment
+  # Sin la comprobacion de division por cero (instrucciones extra tras cada division entera); igual que en la N64 no hay trampa.
+  # -fno-math-errno: sqrtf() se compila a la instruccion sqrt.s (sin comprobar errno ni llamar a la libm); el resultado es el mismo.
+  # -fno-trapping-math: el compilador puede reordenar operaciones de coma flotante sin cambiar ningun resultado (la PSP no genera trampas).
+  PSP_EXTRA_CFLAGS ?= -mno-check-zero-division -fno-math-errno -fno-trapping-math
   PSPSDK_PREFIX = $(shell psp-config -p)
   PSP_PREFIX    = $(shell psp-config -P)
   # Notes from neo
   #-gdwarf-2 -gstrict-dwarf -g3 --ffunction-sections -fdata-sections -Wl,-gc-sections
-  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG -O3 -falign-functions=64 -flimit-function-alignment -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
   PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -lme-core
   
   ifeq ($(PROFILE_PSP),1)
@@ -906,7 +916,7 @@ ifeq ($(TARGET_PSP),1)
 		psp-prxgen $@ $@.prx; \
 	fi
 
-TITLE := "sm64-port $(SRC_VER)"
+TITLE := "Super Mario 64™"
 
 pbp: $(EXE)
 	@mkdir -p $(BUILD_DIR)/mario64

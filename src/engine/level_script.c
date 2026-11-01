@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include "pc/psp_lprof.h"
 #ifdef NO_SEGMENTED_MEMORY
 #include <string.h>
 #endif
@@ -830,13 +831,21 @@ struct LevelCommand *level_script_execute(struct LevelCommand *cmd) {
     sScriptStatus = SCRIPT_RUNNING;
     sCurrentCmd = cmd;
 
-    while (sScriptStatus == SCRIPT_RUNNING) {
-        LevelScriptJumpTable[sCurrentCmd->type]();
+    {
+        LPROF_BEGIN(lp_s);
+        while (sScriptStatus == SCRIPT_RUNNING) {
+            LevelScriptJumpTable[sCurrentCmd->type]();
+        }
+        LPROF_END(lp_s, LP_SCR);
     }
 
     profiler_log_thread5_time(LEVEL_SCRIPT_EXECUTE);
     init_render_image();
-    render_game();
+    {
+        LPROF_BEGIN(lp_r);
+        render_game();
+        LPROF_END(lp_r, LP_RND);
+    }
     end_master_display_list();
     alloc_display_list(0);
 

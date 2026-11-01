@@ -17,6 +17,7 @@
 #include "gfx/gfx_dxgi.h"
 #include "gfx/gfx_glx.h"
 #include "gfx/gfx_psp.h"
+#include "gfx/gfx_screen_config.h"
 #include "gfx/gfx_sdl.h"
 
 #include "audio/audio_api.h"
@@ -37,7 +38,7 @@
 #if defined(TARGET_PSP)
 #include <pspsdk.h>
 #include <pspkernel.h>
-#include "psp_home_menu.h"
+#include <psppower.h>
 #include "psp_me.h"
 #define MODULE_NAME "SM64 for PSP"
 #ifndef SRC_VER
@@ -80,10 +81,66 @@ void set_vblank_handler(UNUSED s32 index, UNUSED struct VblankHandler *handler, 
 static uint8_t inited = 0;
 
 #include "game/game_init.h" // for gGlobalTimer
+
+#if defined(TARGET_PSP)
+/* Interpolacion de cuadros (60 fps dinamico). La lista de dibujo se construye con matrices interpoladas; estas funciones
+ * la reescriben para que apunte a las matrices del estado real (ver parche 60fps de sm64ex). */
+extern int gPspSixtyMode;
+extern void gfx_psp_update_mode(void);
+extern void mtx_patch_interpolated(void);
+extern void patch_screen_transition_interpolated(void);
+extern void patch_title_screen_scales(void);
+extern void patch_interpolated_dialog(void);
+extern void patch_interpolated_hud(void);
+extern void patch_interpolated_paintings(void);
+extern void patch_interpolated_bubble_particles(void);
+extern void patch_interpolated_snow_particles(void);
+
+#if defined(TARGET_PSP)
+/* PSP_F2_REPLAY: parches que NO son solo "cambiar matrices de objetos" (vertices, escala del titulo, HUD, dialogo...).
+ * Si alguno esta pendiente el 2o cuadro vuelve a emitir la escena completa (como antes de la etapa 2). */
+extern int psp_hud_patch_pending(void);
+extern int psp_dialog_patch_pending(void);
+extern int psp_transition_patch_pending(void);
+extern int psp_title_patch_pending(void);
+extern int psp_painting_patch_pending(void);
+extern int psp_bubble_patch_pending(void);
+extern int psp_snow_patch_pending(void);
+extern int psp_projection_patch_pending(void);
+extern int psp_viewport_patch_pending(void);
+static int psp_f2_nonmatrix_pending(void) {
+    return psp_projection_patch_pending() | psp_viewport_patch_pending() | psp_hud_patch_pending() |
+           psp_dialog_patch_pending() | psp_transition_patch_pending() | psp_title_patch_pending() |
+           psp_painting_patch_pending() | psp_bubble_patch_pending() | psp_snow_patch_pending();
+}
+extern void gfx_psp_replay_prepare(int pending);
+extern int gfx_psp_replay_decided(void);
+extern int gPspReplayEma;
+#endif
+
+static inline void patch_interpolations(void) {
+    mtx_patch_interpolated();
+    patch_screen_transition_interpolated();
+    patch_title_screen_scales();
+    patch_interpolated_dialog();
+    patch_interpolated_hud();
+    patch_interpolated_paintings();
+    patch_interpolated_bubble_particles();
+    patch_interpolated_snow_particles();
+}
+#endif
+
 void send_display_list(struct SPTask *spTask) {
     if (!inited) {
         return;
     }
+#if defined(TARGET_PSP)
+    /* Modo 30 fps: un solo cuadro con el estado real -> se parchea ya. Modo 60 fps: este primer cuadro sale
+     * interpolado y el parche se aplica antes del segundo cuadro (ver produce_one_frame). */
+    if (!gPspSixtyMode) {
+        patch_interpolations();
+    }
+#endif
     gfx_run((Gfx *)spTask->task.t.data_ptr);
 }
 
@@ -103,25 +160,105 @@ extern int gProcessAudio;
 int gFrame=0;
 static void save_config(void);
 
+#if defined(TARGET_PSP)
+/* Menu HOME nativo de la PSP: se registra un callback de salida (sin esto el boton HOME no hace nada).
+ * Al confirmar "Salir del juego" el sistema llama a este callback. */
+static int psp_exit_callback(UNUSED int arg1, UNUSED int arg2, UNUSED void *common) {
+    save_config();
+    audio_psp_shutdown();
+    sceKernelExitGame();
+    return 0;
+}
+
+extern void gfx_scegu_power_event(int suspending); /* gfx_scegu.c */
+static int psp_power_callback(UNUSED int unknown, int flags, UNUSED void *common) {
+    psp_me_note_flags(flags);
+    if (flags & (PSP_POWER_CB_SUSPENDING | PSP_POWER_CB_POWER_SWITCH | PSP_POWER_CB_STANDBY)) {
+        if (!(flags & (PSP_POWER_CB_RESUMING | PSP_POWER_CB_RESUME_COMPLETE))) {
+            psp_me_power_event(1); /* el ME tiene que estar parado antes de que la consola se duerma */
+        }
+        gfx_scegu_power_event(1);
+    }
+    if (flags & (PSP_POWER_CB_RESUME_COMPLETE | PSP_POWER_CB_RESUMING)) {
+        gfx_scegu_power_event(0);
+    }
+    if (flags & PSP_POWER_CB_RESUME_COMPLETE) {
+        psp_me_power_event(0); /* vuelve a arrancar el ME (si se detuvo bien antes de dormir) */
+    }
+    return 0;
+}
+
+static int psp_callback_thread(UNUSED SceSize args, UNUSED void *argp) {
+    int cbid = sceKernelCreateCallback("Exit Callback", psp_exit_callback, NULL);
+    sceKernelRegisterExitCallback(cbid);
+    scePowerRegisterCallback(0, sceKernelCreateCallback("Power Callback", psp_power_callback, NULL));
+    sceKernelSleepThreadCB();
+    return 0;
+}
+
+static void psp_setup_exit_callback(void) {
+    int thid = sceKernelCreateThread("exit_callback_thread", psp_callback_thread, 0x11, 0xFA0, 0, NULL);
+    if (thid >= 0) {
+        sceKernelStartThread(thid, 0, NULL);
+    }
+}
+#endif
+
+extern int gPspPresentAsync; /* gfx_scegu.c */
+extern int gPspOptPipe, gPspOptFpsCap; /* game/psp_options.c */
+extern int gPspAsyncWant;    /* gfx_pc.c: 1 si la cola del GE es lo bastante larga como para que compense presentar en asincrono */
+
+extern unsigned int gPspLastSwapT, gPspPrevSwapT; /* gfx_scegu.c: hora de los dos ultimos vblank con cuadro presentado */
+extern void gfx_psp_skip_frame_slot(void);
+extern void gfx_psp_set_role(int role); /* gfx_pc.c: 0 = normal, 1 = 1er cuadro de un tick de 60 fps (se graba), 2 = 2o cuadro (se repite) */
+unsigned int gPspF2Skip; /* ticks de 60 fps cuyo 2o cuadro se descarto porque el 1o se paso de un vblank */
+/* Si el 1er cuadro de un tick de 60 fps tardo mas de ~1,5 vblank desde que empezo el tick (la logica y el dibujado no cupieron en
+ * 16,7 ms), el 2o cuadro caeria en un 3er vblank y el tick duraria 50 ms (juego a 20 Hz = camara lenta). En ese caso se omite. */
+#define PSP_F2_MAX_FRAME1_US 25000U
+
 void produce_one_frame(void) {
 #if defined(TARGET_PSP)
-    psp_home_menu_poll_home_button();
-
-    if (psp_home_menu_is_open()) {
-        if (psp_home_menu_run_frame() == PSP_HOME_MENU_RESULT_EXIT_GAME) {
-            save_config();
-            audio_psp_shutdown();
-            sceKernelExitGame();
-            return;
-        }
-        gFrame++;
-        return;
-    }
-
+    unsigned int t_entry;
+    gfx_psp_update_mode(); /* decide si este tick presenta 1 cuadro (30 fps) o 2 (60 fps) */
+    gfx_psp_set_role(gPspSixtyMode ? 1 : 0);
+    t_entry = sceKernelGetSystemTimeLow();
+    /* Triple Buffer (solo a 60 fps de tope; con topes menores el ritmo lo marca el sueno de gfx_psp.c): el cuadro se presenta en el hilo, la CPU sigue */
     gfx_start_frame();
+    gPspPresentAsync = (gPspOptPipe && gPspOptFpsCap >= 60 && gPspSixtyMode) ? 1 : 0;
     game_loop_one_iteration();
     gFrame++;
     gfx_end_frame();
+    gPspPresentAsync = 0;
+#if PSP_F2_SKIP
+    if (gPspSixtyMode) {
+        /* referencia: el mas tardio entre el inicio del tick y el vblank del cuadro anterior (con presentacion asincrona el tick
+         * empieza antes de que el cuadro anterior llegue a pantalla) */
+        const unsigned int ref = ((int) (gPspPrevSwapT - t_entry) > 0) ? gPspPrevSwapT : t_entry;
+        const int dt = (int) (gPspLastSwapT - ref);
+        if (dt > (int) PSP_F2_MAX_FRAME1_US) {
+            gPspF2Skip++;
+            /* IMPORTANTE: aunque este cuadro no se dibuje, hay que aplicar los parches de interpolacion: ademas de reescribir la lista
+             * de dibujo, vacian las tablas de posiciones (gMtxTblSize = 0, etc.). Si no, las entradas viejas apuntan a una lista ya
+             * reutilizada y el siguiente parche escribe sobre memoria ajena (cuelga el GE). */
+            patch_interpolations();
+            gfx_psp_skip_frame_slot();
+            gfx_psp_set_role(0);
+            return;
+        }
+    }
+#endif
+    if (gPspSixtyMode) {
+        /* Segundo cuadro del tick: misma lista de dibujo, ahora con las matrices del estado real. */
+        gfx_psp_set_role(2);
+        gfx_psp_replay_prepare(psp_f2_nonmatrix_pending()); /* ANTES de patch_interpolations(): esta vacia la tabla de matrices */
+        gfx_start_frame();
+        patch_interpolations();
+        gPspPresentAsync = ((gPspOptPipe && gPspOptFpsCap >= 60) || gPspAsyncWant || gfx_psp_replay_decided() || gPspReplayEma >= 600) ? 1 : 0; /* ultimo cuadro del tick: su sync + vblank se hacen en un hilo mientras corre la logica siguiente */
+        send_display_list(gGfxSPTask);
+        gfx_end_frame();
+        gPspPresentAsync = 0;
+        gfx_psp_set_role(0);
+    }
 #else
     u32 num_audio_samples;
     int samples_left;
@@ -185,7 +322,7 @@ static void on_fullscreen_changed(bool is_now_fullscreen) {
 void main_func(const char *argv0) {
 #if defined(TARGET_PSP)
     (void)psp_me_boot();
-    psp_home_menu_init();
+    psp_setup_exit_callback();
 #endif
 
     static u32 pool[0x165000/8 / 4 * sizeof(void *) * 4];

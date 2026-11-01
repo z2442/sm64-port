@@ -23,6 +23,9 @@
 #include "text_strings.h"
 #include "types.h"
 #include "pc/psp_me.h"
+#ifdef TARGET_PSP
+#include "psp_options.h"
+#endif
 
 u16 gDialogColorFadeTimer;
 s8 gLastDialogLineNum;
@@ -112,6 +115,48 @@ u8 gMenuHoldKeyIndex = 0;
 u8 gMenuHoldKeyTimer = 0;
 s32 gDialogResponse = 0;
 
+
+static Gfx *sInterpolatedDialogOffsetPos;
+static f32 sInterpolatedDialogOffset;
+static Gfx *sInterpolatedDialogRotationPos;
+static f32 sInterpolatedDialogScale;
+static f32 sInterpolatedDialogRotation;
+static Gfx *sInterpolatedDialogZoomPos;
+
+#ifdef TARGET_PSP
+int psp_dialog_patch_pending(void) {
+    return sInterpolatedDialogOffsetPos != NULL || sInterpolatedDialogRotationPos != NULL || sInterpolatedDialogZoomPos != NULL;
+}
+#endif
+
+void patch_interpolated_dialog(void) {
+    Mtx *matrix;
+
+    if (sInterpolatedDialogOffsetPos != NULL) {
+        matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
+        guTranslate(matrix, 0, sInterpolatedDialogOffset, 0);
+        gSPMatrix(sInterpolatedDialogOffsetPos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+        sInterpolatedDialogOffsetPos = NULL;
+    }
+    if (sInterpolatedDialogRotationPos != NULL) {
+        matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
+        guScale(matrix, 1.0 / sInterpolatedDialogScale, 1.0 / sInterpolatedDialogScale, 1.0f);
+        gSPMatrix(sInterpolatedDialogRotationPos++, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+        matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
+        guRotate(matrix, sInterpolatedDialogRotation * 4.0f, 0, 0, 1.0f);
+        gSPMatrix(sInterpolatedDialogRotationPos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+        sInterpolatedDialogRotationPos = NULL;
+    }
+    if (sInterpolatedDialogZoomPos != NULL) {
+        matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
+        guTranslate(matrix, 65.0 - (65.0 / sInterpolatedDialogScale), (40.0 / sInterpolatedDialogScale) - 40, 0);
+        gSPMatrix(sInterpolatedDialogZoomPos++, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+        matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
+        guScale(matrix, 1.0 / sInterpolatedDialogScale, 1.0 / sInterpolatedDialogScale, 1.0f);
+        gSPMatrix(sInterpolatedDialogZoomPos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+        sInterpolatedDialogZoomPos = NULL;
+    }
+}
 
 void create_dl_identity_matrix(void) {
     Mtx *matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
@@ -211,14 +256,14 @@ void create_dl_ortho_matrix_menu_hack(void) {
 
     create_dl_identity_matrix();
 
-    guOrtho(matrix, 0.0f, SCREEN_WIDTH*1.32352941177f, 0.0f, SCREEN_HEIGHT, -10.0f, 10.0f, 1.0f);
+    guOrtho(matrix, 0.0f, SCREEN_WIDTH, 0.0f, SCREEN_HEIGHT, -10.0f, 10.0f, 1.0f); /* gfx_pc.c ya compensa 16:9 */
 
     // Should produce G_RDPHALF_1 in Fast3D
     gSPPerspNormalize(gDisplayListHead++, 0xFFFF);
 
     gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_PROJECTION | G_MTX_MUL | G_MTX_NOPUSH)
 
-    hack_adjust = 50;
+    hack_adjust = 0;
 }
 
 static u8 *alloc_ia8_text_from_i1(u16 *in, s16 width, s16 height) {
@@ -734,20 +779,26 @@ void print_credits_string(s16 x, s16 y, const u8 *str) {
 void handle_menu_scrolling(s8 scrollDirection, s8 *currentIndex, s8 minIndex, s8 maxIndex) {
     u8 index = 0;
 
-    if (scrollDirection == MENU_SCROLL_VERTICAL) {
-        if (gPlayer3Controller->rawStickY > 60) {
-            index++;
-        }
+#ifdef TARGET_PSP
+    /* La cruceta de la PSP llega como los botones C (controller_psp.c): tambien mueve el cursor de los menus, igual que el stick. */
+    const s32 padUp = gPlayer3Controller->buttonDown & U_CBUTTONS;
+    const s32 padDown = gPlayer3Controller->buttonDown & D_CBUTTONS;
+    const s32 padLeft = gPlayer3Controller->buttonDown & L_CBUTTONS;
+    const s32 padRight = gPlayer3Controller->buttonDown & R_CBUTTONS;
+#else
+    const s32 padUp = 0, padDown = 0, padLeft = 0, padRight = 0;
+#endif
 
-        if (gPlayer3Controller->rawStickY < -60) {
+    if (scrollDirection == MENU_SCROLL_VERTICAL) {
+        if (gPlayer3Controller->rawStickY > 60 || padUp) {
+            index++;
+        } else if (gPlayer3Controller->rawStickY < -60 || padDown) {
             index += 2;
         }
     } else if (scrollDirection == MENU_SCROLL_HORIZONTAL) {
-        if (gPlayer3Controller->rawStickX > 60) {
+        if (gPlayer3Controller->rawStickX > 60 || padRight) {
             index += 2;
-        }
-
-        if (gPlayer3Controller->rawStickX < -60) {
+        } else if (gPlayer3Controller->rawStickX < -60 || padLeft) {
             index++;
         }
     }
@@ -971,6 +1022,14 @@ void render_dialog_box_type(struct DialogEntry *dialog, s8 linesPerBox) {
     switch (gDialogBoxType) {
         case DIALOG_TYPE_ROTATE: // Renders a dialog black box with zoom and rotation
             if (gDialogBoxState == DIALOG_STATE_OPENING || gDialogBoxState == DIALOG_STATE_CLOSING) {
+                sInterpolatedDialogRotationPos = gDisplayListHead;
+                if (gDialogBoxState == DIALOG_STATE_OPENING) {
+                    sInterpolatedDialogScale = gDialogBoxScale - 2 / 2;
+                    sInterpolatedDialogRotation = gDialogBoxOpenTimer - 7.5f / 2;
+                } else {
+                    sInterpolatedDialogScale = gDialogBoxScale + 2 / 2;
+                    sInterpolatedDialogRotation = gDialogBoxOpenTimer + 7.5f / 2;
+                }
                 create_dl_scale_matrix(MENU_MTX_NOPUSH, 1.0 / gDialogBoxScale, 1.0 / gDialogBoxScale, 1.0f);
                 // convert the speed into angle
                 create_dl_rotation_matrix(MENU_MTX_NOPUSH, gDialogBoxOpenTimer * 4.0f, 0, 0, 1.0f);
@@ -979,6 +1038,12 @@ void render_dialog_box_type(struct DialogEntry *dialog, s8 linesPerBox) {
             break;
         case DIALOG_TYPE_ZOOM: // Renders a dialog white box with zoom
             if (gDialogBoxState == DIALOG_STATE_OPENING || gDialogBoxState == DIALOG_STATE_CLOSING) {
+                sInterpolatedDialogZoomPos = gDisplayListHead;
+                if (gDialogBoxState == DIALOG_STATE_OPENING) {
+                    sInterpolatedDialogScale = gDialogBoxScale - 2 / 2;
+                } else {
+                    sInterpolatedDialogScale = gDialogBoxScale + 2 / 2;
+                }
                 create_dl_translation_matrix(MENU_MTX_NOPUSH, 65.0 - (65.0 / gDialogBoxScale),
                                               (40.0 / gDialogBoxScale) - 40, 0);
                 create_dl_scale_matrix(MENU_MTX_NOPUSH, 1.0 / gDialogBoxScale, 1.0 / gDialogBoxScale, 1.0f);
@@ -1261,6 +1326,8 @@ void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog, s8 l
 #ifdef VERSION_EU
         gDialogY -= gDialogScrollOffsetY;
 #else
+        sInterpolatedDialogOffset = gDialogScrollOffsetY + dialog->linesPerBox;
+        sInterpolatedDialogOffsetPos = gDisplayListHead;
         create_dl_translation_matrix(MENU_MTX_NOPUSH, 0, (f32) gDialogScrollOffsetY, 0);
 #endif
     }
@@ -2483,10 +2550,10 @@ void print_hud_pause_colorful_str(void) {
 #endif
 
     gSPDisplayList(gDisplayListHead++, dl_rgba16_text_end);
-    
-    /* Render sound type here */
-    print_text(0, 0, "SOUND:");
-    print_text(0 + (4 * 16), 0, psp_me_is_active() ? "ME" : "CPU");
+
+#ifdef TARGET_PSP
+    psp_options_sound_info(); /* "SOUND: CPU/ME", solo si la opcion del menu esta activada */
+#endif
 }
 
 void render_pause_castle_course_stars(s16 x, s16 y, s16 fileNum, s16 courseNum) {
@@ -2628,6 +2695,13 @@ s8 gHudFlash = 0;
 s16 render_pause_courses_and_castle(void) {
     s16 num;
 
+#ifdef TARGET_PSP
+    /* R en la pausa abre el menu de opciones graficas (psp_options.c); mientras esta abierto no se procesa la pausa normal */
+    if (psp_options_pause_frame(gDialogBoxState != DIALOG_STATE_OPENING)) {
+        return 0;
+    }
+#endif
+
 #ifdef VERSION_EU
     gInGameLanguage = eu_get_language();
 #endif
@@ -2655,6 +2729,9 @@ s16 render_pause_courses_and_castle(void) {
             shade_screen();
             render_pause_my_score_coins();
             render_pause_red_coins();
+#ifdef TARGET_PSP
+            psp_options_sound_info(); /* tambien en la pausa de los niveles */
+#endif
 
             if (gMarioStates[0].action & ACT_FLAG_PAUSE_EXIT) {
                 render_pause_course_options(99, 93, &gDialogLineNum, 15);
@@ -2680,6 +2757,16 @@ s16 render_pause_courses_and_castle(void) {
 
                 return num;
             }
+#ifdef TARGET_PSP
+            else if (gPlayer3Controller->buttonPressed & B_BUTTON) {
+                /* B sale de la pausa y sigue jugando (igual que "Continue"), sin importar que opcion este marcada */
+                level_set_transition(0, 0);
+                play_sound(SOUND_MENU_PAUSE_2, gDefaultSoundArgs);
+                gDialogBoxState = DIALOG_STATE_OPENING;
+                gMenuMode = -1;
+                return 1;
+            }
+#endif
             break;
         case DIALOG_STATE_HORIZONTAL:
             shade_screen();
@@ -2701,6 +2788,16 @@ s16 render_pause_courses_and_castle(void) {
 
                 return 1;
             }
+#ifdef TARGET_PSP
+            else if (gPlayer3Controller->buttonPressed & B_BUTTON) { /* B tambien sale de la pausa del castillo */
+                level_set_transition(0, 0);
+                play_sound(SOUND_MENU_PAUSE_2, gDefaultSoundArgs);
+                gMenuMode = -1;
+                gDialogBoxState = DIALOG_STATE_OPENING;
+
+                return 1;
+            }
+#endif
             break;
     }
 
@@ -3075,9 +3172,19 @@ s16 render_menus_and_dialogs() {
         switch (gMenuMode) {
             case 0:
                 mode = render_pause_courses_and_castle();
+#ifdef TARGET_PSP
+                if (gMenuMode != -1 && gDialogBoxState != DIALOG_STATE_OPENING) {
+                    psp_options_pause_prompt();
+                }
+#endif
                 break;
             case 1:
                 mode = render_pause_courses_and_castle();
+#ifdef TARGET_PSP
+                if (gMenuMode != -1 && gDialogBoxState != DIALOG_STATE_OPENING) {
+                    psp_options_pause_prompt();
+                }
+#endif
                 break;
             case 2:
                 mode = render_course_complete_screen();

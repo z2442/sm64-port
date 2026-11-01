@@ -580,7 +580,7 @@ Gfx *geo_switch_mario_hand_grab_pos(s32 callContext, struct GraphNode *b, Mat4 *
 }
 
 // X position of the mirror
-#define MIRROR_X 4331.53
+#define MIRROR_X 4331.53f
 
 /**
  * Geo node that creates a clone of Mario's geo node and updates it to becomes

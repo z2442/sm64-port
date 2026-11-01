@@ -673,22 +673,25 @@ void get_pos_from_transform_mtx(Vec3f dest, Mat4 objMtx, Mat4 camMtx) {
         "lv.q   C020, 32(%0)\n"     // cam row 2
         "lv.q   C030, 48(%0)\n"     // cam translation
 
-        "lv.q   C100, 48(%1)\n"
+        "lv.q   C100, 48(%1)\n"     // obj translation
 
-        "vdot.t S100, C030, C000\n"
-        "vdot.t S110, C100, C000\n"
-        "vdot.t S101, C030, C010\n"
-        "vdot.t S111, C100, C010\n"
-        "vdot.t S102, C030, C020\n"
-        "vdot.t S112, C100, C020\n"
+        // BUG ORIGINAL: los resultados se escribian en S100..S102, o sea en la propia C100 (traslacion del objeto)
+        // antes de usarla, y todos los calculos siguientes salian corruptos (el objeto soltado aparecia en otro lugar).
+        // Ahora los temporales van a registros distintos: C200 (camara) y C210 (objeto).
+        "vdot.t S200, C030, C000\n"   // camX
+        "vdot.t S210, C100, C000\n"   // objX
+        "vdot.t S201, C030, C010\n"   // camY
+        "vdot.t S211, C100, C010\n"   // objY
+        "vdot.t S202, C030, C020\n"   // camZ
+        "vdot.t S212, C100, C020\n"   // objZ
 
-        "vsub.s S110, S110, S100\n"
-        "vsub.s S111, S111, S101\n"
-        "vsub.s S112, S112, S102\n"
+        "vsub.s S210, S210, S200\n"
+        "vsub.s S211, S211, S201\n"
+        "vsub.s S212, S212, S202\n"
 
-        "sv.s   S110, 0(%2)\n"
-        "sv.s   S111, 4(%2)\n"
-        "sv.s   S112, 8(%2)\n"
+        "sv.s   S210, 0(%2)\n"
+        "sv.s   S211, 4(%2)\n"
+        "sv.s   S212, 8(%2)\n"
 
         :
         : "r"(camMtx), "r"(objMtx), "r"(dest)
@@ -891,53 +894,34 @@ static const SplineCoeffs gSplineCoeff[5] = {
 
     // CURVE_END_1
     {
-        { -0.16666667f, 0.5f, -0.75f, 0.25f },
-        {  0.5f,       -1.0f, 1.25f,  0.0f },
-        { -0.5f,        0.5f, -0.25f, 0.0f },
-        {  0.16666667f, 0.16666667f, 0.58333333f, 0.0f }
+        { -0.16666667f, 0.50000000f, -0.58333333f, 0.25000000f },
+        { 0.50000001f, -1.00000000f, 0.49999999f, 0.00000000f },
+        { -0.50000001f, 0.00000000f, 0.50000001f, 0.00000000f },
+        { 0.16666667f, 0.66666667f, 0.16666666f, 0.00000000f },
     },
 
     // CURVE_END_2
     {
-        { -0.16666667f, 0.91666667f, -1.75f, 1.0f },
-        {  0.5f,       -1.5f,        4.5f,   0.0f },
-        { -0.5f,        0.0f,       -3.0f,   0.0f },
-        {  0.16666667f, 0.0f,        0.0f,   0.0f }
+        { -0.16666667f, 0.91666667f, -1.75000000f, 1.00000000f },
+        { 0.50000001f, -1.25000001f, 0.75000000f, 0.00000000f },
+        { -0.50000001f, -0.24999999f, 0.75000000f, 0.00000000f },
+        { 0.16666667f, 0.58333333f, 0.25000000f, 0.00000000f },
     }
 };
 
 void spline_get_weights(Vec4f result, f32 t, UNUSED s32 c) {
-    const SplineCoeffs* sc = &gSplineCoeff[gSplineState];
+    /* los estados son 1..5; se limita por seguridad ante un indice fuera de la tabla */
+    s32 sIdx = gSplineState - 1;
+    if (sIdx < 0) sIdx = 0;
+    if (sIdx > 4) sIdx = 4;
+    const SplineCoeffs* sc = &gSplineCoeff[sIdx];
 
-    __asm__ volatile (
-        // broadcast t
-        "mtv        %1, S010\n"
-        "vone.q C000\n"
-        "vscl.q C000, C000, S010\n"
-
-        // load coeffs
-        "lv.q       C200,  0(%2)\n"   // A
-        "lv.q       C210, 16(%2)\n"   // B
-        "lv.q       C220, 32(%2)\n"   // C
-        "lv.q       C230, 48(%2)\n"   // D
-
-        // Horner evaluation
-        "vmul.q     C100, C200, C000\n"
-        "vadd.q     C100, C100, C210\n"
-
-        "vmul.q     C100, C100, C000\n"
-        "vadd.q     C100, C100, C220\n"
-
-        "vmul.q     C100, C100, C000\n"
-        "vadd.q     C100, C100, C230\n"
-
-        // store
-        "sv.q       C100, 0(%0)\n"
-
-        :
-        : "r"(result), "r"(t), "r"(sc)
-        : "memory"
-    );
+    /* Horner en C escalar (peso_i = ((A_i*t + B_i)*t + C_i)*t + D_i). Se llama una vez por frame en la cutscene del vuelo de
+     * Mario, asi que no hace falta VFPU; evita depender de la alineacion de 16 bytes de la tabla y de la pila, que hacia
+     * crashear algunos emuladores (PPSSPP JIT) con una carga lv.q mal alineada. */
+    for (int i = 0; i < 4; i++) {
+        result[i] = ((sc->A[i] * t + sc->B[i]) * t + sc->C[i]) * t + sc->D[i];
+    }
 }
 
 /**
@@ -962,6 +946,12 @@ void anim_spline_init(Vec4s *keyFrames) {
 s32 anim_spline_poll(Vec3f result) {
     Vec4f weights;
     s32 hasEnded = FALSE;
+
+    if (gSplineKeyframe == NULL) {
+        /* anim_spline_init no se ha llamado (p. ej. cutscene lanzada a medias): terminar en vez de leer memoria invalida */
+        vec3f_copy(result, gVec3fZero);
+        return TRUE;
+    }
 
     vec3f_copy(result, gVec3fZero);
     spline_get_weights(weights, gSplineKeyframeFraction, gSplineState);

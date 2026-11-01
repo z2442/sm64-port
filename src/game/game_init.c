@@ -1,4 +1,8 @@
 #include <ultra64.h>
+#ifdef TARGET_PSP
+#include "psp_options.h"
+#endif
+#include "pc/psp_lprof.h"
 
 #include "sm64.h"
 #include "gfx_dimensions.h"
@@ -20,6 +24,7 @@
 #include "segment_symbols.h"
 #include "thread6.h"
 #include "pc/psp_me.h"
+#include "pc/audio/audio_psp.h"
 #include <prevent_bss_reordering.h>
 
 // FIXME: I'm not sure all of these variables belong in this file, but I don't
@@ -74,14 +79,43 @@ u16 gFPS = 0;
 int gProcessAudio = TRUE;
 int gDoDither = FALSE;
 int gDoAA = FALSE;
+#ifdef TARGET_PSP
+u8 gRenderFPS = FALSE; /* tambien lo cambia el menu de opciones (psp_options.c) */
+#else
 static u8 gRenderFPS = FALSE;
+#endif
+
+#ifdef TARGET_PSP
+/* Cuadros realmente presentados en pantalla (los cuenta gfx_pc.c): con 60 fps dinamicos cada tick de logica puede dibujar
+ * 1 o 2 cuadros, asi que el contador cuenta cuadros dibujados y no ticks. */
+extern unsigned int gPspPresented;
+static unsigned int sLastPresented = 0;
+#endif
 
 static void calculate_frameTime_from_OSTime(OSTime diff) {
     gFrameTime += diff * SECONDS_PER_CYCLE;
+#ifdef TARGET_PSP
+    gFrames += (u16)(gPspPresented - sLastPresented);
+    sLastPresented = gPspPresented;
+#else
     gFrames++;
+#endif
 }
 
+#ifdef TARGET_PSP
+/* 1 mientras el contador de FPS esta en pantalla: gfx_pc.c escribe ms0:/sm64_profile.txt SOLO en ese tiempo. */
+int gPspFpsCounterOn = 0;
+int gPspFpsLogOff = 0; /* 1 = contador de FPS sin registro (menu: "FPS Counter") */
+/* estado del registro para mostrarlo junto al contador: 0 = apagado, 1 = escribiendo bien, 2 = error al escribir */
+extern int gPspLogStatus;
+#endif
+
 static void render_fps(void) {
+#ifdef TARGET_PSP
+    psp_options_poll(); /* 1a vez: carga sm64_options.txt */
+    /* Sin atajos de botones (L+R, R+B, R+Z, L...): el contador de FPS se activa desde el menu de opciones. */
+    gPspFpsCounterOn = gRenderFPS && !gPspFpsLogOff;
+#else
     // Toggle rendering framerate with the L button.
     if ((gPlayer1Controller->buttonPressed & R_TRIG) && (gPlayer1Controller->buttonPressed & L_TRIG)) {
         gRenderFPS ^= 1;
@@ -90,7 +124,9 @@ static void render_fps(void) {
     if ((gPlayer1Controller->buttonPressed & R_TRIG) && (gPlayer1Controller->buttonPressed & B_BUTTON)) {
         gProcessAudio ^= 1;
     }
+#endif
 
+#ifndef TARGET_PSP
     if ((gPlayer1Controller->buttonPressed & R_TRIG) && (gPlayer1Controller->buttonPressed & Z_TRIG)) {
         gDoDither ^= 1;
     }
@@ -98,6 +134,7 @@ static void render_fps(void) {
     if ((gPlayer1Controller->buttonPressed & L_TRIG)) {
         gDoAA ^= 1;
     }
+#endif
 
     OSTime newTime = osGetTime();
     calculate_frameTime_from_OSTime(newTime - gLastOSTime);
@@ -111,7 +148,13 @@ static void render_fps(void) {
     gLastOSTime = newTime;
 
     if (gRenderFPS) {
+#ifdef TARGET_PSP
+        /* "LOG": se esta escribiendo sm64_profile.txt; "ERR": el ultimo intento de escribir fallo */
+        print_text_fmt_int(FPS_COUNTER_X_POS, FPS_COUNTER_Y_POS,
+                           gPspLogStatus == 2 ? "ERR FPS %d" : (gPspLogStatus == 1 ? "LOG FPS %d" : "FPS %d"), gFPS);
+#else
         print_text_fmt_int(FPS_COUNTER_X_POS, FPS_COUNTER_Y_POS, "FPS %d", gFPS);
+#endif
     }
 }
 
@@ -696,10 +739,29 @@ void game_loop_one_iteration(void) {
             osContStartReadData(&gSIEventMesgQueue);
         }
 
-        audio_game_loop_tick();
+        {
+            LPROF_BEGIN(lp_a);
+#ifdef TARGET_PSP
+            /* recoge el audio que el ME sintetizo mientras se dibujaba el tick anterior; desde aqui hasta audio_psp_tick_end
+             * el ME esta parado y solo la CPU principal toca el estado del audio */
+            audio_psp_tick_begin();
+#endif
+            audio_game_loop_tick();
+            LPROF_END(lp_a, LP_AUD);
+        }
         config_gfx_pool();
-        read_controller_inputs();
+        {
+            LPROF_BEGIN(lp_i);
+            read_controller_inputs();
+            LPROF_END(lp_i, LP_INP);
+        }
+        if (sProfLogOn) {
+            LPROF_COUNT(LC_TICKS);
+        }
         levelCommandAddr = level_script_execute(levelCommandAddr);
+#ifdef TARGET_PSP
+        audio_psp_tick_end(); /* la logica del tick termino: el ME sintetiza el audio mientras la CPU emite el dibujo */
+#endif
         display_and_vsync();
 
         // when debug info is enabled, print the "BUF %d" information.

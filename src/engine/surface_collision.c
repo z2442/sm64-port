@@ -1,4 +1,5 @@
 #include <PR/ultratypes.h>
+#include "pc/psp_lprof.h"
 
 #include "sm64.h"
 #include "game/debug.h"
@@ -7,6 +8,7 @@
 #include "game/object_list_processor.h"
 #include "surface_collision.h"
 #include "surface_load.h"
+#include "game/game_init.h"
 
 /**************************************************
  *                      WALLS                     *
@@ -181,7 +183,16 @@ s32 f32_find_wall_collision(f32 *xPtr, f32 *yPtr, f32 *zPtr, f32 offsetY, f32 ra
 /**
  * Find wall collisions and receive their push.
  */
+static s32 find_wall_collisions_impl(struct WallCollisionData *colData);
 s32 find_wall_collisions(struct WallCollisionData *colData) {
+    LPROF_BEGIN(lp_w);
+    s32 r = find_wall_collisions_impl(colData);
+    LPROF_END(lp_w, LP_WAL);
+    LPROF_COUNT(LC_WAL);
+    return r;
+}
+
+static s32 find_wall_collisions_impl(struct WallCollisionData *colData) {
     struct SurfaceNode *node;
     s16 cellX, cellZ;
     s32 numCollisions = 0;
@@ -303,7 +314,16 @@ static struct Surface *find_ceil_from_list(struct SurfaceNode *surfaceNode, s32 
 /**
  * Find the lowest ceiling above a given position and return the height.
  */
+static f32 find_ceil_impl(f32 posX, f32 posY, f32 posZ, struct Surface **pceil);
 f32 find_ceil(f32 posX, f32 posY, f32 posZ, struct Surface **pceil) {
+    LPROF_BEGIN(lp_c);
+    f32 r = find_ceil_impl(posX, posY, posZ, pceil);
+    LPROF_END(lp_c, LP_CEL);
+    LPROF_COUNT(LC_CEL);
+    return r;
+}
+
+static f32 find_ceil_impl(f32 posX, f32 posY, f32 posZ, struct Surface **pceil) {
     s16 cellZ, cellX;
     struct Surface *ceil, *dynamicCeil;
     struct SurfaceNode *surfaceList;
@@ -393,10 +413,136 @@ f32 find_floor_height_and_data(f32 xPos, f32 yPos, f32 zPos, struct FloorGeometr
     return floorHeight;
 }
 
+u8 gInterpolatingSurfaces;
+
 /**
  * Iterate through the list of floors and find the first floor under a given point.
  */
-static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z, f32 *pheight) {
+static struct Surface *find_floor_from_list_interp(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z, f32 *pheight) {
+    register struct Surface *surf;
+    register f32 x1, z1, x2, z2, x3, z3;
+    f32 nx, ny, nz;
+    f32 oo;
+    f32 height;
+    struct Surface *floor = NULL;
+    s32 interpolate;
+
+    // Iterate through the list of floors until there are no more floors.
+    while (surfaceNode != NULL) {
+        surf = surfaceNode->surface;
+        surfaceNode = surfaceNode->next;
+        interpolate = gInterpolatingSurfaces && surf->modifiedTimestamp == gGlobalTimer;
+
+        x1 = surf->vertex1[0];
+        z1 = surf->vertex1[2];
+        x2 = surf->vertex2[0];
+        z2 = surf->vertex2[2];
+        if (interpolate) {
+            f32 diff = (surf->prevVertex1[0] - x1) * (surf->prevVertex1[0] - x1);
+            diff += (surf->prevVertex1[1] - surf->vertex1[1]) * (surf->prevVertex1[1] - surf->vertex1[1]);
+            diff += (surf->prevVertex1[2] - z1) * (surf->prevVertex1[2] - z1);
+            //printf("%f\n", sqrtf(diff));
+            if (diff > 10000) {
+                interpolate = FALSE;
+            } else {
+                x1 = (surf->prevVertex1[0] + x1) / 2;
+                z1 = (surf->prevVertex1[2] + z1) / 2;
+                x2 = (surf->prevVertex2[0] + x2) / 2;
+                z2 = (surf->prevVertex2[2] + z2) / 2;
+            }
+        }
+
+        // Check that the point is within the triangle bounds.
+        if ((z1 - z) * (x2 - x1) - (x1 - x) * (z2 - z1) < 0) {
+            continue;
+        }
+
+        // To slightly save on computation time, set this later.
+        x3 = surf->vertex3[0];
+        z3 = surf->vertex3[2];
+        if (interpolate) {
+            x3 = (surf->prevVertex3[0] + x3) / 2;
+            z3 = (surf->prevVertex3[2] + z3) / 2;
+        }
+
+        if ((z2 - z) * (x3 - x2) - (x2 - x) * (z3 - z2) < 0) {
+            continue;
+        }
+        if ((z3 - z) * (x1 - x3) - (x3 - x) * (z1 - z3) < 0) {
+            continue;
+        }
+
+        // Determine if we are checking for the camera or not.
+        if (gCheckingSurfaceCollisionsForCamera != 0) {
+            if (surf->flags & SURFACE_FLAG_NO_CAM_COLLISION) {
+                continue;
+            }
+        }
+        // If we are not checking for the camera, ignore camera only floors.
+        else if (surf->type == SURFACE_CAMERA_BOUNDARY) {
+            continue;
+        }
+
+        if (interpolate) {
+            f32 y1, y2, y3;
+            f32 mag;
+            y1 = (surf->prevVertex1[1] + surf->vertex1[1]) / 2;
+            y2 = (surf->prevVertex2[1] + surf->vertex2[1]) / 2;
+            y3 = (surf->prevVertex3[1] + surf->vertex3[1]) / 2;
+            nx = (y2 - y1) * (z3 - z2) - (z2 - z1) * (y3 - y2);
+            ny = (z2 - z1) * (x3 - x2) - (x2 - x1) * (z3 - z2);
+            nz = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2);
+            mag = sqrtf(nx * nx + ny * ny + nz * nz);
+            if (mag < 0.0001f) {
+                continue;
+            }
+            mag = 1.0f / mag;
+            nx *= mag;
+            ny *= mag;
+            nz *= mag;
+            oo = -(nx * x1 + ny * y1 + nz * z1);
+        } else {
+            nx = surf->normal.x;
+            ny = surf->normal.y;
+            nz = surf->normal.z;
+            oo = surf->originOffset;
+        }
+
+        // If a wall, ignore it. Likely a remnant, should never occur.
+        if (ny == 0.0f) {
+            continue;
+        }
+
+        // Find the height of the floor at a given location.
+        height = -(x * nx + nz * z + oo) / ny;
+        // Checks for floor interaction with a 78 unit buffer.
+        if (y - (height + -78.0f) < 0.0f) {
+            continue;
+        }
+
+        *pheight = height;
+        if (interpolate) {
+            static struct Surface s;
+            s.type = surf->type;
+            s.normal.x = nx;
+            s.normal.y = ny;
+            s.normal.z = nz;
+            s.originOffset = oo;
+            return &s;
+        }
+        floor = surf;
+        break;
+    }
+
+    //! (Surface Cucking) Since only the first floor is returned and not the highest,
+    //  higher floors can be "cucked" by lower floors.
+    return floor;
+}
+
+/**
+ * Version original (aritmetica entera exacta). Es la que usa toda la logica del juego.
+ */
+static struct Surface *find_floor_from_list_exact(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z, f32 *pheight) {
     register struct Surface *surf;
     register s32 x1, z1, x2, z2, x3, z3;
     f32 nx, ny, nz;
@@ -469,6 +615,17 @@ static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32
 }
 
 /**
+ * Solo las sombras de los cuadros interpolados (60 fps) usan la version en float con superficies moviles interpoladas
+ * (gInterpolatingSurfaces); el resto del juego usa siempre la version entera original, igual que sin interpolacion.
+ */
+static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z, f32 *pheight) {
+    if (gInterpolatingSurfaces) {
+        return find_floor_from_list_interp(surfaceNode, x, y, z, pheight);
+    }
+    return find_floor_from_list_exact(surfaceNode, x, y, z, pheight);
+}
+
+/**
  * Find the height of the highest floor below a point.
  */
 f32 find_floor_height(f32 x, f32 y, f32 z) {
@@ -508,7 +665,16 @@ f32 unused_find_dynamic_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfl
 /**
  * Find the highest floor under a given position and return the height.
  */
+static f32 find_floor_impl(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor);
 f32 find_floor(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor) {
+    LPROF_BEGIN(lp_f);
+    f32 r = find_floor_impl(xPos, yPos, zPos, pfloor);
+    LPROF_END(lp_f, LP_FLR);
+    LPROF_COUNT(LC_FLR);
+    return r;
+}
+
+static f32 find_floor_impl(f32 xPos, f32 yPos, f32 zPos, struct Surface **pfloor) {
     s16 cellZ, cellX;
 
     struct Surface *floor, *dynamicFloor;

@@ -4,6 +4,7 @@
 #include <PR/ultratypes.h>
 
 #include "internal.h"
+#include "psp_audio_cfg.h"
 #include "types.h"
 
 #define AUDIO_LOCK_UNINITIALIZED 0
@@ -110,7 +111,7 @@ extern u32 gAudioRandom;
 #define D_80333EF0_VAL 0x2c00
 #else
 #define UNUSED_COUNT_80333EE8 16
-#define AUDIO_HEAP_SIZE 0x31150
+#define AUDIO_HEAP_SIZE (0x31150 + PSP_AUDIO_HEAP_EXTRA)
 #define D_80333EF0_VAL 0x2500
 #endif
 

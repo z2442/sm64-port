@@ -153,7 +153,24 @@ u8 audioString118__[] = "";
 // files. We should really fix our naming to be less ambiguous...
 #define MAX_BG_MUSIC_QUEUE_SIZE 6
 #define SOUND_BANK_COUNT 10
+/* Canales extra del reproductor de efectos (PSP_SFX_EXTRA): en la N64 cada banco de sonidos solo deja sonar UN efecto a la vez (el
+ * de mayor prioridad = el mas cercano). El reproductor de efectos tiene 16 canales y la secuencia original solo usa 10 (uno por banco);
+ * con la secuencia modificada (sound/sequences/00_sound_player.s) los bancos de abajo tienen un 2o canal en los canales 10..15, y dos
+ * efectos del mismo banco suenan a la vez. Si la secuencia NO esta modificada (los canales 10..15 no existen) todo funciona como antes.
+ * Mario (bancos 0 acciones, 1 movimiento, 2 voz) y el menu (7) se dejan con 1 canal: sus sonidos se cortan unos a otros a proposito. */
+#ifndef PSP_SFX_EXTRA
+#if defined(TARGET_PSP) && !defined(VERSION_EU)
+#define PSP_SFX_EXTRA 1
+#else
+#define PSP_SFX_EXTRA 0
+#endif
+#endif
+#if PSP_SFX_EXTRA
+#define MAX_CHANNELS_PER_SOUND 2
+#define PSP_SFX_EXTRA_FIRST 10 /* primer canal extra de la secuencia de efectos */
+#else
 #define MAX_CHANNELS_PER_SOUND 1
+#endif
 
 #define SEQUENCE_NONE 0xFF
 
@@ -450,6 +467,7 @@ u8 sMusicDynamicDelay = 0;
 u8 D_803320A4[SOUND_BANK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; // pointers to head of list
 u8 D_803320B0[SOUND_BANK_COUNT] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }; // pointers to head of list
 u8 D_803320BC[SOUND_BANK_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }; // only used for debugging
+unsigned int gPspSfxOver; /* diagnostico: suma de (sonidos del banco - canales) por tick */
 u8 sMaxChannelsForSoundBank[SOUND_BANK_COUNT] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
 
 // Banks 2 and 7 both grew from 0x30 sounds to 0x40 in size in US.
@@ -1064,6 +1082,9 @@ void func_8031E16C(u8 bankIndex) {
     }
 
     D_803320BC[bankIndex] = sp77;
+    if (sp77 > sMaxChannelsForSoundBank[bankIndex]) {
+        gPspSfxOver += sp77 - sMaxChannelsForSoundBank[bankIndex]; /* sonidos que compiten por el canal del banco (diagnostico del log) */
+    }
     sUsedChannelsForSoundBank[bankIndex] = sMaxChannelsForSoundBank[bankIndex];
 
     for (i = 0; i < sUsedChannelsForSoundBank[bankIndex]; i++) {
@@ -1116,7 +1137,7 @@ void func_8031E16C(u8 bankIndex) {
                     gSoundBanks[bankIndex][sp88[soundIndex]].soundBits =
                         (gSoundBanks[bankIndex][sp88[soundIndex]].soundBits & ~SOUNDARGS_MASK_STATUS)
                         + 1;
-                    sp88[i] = 0xff;
+                    sp88[soundIndex] = 0xff; /* (el original ponia sp88[i]: igual con 1 canal por banco) */
                     i = 0xfe; // "break;"
                 }
             }
@@ -1284,6 +1305,35 @@ void audio_signal_game_loop_tick(void) {
 #define ARG2_VAL2 0.8f
 #endif
 
+#if PSP_SFX_EXTRA
+/* canal de la secuencia de efectos del 2o sonido de cada banco (0xff = el banco no tiene 2o canal) */
+static const u8 sPspSfxExtraChannel[SOUND_BANK_COUNT] = { 0xff, 0xff, 0xff, 10, 11, 12, 13, 0xff, 14, 15 };
+static u8 sPspSfxExtraOk = 0;
+unsigned int gPspSfxExtra; /* diagnostico del log: 1 si la secuencia de efectos tiene los canales extra */
+
+/* Activa el 2o canal de los bancos de sPspSfxExtraChannel solo si la secuencia de efectos cargada tiene los canales 10..15. */
+static void psp_sfx_update_limits(void) {
+    u8 ok = 1;
+    u8 b, k;
+    for (b = 0; b < SOUND_BANK_COUNT; b++) {
+        if (sPspSfxExtraChannel[b] != 0xff
+            && gSequencePlayers[SEQ_PLAYER_SFX].channels[sPspSfxExtraChannel[b]] == &gSequenceChannelNone) {
+            ok = 0;
+        }
+    }
+    if (ok != sPspSfxExtraOk) {
+        sPspSfxExtraOk = ok;
+        gPspSfxExtra = ok;
+        for (b = 0; b < SOUND_BANK_COUNT; b++) {
+            for (k = 1; k < MAX_CHANNELS_PER_SOUND; k++) {
+                sCurrentSound[b][k] = 0xff;
+            }
+            sMaxChannelsForSoundBank[b] = (ok && sPspSfxExtraChannel[b] != 0xff) ? 2 : 1;
+        }
+    }
+}
+#endif
+
 void update_game_sound(void) {
     u8 soundStatus;
     u8 j;
@@ -1300,10 +1350,20 @@ void update_game_sound(void) {
     if (gSequencePlayers[SEQ_PLAYER_SFX].channels[0] == &gSequenceChannelNone) {
         return;
     }
+#if PSP_SFX_EXTRA
+    psp_sfx_update_limits();
+#endif
 
     for (bankIndex = 0; bankIndex < SOUND_BANK_COUNT; bankIndex++) {
         func_8031E16C(bankIndex);
         for (j = 0; j < MAX_CHANNELS_PER_SOUND; j++) {
+#if PSP_SFX_EXTRA
+            /* canal de la secuencia: el 1er sonido del banco va en el canal "banco", el 2o en su canal extra */
+            channelIndex = (j == 0) ? bankIndex : sPspSfxExtraChannel[bankIndex];
+            if (channelIndex == 0xff) {
+                continue;
+            }
+#endif
             index = sCurrentSound[bankIndex][j];
             if (index < 0xff && gSoundBanks[bankIndex][index].soundStatus != SOUND_STATUS_STOPPED) {
                 soundStatus = gSoundBanks[bankIndex][index].soundBits & SOUNDARGS_MASK_STATUS;
@@ -1606,11 +1666,15 @@ void update_game_sound(void) {
                     }
                 }
             }
+#if !PSP_SFX_EXTRA
             channelIndex++;
+#endif
         }
 
+#if !PSP_SFX_EXTRA
         // sUsedChannelsForSoundBank[i] = sMaxChannelsForSoundBank[i] = 1, so this doesn't do anything
         channelIndex += sMaxChannelsForSoundBank[bankIndex] - sUsedChannelsForSoundBank[bankIndex];
+#endif
     }
 }
 #undef ARG2_VAL1
@@ -2362,6 +2426,11 @@ void func_803210D4(u16 fadeOutTime) {
     for (i = 0; i < SOUND_BANK_COUNT; i++) {
         if (i != 7) {
             fade_channel_volume_scale(SEQ_PLAYER_SFX, i, 0, fadeOutTime / 16);
+#if PSP_SFX_EXTRA
+            if (sPspSfxExtraChannel[i] != 0xff) {
+                fade_channel_volume_scale(SEQ_PLAYER_SFX, sPspSfxExtraChannel[i], 0, fadeOutTime / 16);
+            }
+#endif
         }
     }
     sHasStartedFadeOut = TRUE;

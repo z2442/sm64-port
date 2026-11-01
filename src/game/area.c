@@ -1,4 +1,5 @@
 #include <PR/ultratypes.h>
+#include "pc/psp_lprof.h"
 
 #include "prevent_bss_reordering.h"
 #include "area.h"
@@ -363,7 +364,11 @@ void play_transition_after_delay(s16 transType, s16 time, u8 red, u8 green, u8 b
 
 void render_game(void) {
     if (gCurrentArea != NULL && !gWarpTransition.pauseRendering) {
-        geo_process_root(gCurrentArea->unk04, D_8032CE74, D_8032CE78, gFBSetColor);
+        {
+            LPROF_BEGIN(lp_g);
+            geo_process_root(gCurrentArea->unk04, D_8032CE74, D_8032CE78, gFBSetColor);
+            LPROF_END(lp_g, LP_GEO);
+        }
 
         gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(&D_8032CF00));
 

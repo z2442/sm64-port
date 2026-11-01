@@ -1,4 +1,5 @@
 #include <PR/ultratypes.h>
+#include "pc/psp_lprof.h"
 
 #include "sm64.h"
 #include "area.h"
@@ -16,6 +17,7 @@
 #include "object_collision.h"
 #include "object_helpers.h"
 #include "object_list_processor.h"
+#include "game/psp_options.h"
 #include "platform_displacement.h"
 #include "profiler.h"
 #include "spawn_object.h"
@@ -303,6 +305,7 @@ s32 update_objects_starting_at(struct ObjectNode *objList, struct ObjectNode *fi
         count += 1;
     }
 
+    LPROF_ADD(LC_OBJ, count);
     return count;
 }
 
@@ -625,10 +628,14 @@ static u16 unused_get_elapsed_time(u64 *cycleCounts, s32 index) {
  */
 void update_objects(UNUSED s32 unused) {
     s64 cycleCounts[30];
+    LPROF_BEGIN(lp_obj);
 
     cycleCounts[0] = get_current_clock();
 
     gTimeStopState &= ~TIME_STOP_MARIO_OPENED_DOOR;
+#ifdef TARGET_PSP
+    psp_pool_update();
+#endif
 
     gNumRoomedObjectsInMarioRoom = 0;
     gNumRoomedObjectsNotInMarioRoom = 0;
@@ -645,7 +652,11 @@ void update_objects(UNUSED s32 unused) {
 
     // Update spawners and objects with surfaces
     cycleCounts[2] = get_clock_difference(cycleCounts[0]);
-    update_terrain_objects();
+    {
+        LPROF_BEGIN(lp_t);
+        update_terrain_objects();
+        LPROF_END(lp_t, LP_TERR);
+    }
 
     // If Mario was touching a moving platform at the end of last frame, apply
     // displacement now
@@ -655,11 +666,19 @@ void update_objects(UNUSED s32 unused) {
 
     // Detect which objects are intersecting
     cycleCounts[3] = get_clock_difference(cycleCounts[0]);
-    detect_object_collisions();
+    {
+        LPROF_BEGIN(lp_c);
+        detect_object_collisions();
+        LPROF_END(lp_c, LP_COLL);
+    }
 
     // Update all other objects that haven't been updated yet
     cycleCounts[4] = get_clock_difference(cycleCounts[0]);
-    update_non_terrain_objects();
+    {
+        LPROF_BEGIN(lp_n);
+        update_non_terrain_objects();
+        LPROF_END(lp_n, LP_NTER);
+    }
 
     // Unload any objects that have been deactivated
     cycleCounts[5] = get_clock_difference(cycleCounts[0]);
@@ -683,4 +702,5 @@ void update_objects(UNUSED s32 unused) {
     }
 
     gPrevFrameObjectCount = gObjectCounter;
+    LPROF_END(lp_obj, LP_OBJ);
 }

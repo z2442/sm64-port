@@ -12,10 +12,13 @@
 #include "segment2.h"
 #include "shadow.h"
 #include "sm64.h"
+#ifdef TARGET_PSP
+#include "camera.h"
+#endif
 
 #ifndef TARGET_N64
 // Avoid Z-fighting
-#define find_floor_height_and_data 0.4 + find_floor_height_and_data
+#define find_floor_height_and_data 0.4f + find_floor_height_and_data
 #endif
 
 /**
@@ -47,6 +50,10 @@ struct Shadow {
     f32 floorTilt;
     /* Initial solidity of the shadow, from 0 to 255 (just an alpha value). */
     u8 solidity;
+#ifdef TARGET_PSP
+    /* PSP: cuanto se sube la sombra sobre el plano del piso (unidades del juego), segun la distancia a la camara. */
+    f32 lift;
+#endif
 };
 
 /**
@@ -128,7 +135,7 @@ void rotate_rectangle(f32 *newZ, f32 *newX, f32 oldZ, f32 oldX) {
  * the standard atan2.
  */
 f32 atan2_deg(f32 a, f32 b) {
-    return ((f32) atan2s(a, b) / 65535.0 * 360.0);
+    return ((f32) atan2s(a, b) / 65535.0f * 360.0f);
 }
 
 /**
@@ -138,12 +145,12 @@ f32 atan2_deg(f32 a, f32 b) {
 f32 scale_shadow_with_distance(f32 initial, f32 distFromFloor) {
     f32 newScale;
 
-    if (distFromFloor <= 0.0) {
+    if (distFromFloor <= 0.0f) {
         newScale = initial;
-    } else if (distFromFloor >= 600.0) {
-        newScale = initial * 0.5;
+    } else if (distFromFloor >= 600.0f) {
+        newScale = initial * 0.5f;
     } else {
-        newScale = initial * (1.0 - (0.5 * distFromFloor / 600.0));
+        newScale = initial * (1.0f - (0.5f * distFromFloor / 600.0f));
     }
 
     return newScale;
@@ -153,7 +160,7 @@ f32 scale_shadow_with_distance(f32 initial, f32 distFromFloor) {
  * Disable a shadow when its parent object is more than 600 units from the ground.
  */
 f32 disable_shadow_with_distance(f32 shadowScale, f32 distFromFloor) {
-    if (distFromFloor >= 600.0) {
+    if (distFromFloor >= 600.0f) {
         return 0.0f;
     } else {
         return shadowScale;
@@ -168,12 +175,12 @@ u8 dim_shadow_with_distance(u8 solidity, f32 distFromFloor) {
 
     if (solidity < 121) {
         return solidity;
-    } else if (distFromFloor <= 0.0) {
+    } else if (distFromFloor <= 0.0f) {
         return solidity;
-    } else if (distFromFloor >= 600.0) {
+    } else if (distFromFloor >= 600.0f) {
         return 120;
     } else {
-        ret = ((120 - solidity) * distFromFloor) / 600.0 + (f32) solidity;
+        ret = ((120 - solidity) * distFromFloor) / 600.0f + (f32) solidity;
         return ret;
     }
 }
@@ -184,7 +191,7 @@ u8 dim_shadow_with_distance(u8 solidity, f32 distFromFloor) {
  */
 f32 get_water_level_below_shadow(struct Shadow *s) {
     f32 waterLevel = find_water_level(s->parentX, s->parentZ);
-    if (waterLevel < -10000.0) {
+    if (waterLevel < -10000.0f) {
         return 0;
     } else if (s->parentY >= waterLevel && s->floorHeight <= waterLevel) {
         gShadowAboveWaterOrLava = TRUE;
@@ -222,13 +229,13 @@ s8 init_shadow(struct Shadow *s, f32 xPos, f32 yPos, f32 zPos, s16 shadowScale, 
 
         // Assume that the water is flat.
         s->floorNormalX = 0;
-        s->floorNormalY = 1.0;
+        s->floorNormalY = 1.0f;
         s->floorNormalZ = 0;
         s->floorOriginOffset = -waterLevel;
     } else {
         // Don't draw a shadow if the floor is lower than expected possible,
         // or if the y-normal is negative (an unexpected result).
-        if (s->floorHeight < -10000.0 || floorGeometry->normalY <= 0.0) {
+        if (s->floorHeight < -10000.0f || floorGeometry->normalY <= 0.0f) {
             return 1;
         }
 
@@ -246,13 +253,34 @@ s8 init_shadow(struct Shadow *s, f32 xPos, f32 yPos, f32 zPos, s16 shadowScale, 
 
     s->floorDownwardAngle = atan2_deg(s->floorNormalZ, s->floorNormalX);
 
+#ifdef TARGET_PSP
+    /* El z-buffer de la PSP es de 16 bits y no tiene el modo decal de la RDP: una sombra metida en el plano del piso parpadea (z-fighting)
+     * sobre todo si el objeto se mueve (el 1-up, por ejemplo). Aqui la sombra se sube sobre el plano EXACTO del piso una distancia
+     * proporcional a la distancia a la camara (~1 pixel de pantalla), con un minimo y un maximo. Misma idea que las sombras sobre agua / lava
+     * (calculate_vertex_xyz). Ajustable: PSP_FSHADOW_K / PSP_FSHADOW_MIN / PSP_FSHADOW_MAX. */
+#ifndef PSP_FSHADOW_K
+#define PSP_FSHADOW_K 0.0035f
+#define PSP_FSHADOW_MIN 0.3f
+#define PSP_FSHADOW_MAX 8.0f
+#endif
+    {
+        const f32 cdx = xPos - gLakituState.pos[0];
+        const f32 cdy = s->floorHeight - gLakituState.pos[1];
+        const f32 cdz = zPos - gLakituState.pos[2];
+        f32 lift = sqrtf(cdx * cdx + cdy * cdy + cdz * cdz) * PSP_FSHADOW_K;
+        if (lift < PSP_FSHADOW_MIN) lift = PSP_FSHADOW_MIN;
+        if (lift > PSP_FSHADOW_MAX) lift = PSP_FSHADOW_MAX;
+        s->lift = lift;
+    }
+#endif
+
     floorSteepness = sqrtf(s->floorNormalX * s->floorNormalX + s->floorNormalZ * s->floorNormalZ);
 
     // This if-statement avoids dividing by 0.
-    if (floorSteepness == 0.0) {
+    if (floorSteepness == 0.0f) {
         s->floorTilt = 0;
     } else {
-        s->floorTilt = 90.0 - atan2_deg(floorSteepness, s->floorNormalY);
+        s->floorTilt = 90.0f - atan2_deg(floorSteepness, s->floorNormalY);
     }
     return 0;
 }
@@ -260,24 +288,26 @@ s8 init_shadow(struct Shadow *s, f32 xPos, f32 yPos, f32 zPos, s16 shadowScale, 
 /**
  * Given a `vertexNum` from a shadow with nine vertices, update the
  * texture coordinates corresponding to that vertex. That is:
- *      0 = (0,   0)         1 = (7,   0)         2 = (15,   0)
- *      3 = (0,   7)         4 = (7,   7)         5 = (15,   7)
- *      6 = (0,  15)         7 = (7,  15)         8 = (15,  15)
+ *      0 = (-15, -15)       1 = (0, -15)         2 = (15, -15)
+ *      3 = (-15, 0)         4 = (0, 0)           5 = (15, 0)
+ *      6 = (-15, 15)        7 = (0, 15)          8 = (15, 15)
  */
 void get_texture_coords_9_vertices(s8 vertexNum, s16 *textureX, s16 *textureY) {
-    *textureX = (vertexNum % 3) * 8 - !((vertexNum % 3) == 0);
-    *textureY = (vertexNum / 3) * 8 - !((vertexNum / 3) == 0);
+    /* PSP: +-16 en vez de +-15 de la N64. Con +-15 la textura espejo termina en un texel que
+     * aun tiene alpha (borde cortado de un lado); con +-16 ambos bordes caen en alpha 0. */
+    *textureX = vertexNum % 3 * 16 - 16;
+    *textureY = vertexNum / 3 * 16 - 16;
 }
 
 /**
  * Given a `vertexNum` from a shadow with four vertices, update the
  * texture coordinates corresponding to that vertex. That is:
- *      0 = (0,   0)         1 = (15,   0)
- *      2 = (0,  15)         3 = (15,  15)
+ *      0 = (-15, -15)       1 = (15, -15)
+ *      2 = (-15, 15)        3 = (15, 15)
  */
 void get_texture_coords_4_vertices(s8 vertexNum, s16 *textureX, s16 *textureY) {
-    *textureX = (vertexNum % 2) * 15;
-    *textureY = (vertexNum / 2) * 15;
+    *textureX = (vertexNum % 2) * 2 * 16 - 16;
+    *textureY = (vertexNum / 2) * 2 * 16 - 16;
 }
 
 /**
@@ -291,9 +321,17 @@ void get_texture_coords_4_vertices(s8 vertexNum, s16 *textureX, s16 *textureY) {
  */
 void make_shadow_vertex_at_xyz(Vtx *vertices, s8 index, f32 relX, f32 relY, f32 relZ, u8 alpha,
                                s8 shadowVertexType) {
+#ifdef TARGET_PSP
+    /* PSP: los vertices son float (GBI_FLOATS), asi que se usa la posicion EXACTA. La N64 los redondea a enteros de 16 bits, lo que mueve la
+     * sombra hasta +-0.5 unidades respecto del piso de un cuadro a otro: la RDP lo tapa con el modo decal, el z-buffer de la PSP no. */
+    f32 vtxX = relX;
+    f32 vtxY = relY;
+    f32 vtxZ = relZ;
+#else
     s16 vtxX = round_float(relX);
     s16 vtxY = round_float(relY);
     s16 vtxZ = round_float(relZ);
+#endif
     s16 textureX, textureY;
 
     switch (shadowVertexType) {
@@ -360,8 +398,8 @@ void get_vertex_coords(s8 index, s8 shadowVertexType, s8 *xCoord, s8 *zCoord) {
  */
 void calculate_vertex_xyz(s8 index, struct Shadow s, f32 *xPosVtx, f32 *yPosVtx, f32 *zPosVtx,
                           s8 shadowVertexType) {
-    f32 tiltedScale = cosf(s.floorTilt * M_PI / 180.0) * s.shadowScale;
-    f32 downwardAngle = s.floorDownwardAngle * M_PI / 180.0;
+    f32 tiltedScale = cosf(s.floorTilt * (f32)(M_PI / 180.0)) * s.shadowScale;
+    f32 downwardAngle = s.floorDownwardAngle * (f32)(M_PI / 180.0);
     f32 halfScale;
     f32 halfTiltedScale;
     s8 xCoordUnit;
@@ -371,14 +409,34 @@ void calculate_vertex_xyz(s8 index, struct Shadow s, f32 *xPosVtx, f32 *yPosVtx,
     // This makes xCoordUnit and yCoordUnit each one of -1, 0, or 1.
     get_vertex_coords(index, shadowVertexType, &xCoordUnit, &zCoordUnit);
 
-    halfScale = (xCoordUnit * s.shadowScale) / 2.0;
-    halfTiltedScale = (zCoordUnit * tiltedScale) / 2.0;
+    halfScale = (xCoordUnit * s.shadowScale) / 2.0f;
+    halfTiltedScale = (zCoordUnit * tiltedScale) / 2.0f;
 
     *xPosVtx = (halfTiltedScale * sinf(downwardAngle)) + (halfScale * cosf(downwardAngle)) + s.parentX;
     *zPosVtx = (halfTiltedScale * cosf(downwardAngle)) - (halfScale * sinf(downwardAngle)) + s.parentZ;
 
     if (gShadowAboveWaterOrLava) {
+#ifdef TARGET_PSP
+        /* La sombra queda exactamente en el plano del agua/lava y el z-buffer de 16 bits de la PSP no distingue los dos: se
+         * sube ~2,3 pixeles de pantalla (proporcional a la distancia a la camara; 1 pixel ~ 0,003 * distancia con este FOV).
+         * Ajustable: PSP_WSHADOW_K (factor por distancia), PSP_WSHADOW_MIN / PSP_WSHADOW_MAX (limites en unidades del juego). */
+#ifndef PSP_WSHADOW_K
+#define PSP_WSHADOW_K 0.007f
+#define PSP_WSHADOW_MIN 3.0f
+#define PSP_WSHADOW_MAX 14.0f
+#endif
+        {
+            const f32 dx = s.parentX - gLakituState.pos[0];
+            const f32 dy = s.floorHeight - gLakituState.pos[1];
+            const f32 dz = s.parentZ - gLakituState.pos[2];
+            f32 lift = sqrtf(dx * dx + dy * dy + dz * dz) * PSP_WSHADOW_K;
+            if (lift < PSP_WSHADOW_MIN) lift = PSP_WSHADOW_MIN;
+            if (lift > PSP_WSHADOW_MAX) lift = PSP_WSHADOW_MAX;
+            *yPosVtx = s.floorHeight + lift;
+        }
+#else
         *yPosVtx = s.floorHeight;
+#endif
     } else {
         switch (shadowVertexType) {
             /**
@@ -458,6 +516,11 @@ void make_shadow_vertex(Vtx *vertices, s8 index, struct Shadow s, s8 shadowVerte
     relX = xPosVtx - s.parentX;
     relY = yPosVtx - s.parentY;
     relZ = zPosVtx - s.parentZ;
+#ifdef TARGET_PSP
+    if (!gShadowAboveWaterOrLava) { /* sobre agua / lava ya se sube en calculate_vertex_xyz */
+        relY += s.lift;
+    }
+#endif
 
     make_shadow_vertex_at_xyz(vertices, index, relX, relY, relZ, solidity, shadowVertexType);
 }
@@ -514,7 +577,7 @@ void linearly_interpolate_solidity_negative(struct Shadow *s, u8 initialSolidity
     // This is not necessarily a bug, since this function is only used once,
     // with start == 0.
     if (curr >= start && end >= curr) {
-        s->solidity = ((f32) initialSolidity * (1.0 - (f32)(curr - start) / (end - start)));
+        s->solidity = ((f32) initialSolidity * (1.0f - (f32)(curr - start) / (end - start)));
     } else {
         s->solidity = 0;
     }
@@ -574,16 +637,16 @@ s8 correct_shadow_solidity_for_animations(s32 isLuigi, u8 initialSolidity, struc
  */
 void correct_lava_shadow_height(struct Shadow *s) {
     if (gCurrLevelNum == LEVEL_BITFS && sSurfaceTypeBelowShadow == SURFACE_BURNING) {
-        if (s->floorHeight < -3000.0) {
-            s->floorHeight = -3062.0;
+        if (s->floorHeight < -3000.0f) {
+            s->floorHeight = -3062.0f;
             gShadowAboveWaterOrLava = TRUE;
-        } else if (s->floorHeight > 3400.0) {
-            s->floorHeight = 3492.0;
+        } else if (s->floorHeight > 3400.0f) {
+            s->floorHeight = 3492.0f;
             gShadowAboveWaterOrLava = TRUE;
         }
     } else if (gCurrLevelNum == LEVEL_LLL && gCurrAreaIndex == 1
                && sSurfaceTypeBelowShadow == SURFACE_BURNING) {
-        s->floorHeight = 5.0;
+        s->floorHeight = 5.0f;
         gShadowAboveWaterOrLava = TRUE;
     }
 }
@@ -708,7 +771,7 @@ Gfx *create_shadow_circle_assuming_flat_ground(f32 xPos, f32 yPos, f32 zPos, s16
     f32 floorHeight = find_floor_height_and_data(xPos, yPos, zPos, &dummy);
     f32 radius = shadowScale / 2;
 
-    if (floorHeight < -10000.0) {
+    if (floorHeight < -10000.0f) {
         return NULL;
     } else {
         distBelowFloor = floorHeight - yPos;
@@ -767,12 +830,12 @@ s32 get_shadow_height_solidity(f32 xPos, f32 yPos, f32 zPos, f32 *shadowHeight, 
     f32 waterLevel;
     *shadowHeight = find_floor_height_and_data(xPos, yPos, zPos, &dummy);
 
-    if (*shadowHeight < -10000.0) {
+    if (*shadowHeight < -10000.0f) {
         return 1;
     } else {
         waterLevel = find_water_level(xPos, zPos);
 
-        if (waterLevel < -10000.0) {
+        if (waterLevel < -10000.0f) {
             // Dead if-statement. There may have been an assert here.
         } else if (yPos >= waterLevel && waterLevel >= *shadowHeight) {
             gShadowAboveWaterOrLava = TRUE;
@@ -782,6 +845,32 @@ s32 get_shadow_height_solidity(f32 xPos, f32 yPos, f32 zPos, f32 *shadowHeight, 
     }
     return 0;
 }
+
+#ifdef TARGET_PSP
+/* Las sombras cuadradas / rectangulares (postes de DDD, cajas, Thwomp, Whomp, Bullet Bill...) no pasan por make_shadow_vertex ni por calculate_vertex_xyz,
+ * que son los que levantan la sombra del plano del piso / agua: nunca tuvieron el levantamiento anti z-fighting y parpadeaban contra el agua y el
+ * suelo. Se calcula igual que en las redondas (misma formula y mismas constantes): proporcional a la distancia a la camara, con minimo y maximo, y
+ * mas alto sobre agua / lava que sobre el piso. `shadowHeight` es la altura del plano (piso o agua) donde cae la sombra. */
+static f32 psp_square_shadow_lift(f32 xPos, f32 shadowHeight, f32 zPos) {
+    const f32 dx = xPos - gLakituState.pos[0];
+    const f32 dy = shadowHeight - gLakituState.pos[1];
+    const f32 dz = zPos - gLakituState.pos[2];
+    f32 lift = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (gShadowAboveWaterOrLava) {
+        lift *= PSP_WSHADOW_K;
+        if (lift < PSP_WSHADOW_MIN) lift = PSP_WSHADOW_MIN;
+        if (lift > PSP_WSHADOW_MAX) lift = PSP_WSHADOW_MAX;
+    } else {
+        lift *= PSP_FSHADOW_K;
+        if (lift < PSP_FSHADOW_MIN) lift = PSP_FSHADOW_MIN;
+        if (lift > PSP_FSHADOW_MAX) lift = PSP_FSHADOW_MAX;
+    }
+    return lift;
+}
+#define PSP_SQ_LIFT(x_, h_, z_) psp_square_shadow_lift((x_), (h_), (z_))
+#else
+#define PSP_SQ_LIFT(x_, h_, z_) 0.0f
+#endif
 
 /**
  * Create a square shadow composed of 4 vertices.
@@ -801,16 +890,16 @@ Gfx *create_shadow_square(f32 xPos, f32 yPos, f32 zPos, s16 shadowScale, u8 soli
             shadowRadius = shadowScale / 2;
             break;
         case SHADOW_SQUARE_SCALABLE:
-            shadowRadius = scale_shadow_with_distance(shadowScale, distFromShadow) / 2.0;
+            shadowRadius = scale_shadow_with_distance(shadowScale, distFromShadow) / 2.0f;
             break;
         case SHADOW_SQUARE_TOGGLABLE:
-            shadowRadius = disable_shadow_with_distance(shadowScale, distFromShadow) / 2.0;
+            shadowRadius = disable_shadow_with_distance(shadowScale, distFromShadow) / 2.0f;
             break;
         default:
             return NULL;
     }
 
-    return create_shadow_rectangle(shadowRadius, shadowRadius, -distFromShadow, solidity);
+    return create_shadow_rectangle(shadowRadius, shadowRadius, -distFromShadow + PSP_SQ_LIFT(xPos, shadowHeight, zPos), solidity);
 }
 
 /**
@@ -844,7 +933,7 @@ Gfx *create_shadow_hardcoded_rectangle(f32 xPos, f32 yPos, f32 zPos, UNUSED s16 
         halfWidth = rectangles[idx].halfWidth;
         halfLength = rectangles[idx].halfLength;
     }
-    return create_shadow_rectangle(halfWidth, halfLength, -distFromShadow, solidity);
+    return create_shadow_rectangle(halfWidth, halfLength, -distFromShadow + PSP_SQ_LIFT(xPos, shadowHeight, zPos), solidity);
 }
 
 /**

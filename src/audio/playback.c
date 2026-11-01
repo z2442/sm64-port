@@ -867,6 +867,20 @@ void note_release_and_take_ownership(struct Note *note, struct SequenceChannelLa
     note->adsr.action |= ADSR_ACTION_RELEASE;
 }
 
+/* Diagnostico (log del PSP): notas robadas a otras en uso, capas que se quedaron sin nota, y cuantas notas hay en uso.
+ * Los escribe el sintetizador (ME); el hilo principal solo los lee. */
+unsigned int gPspNoteSteal, gPspNoteDrop;
+
+int psp_audio_active_notes(void) {
+    int i, n = 0;
+    for (i = 0; i < gMaxSimultaneousNotes; i++) {
+        if (gNotes[i].priority != NOTE_PRIORITY_DISABLED) {
+            n++;
+        }
+    }
+    return n;
+}
+
 struct Note *alloc_note_from_disabled(struct NotePool *pool, struct SequenceChannelLayer *seqLayer) {
     struct Note *note = audio_list_pop_back(&pool->disabled);
     if (note != NULL) {
@@ -896,6 +910,7 @@ struct Note *alloc_note_from_active(struct NotePool *pool, struct SequenceChanne
     struct Note *note =
         pop_node_with_value_less_equal(&pool->active, seqLayer->seqChannel->notePriority);
     if (note != NULL) {
+        gPspNoteSteal++;
         func_80319728(note, seqLayer);
         audio_list_push_back(&pool->releasing, &note->listItem);
     }
@@ -929,6 +944,7 @@ struct Note *alloc_note(struct SequenceChannelLayer *seqLayer) {
             && !(ret = alloc_note_from_decaying(&seqLayer->seqChannel->notePool, seqLayer))
             && !(ret = alloc_note_from_active(&seqLayer->seqChannel->notePool, seqLayer))) {
             seqLayer->status = SOUND_LOAD_STATUS_NOT_LOADED;
+            gPspNoteDrop++;
             return NULL;
         }
         return ret;
@@ -942,6 +958,7 @@ struct Note *alloc_note(struct SequenceChannelLayer *seqLayer) {
             && !(ret = alloc_note_from_active(&seqLayer->seqChannel->notePool, seqLayer))
             && !(ret = alloc_note_from_active(&seqLayer->seqChannel->seqPlayer->notePool, seqLayer))) {
             seqLayer->status = SOUND_LOAD_STATUS_NOT_LOADED;
+            gPspNoteDrop++;
             return NULL;
         }
         return ret;
@@ -952,6 +969,7 @@ struct Note *alloc_note(struct SequenceChannelLayer *seqLayer) {
             && !(ret = alloc_note_from_decaying(&gNoteFreeLists, seqLayer))
             && !(ret = alloc_note_from_active(&gNoteFreeLists, seqLayer))) {
             seqLayer->status = SOUND_LOAD_STATUS_NOT_LOADED;
+            gPspNoteDrop++;
             return NULL;
         }
         return ret;
@@ -967,6 +985,7 @@ struct Note *alloc_note(struct SequenceChannelLayer *seqLayer) {
         && !(ret = alloc_note_from_active(&seqLayer->seqChannel->seqPlayer->notePool, seqLayer))
         && !(ret = alloc_note_from_active(&gNoteFreeLists, seqLayer))) {
         seqLayer->status = SOUND_LOAD_STATUS_NOT_LOADED;
+            gPspNoteDrop++;
         return NULL;
     }
     return ret;

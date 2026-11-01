@@ -1,0 +1,4 @@
+# Imagen para compilar la version PSP: el compilador (pspdev) mas las herramientas que pide el Makefile.
+# Se construye UNA sola vez (lo hace build_psp.ps1); asi no se reinstalan python/build-base/audiofile en cada compilacion.
+FROM pspdev/pspdev:latest
+RUN apk add --no-cache python3 build-base audiofile-dev
