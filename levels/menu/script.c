@@ -88,7 +88,14 @@ const LevelScript level_main_menu_entry_2[] = {
     /*35*/ GET_OR_SET(/*op*/ OP_SET, /*var*/ VAR_CURR_ACT_NUM),
     /*36*/ STOP_MUSIC(/*fadeOutTime*/ 0x00BE),
     /*37*/ TRANSITION(/*transType*/ WARP_TRANSITION_FADE_INTO_COLOR, /*time*/ 16, /*color*/ 0xFF, 0xFF, 0xFF),
+#ifdef TARGET_PSP
+           // PSP: en la N64 la carga del nivel tardaba ~1 s y el "Let's-a-go!" (0.93 s) terminaba de sonar antes de que el nivel
+           // reiniciara el audio (set_background_music -> sound_reset). Aqui el nivel carga casi al instante y la voz se cortaba a los
+           // ~0.6 s. Se alarga la pantalla en blanco (32 fotogramas en total, ~1.07 s a 30 Hz) para que la voz suene entera.
+    /*39*/ SLEEP(/*frames*/ 32),
+#else
     /*39*/ SLEEP(/*frames*/ 16),
+#endif
     /*40*/ CLEAR_LEVEL(),
     /*41*/ SLEEP_BEFORE_EXIT(/*frames*/ 1),
     // L1:
