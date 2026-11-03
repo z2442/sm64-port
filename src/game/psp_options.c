@@ -29,6 +29,8 @@
 #include "print.h"
 #include "segment2.h"
 #include "psp_options.h"
+#include "save_file.h"
+#include "sound_init.h"
 #include "pc/fs_utils.h"
 #include "pc/psp_me.h"
 #include "pc/configfile.h"
@@ -66,13 +68,14 @@ enum {
     ROW_CTRLRESET,
     ROW_MUSIC,    /* volumen de la musica (0 a 100) */
     ROW_SFX,      /* volumen de los efectos de sonido (0 a 100) */
+    ROW_SOUNDMODE, /* Stereo / Mono / Headset: el mismo ajuste del menu de seleccion de archivo */
     ROW_AUDRESET
 };
 
 enum { PG_MAIN, PG_VIDEO, PG_AUDIO, PG_CTRL };
 
 static const u8 sPgMain[] = { ROW_VIDEO, ROW_AUDIO, ROW_CONTROLS };
-static const u8 sPgAudio[] = { ROW_MUSIC, ROW_SFX, ROW_AUDRESET };
+static const u8 sPgAudio[] = { ROW_MUSIC, ROW_SFX, ROW_SOUNDMODE, ROW_AUDRESET };
 static const u8 sPgVideo[] = { OPT_FPSCAP, OPT_PACING, OPT_OBJDIST, OPT_FARDIST, OPT_CULLOBJ, OPT_SHOWFPS, OPT_SOUNDCPU, OPT_RESET };
 static const u8 sPgCtrl[] = { ROW_BIND0, ROW_BIND0 + 1, ROW_BIND0 + 2, ROW_BIND0 + 3, ROW_BIND0 + 4, ROW_BIND0 + 5, ROW_BIND0 + 6,
                               ROW_BIND0 + 7, ROW_BIND0 + 8, ROW_BIND0 + 9, ROW_DEAD, ROW_CTRLRESET };
@@ -130,16 +133,16 @@ static const int sFpsCap[2] = { 30, 60 };
 static const char *const sPacingTxt[2] = { "Keep FPS", "Keep Speed" };
 static const char *const sOnOffTxt[2] = { "Off", "On" };
 static const char *const sFpsCtrTxt[2] = { "Off", "On" };
-/* "Unlimited" de Object Distance: x100, mas lejos que cualquier nivel (los generadores siguen protegidos por la reserva de objetos, ver psp_objects_free). */
-static const char *const sObjTxt[6] = { "100%", "150%", "200%", "250%", "300%", "Unlimited" };
-static const float sObjScale[6] = { 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 100.0f };
-/* "Unlimited" de Far Distance: x3.25 = el mayor que el juego aguanta (el limite de profundidad de los objetos es 20000 * escala y no debe pasar de 65536, ver
- * obj_is_in_view); con el plano lejano original de los niveles (12800 a 30000) ya queda mas lejos que todo lo que existe en ellos. */
-static const char *const sFarTxt[6] = { "100%", "150%", "200%", "250%", "300%", "Unlimited" };
-static const float sFarScale[6] = { 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.25f }; /* plano lejano de la camara; el nivel de detalle siempre es el maximo */
+/* Object Distance y Far Distance: de 100 % (lo original) a 300 %. (La opcion "Unlimited" se quito: rompia cosas.) El limite de profundidad de los objetos es
+ * 20000 * escala y no debe pasar de 65536 (ver obj_is_in_view): con 300 % queda en 60000. */
+static const char *const sObjTxt[5] = { "100%", "150%", "200%", "250%", "300%" };
+static const float sObjScale[5] = { 1.0f, 1.5f, 2.0f, 2.5f, 3.0f };
+static const char *const sFarTxt[5] = { "100%", "150%", "200%", "250%", "300%" };
+static const float sFarScale[5] = { 1.0f, 1.5f, 2.0f, 2.5f, 3.0f }; /* plano lejano de la camara; el nivel de detalle siempre es el maximo */
+#define DIST_ROW_MAX 4 /* indice del mayor valor de las filas de distancia (300 %) */
 static const char *const sCullTxt[2] = { "Original", "Vertical" };
 
-static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 6, 6, 2, 0 };
+static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 0 };
 static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0 }; /* 60 fps, Keep FPS, contador Off, Object / Far Distance 150 %, culling Vertical */
 
 static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0 }; /* indice elegido en cada fila */
@@ -226,6 +229,10 @@ static void psp_opt_load_legacy(void) {
                         if (ver == 6 && (sSaveKeys[i].row == OPT_OBJDIST || sSaveKeys[i].row == OPT_FARDIST) && val >= 3) {
                             nv = val + 1;
                         }
+                        /* "Unlimited" (ya no existe) pasa a 300 % */
+                        if ((sSaveKeys[i].row == OPT_OBJDIST || sSaveKeys[i].row == OPT_FARDIST) && nv > DIST_ROW_MAX && nv <= 5) {
+                            nv = DIST_ROW_MAX;
+                        }
                         if (nv >= 0 && nv < sCount[sSaveKeys[i].row]) {
                             sVal[sSaveKeys[i].row] = nv;
                         }
@@ -279,12 +286,25 @@ static void psp_opt_mask_text(unsigned int mask, char *out, int max) {
     }
 }
 
+/* Modo de sonido (0 Stereo, 1 Mono, 2 Headset): mismos indices que el menu de seleccion de archivo. Se aplica al instante; el guardado se hace al cerrar. */
+static const char *const sSndModeTxt[3] = { "Stereo", "Mono", "Headset" };
+static int sSndMode = 0;
+static int sSndDirty = 0;
+static void psp_opt_set_sound_mode(int mode) {
+    if (mode != sSndMode) {
+        sSndMode = mode;
+        set_sound_mode((u16) mode);
+        sSndDirty = 1;
+    }
+}
+
 static const char *psp_opt_label(int row) {
     if (row < OPT_COUNT) return sLabel[row];
     if (row == ROW_VIDEO) return "Graphics";
     if (row == ROW_AUDIO) return "Audio";
     if (row == ROW_MUSIC) return "Music Volume";
     if (row == ROW_SFX) return "Effects Volume";
+    if (row == ROW_SOUNDMODE) return "Sound Mode";
     if (row == ROW_AUDRESET) return "Reset to Defaults";
     if (row == ROW_CONTROLS) return "Controls";
     if (row == ROW_DEAD) return "Stick Deadzone";
@@ -316,6 +336,7 @@ static const char *psp_opt_value_text(int row) {
         case ROW_SFX:
             snprintf(buf, sizeof(buf), "%d%%", sSfx);
             return buf;
+        case ROW_SOUNDMODE: return sSndModeTxt[sSndMode];
         default:
             if (row >= ROW_BIND0 && row < ROW_BIND0 + NUM_BINDS) {
                 if (sCapture == row - ROW_BIND0) {
@@ -333,12 +354,14 @@ static int psp_opt_can_dec(int row) {
     if (row == ROW_DEAD) return configDeadzone > 0;
     if (row == ROW_MUSIC) return sMusic > 0;
     if (row == ROW_SFX) return sSfx > 0;
+    if (row == ROW_SOUNDMODE) return sSndMode > 0;
     return row < OPT_RESET && sVal[row] > 0;
 }
 static int psp_opt_can_inc(int row) {
     if (row == ROW_DEAD) return configDeadzone < DEAD_MAX;
     if (row == ROW_MUSIC) return sMusic < 100;
     if (row == ROW_SFX) return sSfx < 100;
+    if (row == ROW_SOUNDMODE) return sSndMode < 2;
     return row < OPT_RESET && sVal[row] < sCount[row] - 1;
 }
 
@@ -352,6 +375,15 @@ static void psp_opt_change(int row, int dir, int wrap) {
             return;
         }
         configDeadzone = (unsigned int) nv;
+        play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+        return;
+    }
+    if (row == ROW_SOUNDMODE) {
+        nv = sSndMode + dir;
+        if (nv < 0 || nv > 2) {
+            return;
+        }
+        psp_opt_set_sound_mode(nv);
         play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
         return;
     }
@@ -403,6 +435,7 @@ static void psp_opt_reset_controls(void) {
 static void psp_opt_reset_audio(void) {
     sMusic = 100;
     sSfx = 100;
+    psp_opt_set_sound_mode(0);
     psp_opt_apply();
 }
 
@@ -554,6 +587,11 @@ static void psp_cfg_line(char *line) {
                     break;
                 }
             }
+            /* "Unlimited" (ya no existe) de un sm64config.txt anterior pasa a 300 % */
+            if ((i == OPT_OBJDIST || i == OPT_FARDIST) && psp_ci_eq(val, "unlimited")) {
+                sVal[i] = DIST_ROW_MAX;
+                sSawNew = 1;
+            }
             return;
         }
     }
@@ -615,8 +653,8 @@ void psp_options_save_file(const char *filename) {
         "Keep FPS (always aim for the FPS limit) or Keep Speed (drop FPS to keep the game speed)",
         "Off or On (frames per second on screen)",
         "Off or On (shows on the pause screen which processor mixes the audio)",
-        "100%, 150%, 200%, 250%, 300% or Unlimited (how far away objects stay active)",
-        "100%, 150%, 200%, 250%, 300% or Unlimited (how far you see)",
+        "100%, 150%, 200%, 250% or 300% (how far away objects stay active)",
+        "100%, 150%, 200%, 250% or 300% (how far you see)",
         "Original or Vertical (Vertical also hides objects above / below the view)",
         NULL,
     };
@@ -854,8 +892,20 @@ void psp_options_pause_prompt(void) {
 static void psp_opt_close(void) {
     sOpen = 0;
     sCapture = -1;
+    if (sSndDirty) {
+        /* igual que al elegirlo en el menu de archivos: se guarda en el archivo de guardado (una sola escritura, al cerrar) */
+        save_file_set_sound_mode(sSndMode);
+        sSndDirty = 0;
+    }
     psp_options_save_file(sCfgName);
     play_sound(SOUND_MENU_PAUSE_2, gDefaultSoundArgs);
+}
+
+/* Al cerrar, este mismo frame lo dibuja la pausa normal (oscurecido, monedas, opciones del curso): si no dibujara nada se veria un frame de la escena
+ * sin oscurecer (parpadeo). Los botones que cerraron el menu se quitan para que la pausa no los lea (START/A la despausarian). */
+static int psp_opt_closed_frame(struct Controller *c) {
+    c->buttonPressed &= ~(START_BUTTON | A_BUTTON | B_BUTTON | Z_TRIG | R_TRIG);
+    return 0;
 }
 
 static void psp_opt_enter_page(int page, int sel) {
@@ -892,6 +942,11 @@ int psp_options_pause_frame(int can_open) {
         sPrevX = sPrevY = sTimeX = sTimeY = 0;
         sPrevRaw = gPspRawButtons; /* lo que se esta pulsando al abrir (la R) no cuenta */
         sVal[OPT_SHOWFPS] = gRenderFPS ? 1 : 0;
+        sSndMode = save_file_get_sound_mode();
+        if (sSndMode > 2) {
+            sSndMode = 0;
+        }
+        sSndDirty = 0;
         play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
     }
 
@@ -926,12 +981,12 @@ int psp_options_pause_frame(int can_open) {
     } else {
         if (pressed & (PSP_CTRL_START | PSP_CTRL_RTRIGGER)) {
             psp_opt_close();
-            return 1;
+            return psp_opt_closed_frame(c);
         }
         if (pressed & (PSP_CTRL_SQUARE | PSP_CTRL_CIRCLE)) {
             if (sPage == PG_MAIN) {
                 psp_opt_close();
-                return 1;
+                return psp_opt_closed_frame(c);
             }
             psp_opt_enter_page(PG_MAIN, sPage - 1); /* la entrada de la pagina de la que se sale */
             psp_opt_draw();

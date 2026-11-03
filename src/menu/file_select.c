@@ -341,6 +341,34 @@ s32 check_clicked_button(s16 x, s16 y, f32 depth) {
     return FALSE;
 }
 
+#ifdef TARGET_PSP
+/* PSP: los botones en miniatura de un submenu (score/copy/erase/sound) se crean en el cuadro del click, con el boton clicado aun sin moverse, y
+ * se veian por encima de su cara durante un cuadro antes de que el giro empezara a taparlos (y otro cuadro mas si solo se retrasaba un cuadro).
+ * No se dibujan mientras el boton gira; bhv_menu_button_loop los muestra otra vez cuando el boton esta por llegar a pantalla completa. */
+static void psp_hide_submenu(struct Object *parent) {
+    s32 i, lo, hi;
+    if (parent == sMainMenuButtons[MENU_BUTTON_SCORE]) {
+        lo = MENU_BUTTON_SCORE_MIN; hi = MENU_BUTTON_SCORE_MAX;
+    } else if (parent == sMainMenuButtons[MENU_BUTTON_COPY]) {
+        lo = MENU_BUTTON_COPY_MIN; hi = MENU_BUTTON_COPY_MAX;
+    } else if (parent == sMainMenuButtons[MENU_BUTTON_ERASE]) {
+        lo = MENU_BUTTON_ERASE_MIN; hi = MENU_BUTTON_ERASE_MAX;
+    } else if (parent == sMainMenuButtons[MENU_BUTTON_SOUND_MODE]) {
+        lo = MENU_BUTTON_OPTION_MIN; hi = MENU_BUTTON_OPTION_MAX;
+    } else {
+        return;
+    }
+    for (i = lo; i < hi; i++) {
+        if (sMainMenuButtons[i] != NULL) {
+            sMainMenuButtons[i]->header.gfx.node.flags &= ~GRAPH_RENDER_ACTIVE;
+        }
+    }
+}
+#define PSP_HIDE_SUBMENU(parent) psp_hide_submenu((parent))
+#else
+#define PSP_HIDE_SUBMENU(parent) ((void) 0)
+#endif
+
 /**
  * Grow from main menu, used by selecting files and menus.
  */
@@ -517,6 +545,21 @@ void bhv_menu_button_init(void) {
  * object scale for each button.
  */
 void bhv_menu_button_loop(void) {
+#ifdef TARGET_PSP
+    if (!(gCurrentObject->header.gfx.node.flags & GRAPH_RENDER_ACTIVE) && gCurrentObject->oTimer >= 1
+        && (gCurrentObject->parentObj->oMenuButtonState == MENU_BUTTON_STATE_FULLSCREEN
+            || gCurrentObject->parentObj->oMenuButtonTimer >= 10)) {
+        /* ver psp_hide_submenu: se vuelve a mostrar con el historial del cuadro anterior (su posicion aun sin actualizar), para que la
+         * interpolacion a 60 fps lo mueva igual que al boton y no aparezca un cuadro "por encima" */
+        struct GraphNodeObject *gfx = &gCurrentObject->header.gfx;
+        gfx->node.flags |= GRAPH_RENDER_ACTIVE;
+        vec3f_copy(gfx->prevPos, gfx->pos);
+        vec3s_copy(gfx->prevAngle, gfx->angle);
+        vec3f_copy(gfx->prevScale, gfx->scale);
+        gfx->prevTimestamp = gGlobalTimer - 1;
+        gfx->prevScaleTimestamp = gGlobalTimer - 1;
+    }
+#endif
     switch (gCurrentObject->oMenuButtonState) {
         case MENU_BUTTON_STATE_DEFAULT: // Button state
             gCurrentObject->oMenuButtonOrigPosZ = gCurrentObject->oPosZ;
@@ -1199,6 +1242,7 @@ void load_score_menu_from_submenu(s16 prevMenuButtonID, struct Object *sourceBut
         play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
         sMainMenuButtons[MENU_BUTTON_SCORE]->oMenuButtonState = MENU_BUTTON_STATE_GROWING;
         render_score_menu_buttons(sMainMenuButtons[MENU_BUTTON_SCORE]);
+        PSP_HIDE_SUBMENU(sMainMenuButtons[MENU_BUTTON_SCORE]);
     }
 }
 
@@ -1240,6 +1284,7 @@ void load_copy_menu_from_submenu(s16 prevMenuButtonID, struct Object *sourceButt
         play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
         sMainMenuButtons[MENU_BUTTON_COPY]->oMenuButtonState = MENU_BUTTON_STATE_GROWING;
         render_copy_menu_buttons(sMainMenuButtons[MENU_BUTTON_COPY]);
+        PSP_HIDE_SUBMENU(sMainMenuButtons[MENU_BUTTON_COPY]);
     }
 }
 
@@ -1281,6 +1326,7 @@ void load_erase_menu_from_submenu(s16 prevMenuButtonID, struct Object *sourceBut
         play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
         sMainMenuButtons[MENU_BUTTON_ERASE]->oMenuButtonState = MENU_BUTTON_STATE_GROWING;
         render_erase_menu_buttons(sMainMenuButtons[MENU_BUTTON_ERASE]);
+        PSP_HIDE_SUBMENU(sMainMenuButtons[MENU_BUTTON_ERASE]);
     }
 }
 
@@ -1359,6 +1405,7 @@ void bhv_menu_button_manager_init(void) {
     #define SAVE_FILE_SOUND SOUND_MENU_STAR_SOUND_OKEY_DOKEY
 #endif
 
+
 /**
  * In the main menu, check if a button was clicked to play it's button growing state.
  * Also play a sound and/or render buttons depending of the button ID selected.
@@ -1416,18 +1463,22 @@ void check_main_menu_clicked_buttons(void) {
             case MENU_BUTTON_SCORE:
                 play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
                 render_score_menu_buttons(sMainMenuButtons[MENU_BUTTON_SCORE]);
+                PSP_HIDE_SUBMENU(sMainMenuButtons[MENU_BUTTON_SCORE]);
                 break;
             case MENU_BUTTON_COPY:
                 play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
                 render_copy_menu_buttons(sMainMenuButtons[MENU_BUTTON_COPY]);
+                PSP_HIDE_SUBMENU(sMainMenuButtons[MENU_BUTTON_COPY]);
                 break;
             case MENU_BUTTON_ERASE:
                 play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
                 render_erase_menu_buttons(sMainMenuButtons[MENU_BUTTON_ERASE]);
+                PSP_HIDE_SUBMENU(sMainMenuButtons[MENU_BUTTON_ERASE]);
                 break;
             case MENU_BUTTON_SOUND_MODE:
                 play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
                 render_sound_mode_menu_buttons(sMainMenuButtons[MENU_BUTTON_SOUND_MODE]);
+                PSP_HIDE_SUBMENU(sMainMenuButtons[MENU_BUTTON_SOUND_MODE]);
                 break;
         }
 #ifdef VERSION_EU

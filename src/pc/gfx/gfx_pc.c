@@ -4714,7 +4714,12 @@ static void prof_log_window(void) {
  * ticks de 2 cuadros de forma pareja (45 fps = 2,1,2,1...). */
 #define PSP_60FPS 1               /* 0 = siempre 30 fps */
 #define PSP_60FPS_FORCE 1         /* 1 = 60 fps fijos: si la escena no cabe, va mas lento (con trompicones) pero siempre intenta 60. 0 = dinamico 30/60 */
-#define PSP60_BUDGET_US 16000U    /* un tick cabe si A <= esto (un vblank = 16667 us, con un poco de margen) */
+#define PSP60_BUDGET_US 16000U    /* un tick de 30 fps cabe si A <= esto (un vblank = 16667 us, con un poco de margen) */
+#define PSP60_SLACK_US 1500U      /* "Keep Speed": un tick de 30 fps (que lleva la estimacion PSP60_EXTRA_US) solo cuenta como "no cabe" si pasa del
+                                   * presupuesto por mas de esto. Entre medias no cuenta ni a favor ni en contra (ver gfx_psp_update_mode). */
+#define PSP60_WALL_OK_US 35000U   /* "Keep Speed": un tick de 60 fps cabe mientras el tiempo REAL por tick (promedio movil) no pase de esto (2 vblanks = 33333 us) */
+#define PSP60_WALL_CLAMP_US 45000U /* un tick real mas largo que esto (carga, menu HOME, cambio de modo) cuenta como esto, para que un tropiezo suelto no pese de mas */
+#define PSP60_WALL_SHIFT 3        /* ventana del promedio del tiempo real por tick (~8 ticks) */
 #define PSP60_EXTRA_US 1000U      /* estimacion del coste del parche de matrices del 2o cuadro (se suma en ticks de 1 cuadro) */
 #define PSP60_IGNORE_US 50000U    /* muestras mayores (carga de nivel, menu HOME...) no cuentan */
 #define PSP60_DOWN_SHIFT 3        /* si empeora, reacciona en ~8 ticks */
@@ -4736,6 +4741,8 @@ int gPspReplayEma = 0;                 /* 0..1000: fraccion reciente de 2os cuad
 static unsigned int sTickPre;          /* mayor tiempo previo a dibujar (logica) de los cuadros del tick actual */
 static unsigned int sTickMaxA;
 static int sFitRate = 1000; /* milesimas de ticks que caben; empieza optimista y cae rapido si no */
+static unsigned int sLastTickUs;     /* reloj (us) en la llamada anterior a gfx_psp_update_mode */
+static int sWallEma = 33333;         /* promedio movil del tiempo real por tick de 60 fps (us) */
 static unsigned int sAcc;   /* acumulador de p en milesimas */
 
 void gfx_psp_update_mode(void) {
@@ -4757,18 +4764,39 @@ void gfx_psp_update_mode(void) {
         else if (sTailEma <= PSP_ASYNC_OFF_US) gPspAsyncWant = 0;
     }
 #endif
-    if (a != 0 && a < PSP60_IGNORE_US) { /* a == 0: no se dibujo ningun cuadro (saltado), no hay muestra */
-        if (!gPspSixtyMode) {
-            a += PSP60_EXTRA_US;
+    {
+        /* Tiempo REAL del tick que acaba de terminar (entre dos llamadas). En los ticks de 60 fps es la medida directa de si el juego va a
+         * su velocidad (2 vblanks = 33333 us): la estimacion A de abajo es pesimista (a 60 fps estables A puede salir por encima del
+         * presupuesto en la mayoria de ticks), y con ella "Keep Speed" bajaba de 50 fps donde "Keep FPS" iba a 60 estables. */
+        const unsigned int now = (unsigned int) sceKernelLibcClock();
+        unsigned int w = sLastTickUs ? now - sLastTickUs : 0U;
+        sLastTickUs = now;
+        if (a != 0 && a < PSP60_IGNORE_US) { /* a == 0: no se dibujo ningun cuadro (saltado), no hay muestra */
+            int fit; /* 1 = sube la tasa, -1 = baja, 0 = no cuenta */
+            if (!gPspSixtyMode) {
+                a += PSP60_EXTRA_US;
+            }
+            sDbgTk++; sDbgA += a; if (a > PSP60_BUDGET_US) sDbgOver++;
+            if (gPspSixtyMode) {
+                /* tick de 60 fps: cabe si el tiempo real (promedio movil) no pasa de ~2 vblanks */
+                if (w != 0U) {
+                    if (w > PSP60_WALL_CLAMP_US) w = PSP60_WALL_CLAMP_US;
+                    sWallEma += ((int) w - sWallEma) >> PSP60_WALL_SHIFT;
+                }
+                fit = sWallEma <= (int) PSP60_WALL_OK_US ? 1 : -1;
+            } else {
+                /* tick de 30 fps: no hay tiempo real que mirar (siempre ~33 ms); se estima si cabria en 60 fps. Solo cuenta si claramente cabe
+                 * o claramente no cabe (la estimacion lleva PSP60_EXTRA_US, pesimista porque el 2o cuadro se repite casi gratis). */
+                fit = a <= PSP60_BUDGET_US ? 1 : (a > PSP60_BUDGET_US + PSP60_SLACK_US ? -1 : 0);
+            }
+            if (fit > 0) {
+                sFitRate += (1000 - sFitRate) >> PSP60_UP_SHIFT;
+            } else if (fit < 0) {
+                sFitRate -= sFitRate >> PSP60_DOWN_SHIFT;
+            }
+            if (sFitRate < 0) sFitRate = 0;
+            if (sFitRate > 1000) sFitRate = 1000;
         }
-        sDbgTk++; sDbgA += a; if (a > PSP60_BUDGET_US) sDbgOver++;
-        if (a <= PSP60_BUDGET_US) {
-            sFitRate += (1000 - sFitRate) >> PSP60_UP_SHIFT;
-        } else {
-            sFitRate -= sFitRate >> PSP60_DOWN_SHIFT;
-        }
-        if (sFitRate < 0) sFitRate = 0;
-        if (sFitRate > 1000) sFitRate = 1000;
     }
     /* los extremos se redondean para no quedar en 59 / 31 fps por la cola del promedio */
     {

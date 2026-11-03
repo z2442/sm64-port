@@ -1,7 +1,7 @@
 # Compila SM64 para PSP dentro de Docker.
 #
-#   .\build_psp.ps1               -> -O3 (el de siempre). Resultado: build\us_psp\mario64\EBOOT.PBP
-#   .\build_psp.ps1 -Opt O2       -> -O2 sin alinear funciones. Resultado: build_O2\us_psp\mario64\EBOOT.PBP
+#   .\build_psp.ps1               -> -O3 (el de siempre). Resultado: build\us_psp\mario64\ (EBOOT.PBP + SM64.PRX)
+#   .\build_psp.ps1 -Opt O2       -> -O2 sin alinear funciones. Resultado: build_O2\us_psp\mario64\ (EBOOT.PBP + SM64.PRX)
 #   .\build_psp.ps1 -Clean        -> borra antes la carpeta de compilacion de esa configuracion
 #   .\build_psp.ps1 -Rebuild      -> vuelve a construir la imagen de Docker (si cambias Dockerfile.psp)
 #
@@ -44,4 +44,4 @@ docker run --rm @envArgs -v "${PWD}:/sm64" -w /sm64 $img make TARGET_PSP=1 pbp V
 if ($LASTEXITCODE -ne 0) { Write-Host "La compilacion fallo"; exit 1 }
 
 Write-Host ""
-Write-Host "Listo: $buildDir\us_psp\mario64\EBOOT.PBP"
+Write-Host "Listo: $buildDir\us_psp\mario64\  (copia EBOOT.PBP y SM64.PRX juntos a la misma carpeta de la PSP)"

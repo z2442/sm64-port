@@ -1291,7 +1291,7 @@ static int obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
     //  If Mario were rendered with a depth over 65536 it would cause overflow
     //  when converting the transformation matrix to a fixed point matrix.
 #ifdef TARGET_PSP
-    /* con "Far Distance" > 100 % el limite se alarga igual (150 % = 30000, 300 % = 60000, Unlimited = 65000: sigue bajo 65536) */
+    /* con "Far Distance" > 100 % el limite se alarga igual (150 % = 30000, 300 % = 60000: sigue bajo 65536) */
     if (matrix[3][2] < -20000.0f * (gMenuMode == -1 ? gPspFarScale : 1.0f) - cullingRadius) {
         return FALSE;
     }

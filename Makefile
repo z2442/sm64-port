@@ -924,8 +924,16 @@ pbp: $(EXE)
 	@if [ "$(PROFILE_PSP)" = "1" ]; then \
 		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(EXE) NULL; \
 	else \
-		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(EXE).prx NULL; \
+		psp-gcc -O2 -G0 -Wall -D_PSP_FW_VERSION=500 -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -c psp/launcher/launcher.c -o $(BUILD_DIR)/launcher.o && \
+		psp-gcc -o $(BUILD_DIR)/launcher.elf $(BUILD_DIR)/launcher.o -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx $(PSPSDK_PREFIX)/lib/prxexports.o -lpspdebug -lpspdisplay -lpspge -lpsprtc -lc -lpspuser && \
+		psp-fixup-imports $(BUILD_DIR)/launcher.elf && \
+		psp-prxgen $(BUILD_DIR)/launcher.elf $(BUILD_DIR)/launcher.prx && \
+		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(BUILD_DIR)/launcher.prx NULL && \
+		cp $(EXE).prx $(BUILD_DIR)/mario64/SM64.PRX; \
 	fi
+
+# mario64\EBOOT.PBP es solo un cargador minimo (psp/launcher/launcher.c): el juego va en mario64\SM64.PRX, que hay que copiar a la MISMA carpeta de la PSP.
+# (La PSP lee el EBOOT al arrancar con un lector lento: un EBOOT de 14,5 MB tardaba ~27 s; con el cargador, ~15 s.)
 
 .PHONY: pbp
 endif

@@ -808,7 +808,13 @@ s16 level_trigger_warp(struct MarioState *m, s32 warpOp) {
                 if (m->numLives == 0) {
                     sDelayedWarpOp = WARP_OP_GAME_OVER;
                 }
+#ifdef TARGET_PSP
+                // PSP: la risa de Bowser (~1.4 s) se cortaba un poco al reiniciarse el audio con la carga del nivel (en la N64 la carga daba
+                // margen extra). Se espera un poco mas (64 fotogramas en vez de 48).
+                sDelayedWarpTimer = 64;
+#else
                 sDelayedWarpTimer = 48;
+#endif
                 sSourceWarpNodeId = WARP_NODE_DEATH;
                 play_transition(WARP_TRANSITION_FADE_INTO_BOWSER, 0x30, 0x00, 0x00, 0x00);
                 play_sound(SOUND_MENU_BOWSER_LAUGH, gDefaultSoundArgs);
@@ -828,7 +834,13 @@ s16 level_trigger_warp(struct MarioState *m, s32 warpOp) {
                 break;
 
             case WARP_OP_UNKNOWN_01: // enter totwc
+#ifdef TARGET_PSP
+                // PSP: el nivel carga casi al instante y el reinicio de audio de la carga cortaba el sonido de estrella (dura ~2.4 s) al
+                // segundo. Con las pinturas la N64 espera 74 fotogramas (~2.5 s) con ese mismo sonido; aqui se espera lo equivalente.
+                sDelayedWarpTimer = 70;
+#else
                 sDelayedWarpTimer = 30;
+#endif
                 sSourceWarpNodeId = WARP_NODE_F2;
                 play_transition(WARP_TRANSITION_FADE_INTO_COLOR, 0x1E, 0xFF, 0xFF, 0xFF);
 #ifndef VERSION_JP
