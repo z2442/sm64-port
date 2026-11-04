@@ -608,7 +608,7 @@ const u8 *const menu_hud_lut[] = {
     texture_menu_hud_char_katakana_sa,       texture_menu_hud_char_katakana_u,         texture_menu_hud_char_katakana_n, texture_menu_hud_char_kana_dakuten_do,
 };
 
-#ifdef VERSION_JP
+#if defined(VERSION_JP) || defined(VERSION_SH) /* Shindou usa la fuente de menu japonesa (con la de US salian punteros nulos) */
 UNUSED static const u64 menu_unused_0 = 0;
 
 // 0x0700AC48
@@ -1552,7 +1552,7 @@ ALIGNED8 static const u8 texture_menu_font_char_colon[] = {
 // Menu small font print table
 // 0x0700CD08
 const u8 *const menu_font_lut[] = {
-#ifdef VERSION_JP
+#if defined(VERSION_JP) || defined(VERSION_SH) /* Shindou usa la fuente de menu japonesa (con la de US salian punteros nulos) */
     texture_menu_font_char_jp_0, texture_menu_font_char_jp_1, texture_menu_font_char_jp_2, texture_menu_font_char_jp_3,
     texture_menu_font_char_jp_4, texture_menu_font_char_jp_5, texture_menu_font_char_jp_6, texture_menu_font_char_jp_7,
     texture_menu_font_char_jp_8, texture_menu_font_char_jp_9, texture_menu_font_char_jp_A, texture_menu_font_char_jp_B,

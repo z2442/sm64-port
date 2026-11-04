@@ -450,7 +450,7 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
         Mtx *mtx = alloc_display_list(sizeof(*mtx));
         f32 fovInterpolated;
 
-#ifdef VERSION_EU
+#if defined(VERSION_EU) && !defined(TARGET_PSP) /* PSP: el 1.1 compensa el estirado vertical del modo PAL de la TV; la pantalla de la PSP no lo hace y todo salia estirado en vertical */
         f32 aspect = ((f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height) * 1.1f;
 #else
         f32 aspect = (f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height;

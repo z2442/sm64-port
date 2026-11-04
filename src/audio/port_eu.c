@@ -2,6 +2,7 @@
 #include "internal.h"
 #include "load.h"
 #include "data.h"
+#include "heap.h"
 #include "seqplayer.h"
 #include "synthesis.h"
 

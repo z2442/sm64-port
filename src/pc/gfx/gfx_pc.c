@@ -69,6 +69,7 @@
 #define GU_PSM_T32		(7) /* Texture */
 extern void* getStaticVramTexBuffer(unsigned int width, unsigned int height, unsigned int psm);
 extern void gfx_scegu_draw_triangles_2d(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris);
+extern void gfx_scegu_draw_quad_2d(float buf_vbo[]);
 extern float identity_matrix[4][4];
 
 struct RGBA {
@@ -3130,6 +3131,37 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, UNUSED uint8_t vt
     gfx_scegu_draw_triangles_2d((float*)&tri_buf[0],0,1);
 }
 
+/* Rectangulo de textura con G_TEXRECTFLIP (la fuente de la version EU lo usa en cada letra): en la RDP las coordenadas de textura van
+ * transpuestas (s avanza con y, t con x). Un "sprite" de la PSP no puede transponer, asi que se dibuja como tira de 4 vertices:
+ * 0=arriba-izq (s0,t0) 1=arriba-der (s0,t1) 2=abajo-izq (s1,t0) 3=abajo-der (s1,t1). Solo lo usa EU; las demas versiones no pasan por aqui. */
+static void gfx_sp_quad_flip_2d(void) {
+    struct VertexColor *ul = &rsp.loaded_vertices_2D[0];
+    struct VertexColor *lr = &rsp.loaded_vertices_2D[1];
+
+    gfx_prepare_tri_pipeline_state();
+    const struct TriPipelineState *state = &rendering_state.tri_pipeline;
+    struct ColorCombiner *comb = state->comb;
+    const bool use_alpha = state->use_alpha;
+    const bool use_texture = state->use_texture;
+
+    VertexColor q[4] = {{0}};
+    const unsigned short xs[4] = { ul->x, lr->x, ul->x, lr->x };
+    const unsigned short ys[4] = { ul->y, ul->y, lr->y, lr->y };
+    const unsigned short us[4] = { lr->u, lr->u, ul->u, ul->u };
+    const unsigned short vs[4] = { lr->v, ul->v, lr->v, ul->v };
+    for (int i = 0; i < 4; i++) {
+        q[i].x = xs[i];
+        q[i].y = ys[i];
+        q[i].z = 0;
+        if (use_texture) {
+            q[i].u = (short)(((short)us[i] - rdp.texture_tile.uls * 8) / 32);
+            q[i].v = (short)(((short)vs[i] - rdp.texture_tile.ult * 8) / 32);
+        }
+        q[i].color = gfx_get_vertex_color(comb, use_alpha, &ul->color, 0.0f, false);
+    }
+    gfx_scegu_draw_quad_2d((float *)&q[0]);
+}
+
 static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
     rsp.geometry_mode &= ~clear;
     rsp.geometry_mode |= set;
@@ -3468,7 +3500,7 @@ static void gfx_dp_set_fill_color(uint32_t packed_color) {
     rdp.fill_color.a = a * 255;
 }
 
-static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry) {
+static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry, bool flip) {
     uint32_t saved_other_mode_h = rdp.other_mode_h;
     uint32_t cycle_type = (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE));
     
@@ -3501,10 +3533,17 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
             float u0 = (short)cul->u, u1 = (short)clr->u;
             float v0 = (short)cul->v, v1 = (short)clr->v;
             float w = (float)(lrx - ulx), h = (float)(lry - uly);
-            cul->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cx0 - ulx) / w));
-            clr->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cx1 - ulx) / w));
-            cul->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cy0 - uly) / h));
-            clr->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cy1 - uly) / h));
+            if (!flip) {
+                cul->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cx0 - ulx) / w));
+                clr->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cx1 - ulx) / w));
+                cul->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cy0 - uly) / h));
+                clr->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cy1 - uly) / h));
+            } else { /* transpuesto: s avanza con y, t con x */
+                cul->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cy0 - uly) / h));
+                clr->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cy1 - uly) / h));
+                cul->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cx0 - ulx) / w));
+                clr->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cx1 - ulx) / w));
+            }
             ulx = cx0; uly = cy0; lrx = cx1; lry = cy1;
         }
     }
@@ -3548,7 +3587,11 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     rsp.geometry_mode = 0;
     gfx_mark_tri_pipeline_dirty();
     
-    gfx_sp_tri1_2d(0, 1, 2);
+    if (flip) {
+        gfx_sp_quad_flip_2d();
+    } else {
+        gfx_sp_tri1_2d(0, 1, 2);
+    }
     
     rsp.geometry_mode = geometry_mode_saved;
     rdp.viewport = viewport_saved;
@@ -3612,7 +3655,7 @@ static void gfx_dp_texture_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int3
     }
     #endif
     
-    gfx_draw_rectangle(ulx, uly, lrx, lry);
+    gfx_draw_rectangle(ulx, uly, lrx, lry, flip);
     rdp.combine_mode = saved_combine_mode;
     gfx_mark_tri_pipeline_dirty();
 }
@@ -3637,7 +3680,7 @@ static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t
     
     uint32_t saved_combine_mode = rdp.combine_mode;
     gfx_dp_set_combine_mode(color_comb(0, 0, 0, G_CCMUX_SHADE), color_comb(0, 0, 0, G_ACMUX_SHADE));
-    gfx_draw_rectangle(ulx, uly, lrx, lry);
+    gfx_draw_rectangle(ulx, uly, lrx, lry, false);
     rdp.combine_mode = saved_combine_mode;
     gfx_mark_tri_pipeline_dirty();
 }

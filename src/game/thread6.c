@@ -6,6 +6,23 @@
 #include "thread6.h"
 
 #ifdef VERSION_SH
+#if defined(TARGET_PSP)
+/* PSP: la consola no tiene vibracion, asi que las funciones del Rumble Pak (version Shindou) no hacen nada. */
+s32 gRumblePakTimer;
+
+void init_rumble_pak_scheduler_queue(void) { }
+void block_until_rumble_pak_free(void) { }
+void release_rumble_pak_control(void) { }
+void queue_rumble_data(UNUSED s16 a0, UNUSED s16 a1) { }
+void func_sh_8024C89C(UNUSED s16 a0) { }
+u8 is_rumble_finished_and_queue_empty(void) { return TRUE; }
+void reset_rumble_timers(void) { }
+void reset_rumble_timers_2(UNUSED s32 a0) { }
+void func_sh_8024CA04(void) { }
+void cancel_rumble(void) { }
+void create_thread_6(void) { }
+void rumble_thread_update_vi(void) { }
+#else
 
 static s8 D_SH_8030CCB4;
 static s32 sUnusedDisableRumble;
@@ -286,4 +303,5 @@ void rumble_thread_update_vi(void) {
     osSendMesg(&gRumbleThreadVIMesgQueue, (OSMesg) 0x56525443, OS_MESG_NOBLOCK);
 }
 
+#endif /* TARGET_PSP */
 #endif

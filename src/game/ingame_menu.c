@@ -101,6 +101,16 @@ u8 gDialogCharWidths[256] = { // TODO: Is there a way to auto generate this?
 s8 gDialogBoxState = DIALOG_STATE_OPENING;
 f32 gDialogBoxOpenTimer = DEFAULT_DIALOG_BOX_ANGLE;
 f32 gDialogBoxScale = DEFAULT_DIALOG_BOX_SCALE;
+
+#if defined(VERSION_EU) && defined(TARGET_PSP)
+/* PSP/EU: el layout de las pantallas 2D de la version europea esta pensado para la camara 3D con aspecto x1,1 (botones y cabezas mas juntos:
+ * los textos se colocaron para ESO). Sin ese x1,1 (ver rendering_graph_node.c) el 3D queda mas ancho; mientras se dibuja el menu de archivos
+ * (file_select.c) las X de inicio de los textos se alejan 1,1 veces del centro (160) para volver a quedar bajo cada boton. */
+f32 gPspEuMenuX = 1.0f;
+#define EU_MENU_X(x) ((s16)(160.0f + ((f32)(x) - 160.0f) * gPspEuMenuX))
+#else
+#define EU_MENU_X(x) (x)
+#endif
 s16 gDialogScrollOffsetY = 0;
 s8 gDialogBoxType = DIALOG_TYPE_ROTATE;
 s16 gDialogID = -1;
@@ -123,9 +133,27 @@ static f32 sInterpolatedDialogScale;
 static f32 sInterpolatedDialogRotation;
 static Gfx *sInterpolatedDialogZoomPos;
 
+#if defined(VERSION_EU) && defined(TARGET_PSP)
+/* PSP/EU: en la version europea el texto del dialogo NO usa matrices sino rectangulos con coordenadas calculadas con la escala y el scroll
+ * (render_generic_dialog_char_at_pos). El cuadro negro si se interpola (matrices), el texto no: en el cuadro interpolado el texto iba medio
+ * paso por delante del cuadro al abrir/cerrar, y el scroll de paginas avanzaba a saltos de 30 Hz. Se guarda la posicion de cada rectangulo en
+ * la lista y las coordenadas del estado real; patch_interpolated_dialog() las reescribe igual que hace con las matrices. */
+#define EU_DLG_RECT_MAX 640
+struct EuDlgRect {
+    Gfx *pos;
+    s16 ulx, uly, lrx, lry;
+};
+static struct EuDlgRect sEuDlgRects[EU_DLG_RECT_MAX];
+static s32 sEuDlgRectCount = 0;
+#endif
+
 #ifdef TARGET_PSP
 int psp_dialog_patch_pending(void) {
-    return sInterpolatedDialogOffsetPos != NULL || sInterpolatedDialogRotationPos != NULL || sInterpolatedDialogZoomPos != NULL;
+    return sInterpolatedDialogOffsetPos != NULL || sInterpolatedDialogRotationPos != NULL || sInterpolatedDialogZoomPos != NULL
+#if defined(VERSION_EU)
+           || sEuDlgRectCount > 0
+#endif
+        ;
 }
 #endif
 
@@ -156,6 +184,17 @@ void patch_interpolated_dialog(void) {
         gSPMatrix(sInterpolatedDialogZoomPos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
         sInterpolatedDialogZoomPos = NULL;
     }
+#if defined(VERSION_EU) && defined(TARGET_PSP)
+    {
+        s32 i;
+        for (i = 0; i < sEuDlgRectCount; i++) {
+            Gfx *p = sEuDlgRects[i].pos;
+            gSPTextureRectangleFlip(p++, sEuDlgRects[i].ulx << 2, sEuDlgRects[i].uly << 2, sEuDlgRects[i].lrx << 2, sEuDlgRects[i].lry << 2,
+                                    G_TX_RENDERTILE, 8 << 6, 4 << 6, 1 << 10, 1 << 10);
+        }
+        sEuDlgRectCount = 0;
+    }
+#endif
 }
 
 void create_dl_identity_matrix(void) {
@@ -266,35 +305,31 @@ void create_dl_ortho_matrix_menu_hack(void) {
     hack_adjust = 0;
 }
 
-static u8 *alloc_ia8_text_from_i1(u16 *in, s16 width, s16 height) {
-    s32 inPos;
-    u16 bitMask;
-    u8 *out;
-    s16 outPos = 0;
+#if defined(VERSION_JP) || defined(VERSION_SH)
+/* PSP (little-endian): el original leia los glifos de 1 bit como u16 y los bytes de cada par salian al reves (caracteres japoneses rotos).
+ * Aqui se leen byte a byte (MSB primero, igual que en la N64). Ademas cada glifo se convierte UNA vez y se reutiliza: antes se reservaba
+ * memoria de la lista de dibujo y se reconvertia en cada caracter y cada cuadro. Solo se usa en las versiones JP/SH. */
+#define JP_GLYPH_W 8
+#define JP_GLYPH_H 16
+static u8 sJpGlyphCache[256][JP_GLYPH_W * JP_GLYPH_H] __attribute__((aligned(16)));
+static u8 sJpGlyphReady[256];
 
-    out = alloc_display_list((u32) width * (u32) height);
+static u8 *get_ia8_text_glyph(u8 c, const u8 *in) {
+    if (!sJpGlyphReady[c]) {
+        s32 inPos;
+        s32 outPos = 0;
+        u8 bitMask;
 
-    if (out == NULL) {
-        return NULL;
-    }
-
-    for (inPos = 0; inPos < (width * height) / 16; inPos++) {
-        bitMask = 0x8000;
-
-        while (bitMask != 0) {
-            if (in[inPos] & bitMask) {
-                out[outPos] = 0xFF;
-            } else {
-                out[outPos] = 0x00;
+        for (inPos = 0; inPos < (JP_GLYPH_W * JP_GLYPH_H) / 8; inPos++) {
+            for (bitMask = 0x80; bitMask != 0; bitMask >>= 1) {
+                sJpGlyphCache[c][outPos++] = (in[inPos] & bitMask) ? 0xFF : 0x00;
             }
-
-            bitMask /= 2;
-            outPos++;
         }
+        sJpGlyphReady[c] = TRUE;
     }
-
-    return out;
+    return sJpGlyphCache[c];
 }
+#endif
 
 void render_generic_char(u8 c) {
     void **fontLUT;
@@ -307,7 +342,7 @@ void render_generic_char(u8 c) {
     packedTexture = segmented_to_virtual(fontLUT[c]);
 
 #if defined(VERSION_JP) || defined(VERSION_SH)
-    unpackedTexture = alloc_ia8_text_from_i1(packedTexture, 8, 16);
+    unpackedTexture = get_ia8_text_glyph(c, packedTexture);
 
     gDPPipeSync(gDisplayListHead++);
     gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_IA, G_IM_SIZ_8b, 1, VIRTUAL_TO_PHYSICAL(unpackedTexture));
@@ -353,6 +388,37 @@ u8 *alloc_ia4_tex_from_i1(u8 *in, s16 width, s16 height) {
     return out;
 }
 
+#ifdef TARGET_PSP
+/* PSP: el renderizador guarda las texturas ya convertidas por direccion. alloc_ia4_tex_from_i1() las crea en la memoria temporal de la lista
+ * de dibujo (misma direccion en cada cuadro, contenido distinto), asi que las letras salian cambiadas. Aqui cada caracter se desempaqueta una
+ * sola vez a un bufer fijo (misma direccion y mismo contenido siempre) y de paso se evita repetir el trabajo por letra y por cuadro. */
+static u8 sEuGlyphCache[256][64] __attribute__((aligned(16)));
+static u8 sEuGlyphReady[256];
+
+static u8 *get_eu_text_glyph(u8 c, const u8 *in) {
+    u8 *out = sEuGlyphCache[c];
+    if (!sEuGlyphReady[c]) {
+        s32 inPos;
+        s16 outPos = 0;
+        for (inPos = 0; inPos < 16; inPos++) {
+            u8 bitMask = 0x80;
+            while (bitMask != 0) {
+                out[outPos] = (in[inPos] & bitMask) ? 0xF0 : 0x00;
+                bitMask /= 2;
+                out[outPos] = (in[inPos] & bitMask) ? out[outPos] + 0x0F : out[outPos];
+                bitMask /= 2;
+                outPos++;
+            }
+        }
+        sEuGlyphReady[c] = 1;
+    }
+    return out;
+}
+#define EU_GLYPH(c, packed) get_eu_text_glyph((c), (const u8 *)(packed))
+#else
+#define EU_GLYPH(c, packed) alloc_ia4_tex_from_i1((packed), 8, 8)
+#endif
+
 void render_generic_char_at_pos(s16 xPos, s16 yPos, u8 c) {
     void **fontLUT;
     void *packedTexture;
@@ -360,7 +426,7 @@ void render_generic_char_at_pos(s16 xPos, s16 yPos, u8 c) {
 
     fontLUT = segmented_to_virtual(main_font_lut);
     packedTexture = segmented_to_virtual(fontLUT[c]);
-    unpackedTexture = alloc_ia4_tex_from_i1(packedTexture, 8, 8);
+    unpackedTexture = EU_GLYPH(c, packedTexture);
 
     gDPPipeSync(gDisplayListHead++);
     gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_IA, G_IM_SIZ_16b, 1, VIRTUAL_TO_PHYSICAL(unpackedTexture));
@@ -437,7 +503,7 @@ void print_generic_string(s16 x, s16 y, const u8 *str) {
     s32 strPos = 0;
     u8 lineNum = 1;
 #ifdef VERSION_EU
-    s16 xCoord = x;
+    s16 xCoord = EU_MENU_X(x);
     s16 yCoord = 240 - y;
 #endif
 
@@ -453,7 +519,7 @@ void print_generic_string(s16 x, s16 y, const u8 *str) {
                 break;
             case DIALOG_CHAR_NEWLINE:
                 yCoord += 16;
-                xCoord = x;
+                xCoord = EU_MENU_X(x);
                 lineNum++;
                 break;
             case DIALOG_CHAR_LOWER_A_GRAVE:
@@ -599,7 +665,7 @@ void print_hud_lut_string(s8 hudLUT, s16 x, s16 y, const u8 *str) {
     s32 strPos = 0;
     void **hudLUT1 = segmented_to_virtual(menu_hud_lut); // Japanese Menu HUD Color font
     void **hudLUT2 = segmented_to_virtual(main_hud_lut); // 0-9 A-Z HUD Color Font
-    u32 curX = x;
+    u32 curX = EU_MENU_X(x);
     u32 curY = y;
 
     u32 xStride; // X separation
@@ -686,7 +752,7 @@ void print_menu_char_umlaut(s16 x, s16 y, u8 chr) {
 void print_menu_generic_string(s16 x, s16 y, const u8 *str) {
     UNUSED s8 mark = DIALOG_MARK_NONE; // unused in EU
     s32 strPos = 0;
-    s32 curX = x;
+    s32 curX = EU_MENU_X(x);
     s32 curY = y;
     void **fontLUT = segmented_to_virtual(menu_font_lut);
 
@@ -848,7 +914,13 @@ s16 get_str_x_pos_from_center(s16 centerPos, u8 *str, UNUSED f32 scale) {
     }
     // return the x position of where the string starts as half the string's
     // length from the position of the provided center.
+#if defined(VERSION_EU) && defined(TARGET_PSP)
+    /* Menu de archivos EU: print_* separa luego la X de inicio 1,1 veces del centro (EU_MENU_X), asi que la mitad del ancho se divide entre 1,1
+     * para que el CENTRO del texto (no su inicio) quede donde corresponde; si no, los textos largos salian corridos a la izquierda. */
+    return (s16)(centerPos - (s16)(spacesWidth / 2.0 / gPspEuMenuX));
+#else
     return (s16)(centerPos - (s16)(spacesWidth / 2.0));
+#endif
 }
 #endif
 
@@ -870,7 +942,12 @@ s16 get_str_x_pos_from_center_scale(s16 centerPos, u8 *str, f32 scale) {
     }
     // return the x position of where the string starts as half the string's
     // length from the position of the provided center.
+#if defined(VERSION_EU) && defined(TARGET_PSP)
+    /* idem get_str_x_pos_from_center */
+    return (f32) centerPos - ((scale * (charsWidth / 2.0)) + ((scale / 2.0) * (spacesWidth / 2.0))) / gPspEuMenuX;
+#else
     return (f32) centerPos - (scale * (charsWidth / 2.0)) - ((scale / 2.0) * (spacesWidth / 2.0));
+#endif
 }
 #endif
 
@@ -1024,11 +1101,11 @@ void render_dialog_box_type(struct DialogEntry *dialog, s8 linesPerBox) {
             if (gDialogBoxState == DIALOG_STATE_OPENING || gDialogBoxState == DIALOG_STATE_CLOSING) {
                 sInterpolatedDialogRotationPos = gDisplayListHead;
                 if (gDialogBoxState == DIALOG_STATE_OPENING) {
-                    sInterpolatedDialogScale = gDialogBoxScale - 2 / 2;
+                    sInterpolatedDialogScale = gDialogBoxScale - 1.5f / 2; /* abriendo: escala -1.5 y giro -7.5 por tick */
                     sInterpolatedDialogRotation = gDialogBoxOpenTimer - 7.5f / 2;
                 } else {
                     sInterpolatedDialogScale = gDialogBoxScale + 2 / 2;
-                    sInterpolatedDialogRotation = gDialogBoxOpenTimer + 7.5f / 2;
+                    sInterpolatedDialogRotation = gDialogBoxOpenTimer + 10.0f / 2; /* cerrando: escala +2 y giro +10 por tick */
                 }
                 create_dl_scale_matrix(MENU_MTX_NOPUSH, 1.0 / gDialogBoxScale, 1.0 / gDialogBoxScale, 1.0f);
                 // convert the speed into angle
@@ -1085,6 +1162,77 @@ void change_and_flash_dialog_text_color_lines(s8 colorMode, s8 lineNum) {
 }
 
 #ifdef VERSION_EU
+#ifdef TARGET_PSP
+/* Rectangulo (en pixeles N64) de una letra del dialogo para una escala y un desplazamiento y dados. Si el ancho o el alto salen <= 0 (cuadro
+ * apenas abierto: el original manda un rectangulo invertido que la RDP no dibuja) devuelve un rectangulo de 1x1 fuera de pantalla. */
+static void eu_dialog_char_rect(struct DialogEntry *dialog, f32 scale, s16 x, s16 y, s16 *ulx, s16 *uly, s16 *lrx, s16 *lry) {
+    s16 width = (8.0 - (scale * 0.8));
+    s16 height = (16.0 - (scale * 0.8));
+    s16 tmpX, tmpY, xCoord, yCoord;
+
+    /* PSP: con el cuadro ya abierto (escala ~1) el original recorta el rectangulo a 7x15 y dibuja solo parte del glifo; con nuestro
+     * dibujado de rectangulos con flip ese recorte rompe los trazos finos (letras ilegibles en carteles y dialogos). Se dibuja el glifo entero
+     * (8x16): la columna y la fila que se recortaban casi siempre estan vacias. */
+    if (scale < 2.0f) {
+        width = 8;
+        height = 16;
+    }
+    tmpX = (dialog->leftOffset + (65.0 - (65.0 / scale)));
+    tmpY = ((240 - dialog->width) - ((40.0 / scale) - 40));
+    xCoord = (tmpX + (x / scale));
+    yCoord = (tmpY + (y / scale));
+
+    if (width <= 0 || height <= 0) {
+        *ulx = 400;
+        *uly = 300;
+        *lrx = 401;
+        *lry = 301;
+        return;
+    }
+    *ulx = xCoord;
+    *uly = yCoord - height;
+    *lrx = xCoord + width;
+    *lry = yCoord;
+}
+
+void render_generic_dialog_char_at_pos(struct DialogEntry *dialog, s16 x, s16 y, u8 c) {
+    s16 ulx, uly, lrx, lry;
+    void **fontLUT;
+    void *packedTexture;
+    void *unpackedTexture;
+    Gfx *rectPos;
+
+    eu_dialog_char_rect(dialog, gDialogBoxScale, x, y, &ulx, &uly, &lrx, &lry);
+
+    fontLUT = segmented_to_virtual(main_font_lut);
+    packedTexture = segmented_to_virtual(fontLUT[c]);
+    unpackedTexture = EU_GLYPH(c, packedTexture);
+
+    gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_IA, G_IM_SIZ_16b, 1, VIRTUAL_TO_PHYSICAL(unpackedTexture));
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_tex_settings);
+    rectPos = gDisplayListHead;
+    gSPTextureRectangleFlip(gDisplayListHead++, ulx << 2, uly << 2, lrx << 2, lry << 2, G_TX_RENDERTILE, 8 << 6, 4 << 6, 1 << 10, 1 << 10);
+
+    /* Estado "real" (medio paso por delante del de la lista, igual que el cuadro: ver render_dialog_box_type) */
+    if ((gDialogBoxState == DIALOG_STATE_OPENING || gDialogBoxState == DIALOG_STATE_CLOSING || gDialogBoxState == DIALOG_STATE_HORIZONTAL)
+        && sEuDlgRectCount < EU_DLG_RECT_MAX) {
+        f32 scaleB = gDialogBoxScale;
+        s16 yB = y;
+        struct EuDlgRect *r = &sEuDlgRects[sEuDlgRectCount];
+
+        if (gDialogBoxState == DIALOG_STATE_OPENING) {
+            scaleB -= (gDialogBoxType == DIALOG_TYPE_ROTATE) ? 0.75f : 1.0f;
+        } else if (gDialogBoxState == DIALOG_STATE_CLOSING) {
+            scaleB += 1.0f;
+        } else {
+            yB -= dialog->linesPerBox; /* scroll de pagina: gDialogY ya lleva restado el desplazamiento; medio paso mas = linesPerBox */
+        }
+        eu_dialog_char_rect(dialog, scaleB, x, yB, &r->ulx, &r->uly, &r->lrx, &r->lry);
+        r->pos = rectPos;
+        sEuDlgRectCount++;
+    }
+}
+#else
 void render_generic_dialog_char_at_pos(struct DialogEntry *dialog, s16 x, s16 y, u8 c) {
     s16 width;
     s16 height;
@@ -1105,13 +1253,14 @@ void render_generic_dialog_char_at_pos(struct DialogEntry *dialog, s16 x, s16 y,
 
     fontLUT = segmented_to_virtual(main_font_lut);
     packedTexture = segmented_to_virtual(fontLUT[c]);
-    unpackedTexture = alloc_ia4_tex_from_i1(packedTexture, 8, 8);
+    unpackedTexture = EU_GLYPH(c, packedTexture);
 
     gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_IA, G_IM_SIZ_16b, 1, VIRTUAL_TO_PHYSICAL(unpackedTexture));
     gSPDisplayList(gDisplayListHead++, dl_ia_text_tex_settings);
     gSPTextureRectangleFlip(gDisplayListHead++, xCoord << 2, (yCoord - height) << 2,
                             (xCoord + width) << 2, yCoord << 2, G_TX_RENDERTILE, 8 << 6, 4 << 6, 1 << 10, 1 << 10);
 }
+#endif
 #endif
 
 #if defined(VERSION_JP) || defined(VERSION_SH)

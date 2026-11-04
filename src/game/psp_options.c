@@ -79,9 +79,9 @@ static const u8 sPgAudio[] = { ROW_MUSIC, ROW_SFX, ROW_SOUNDMODE, ROW_AUDRESET }
 static const u8 sPgVideo[] = { OPT_FPSCAP, OPT_PACING, OPT_OBJDIST, OPT_FARDIST, OPT_CULLOBJ, OPT_SHOWFPS, OPT_SOUNDCPU, OPT_RESET };
 static const u8 sPgCtrl[] = { ROW_BIND0, ROW_BIND0 + 1, ROW_BIND0 + 2, ROW_BIND0 + 3, ROW_BIND0 + 4, ROW_BIND0 + 5, ROW_BIND0 + 6,
                               ROW_BIND0 + 7, ROW_BIND0 + 8, ROW_BIND0 + 9, ROW_DEAD, ROW_CTRLRESET };
-/* Titulos con la fuente de colores del HUD: en la version US solo existen las letras A-I, K-P, R-U, W, Y (no hay J, Q, V, X ni Z) y una letra que falta
- * cuelga el dibujo; por eso la pagina de video se llama "Graphics" y no "Video". */
-static const char *const sPgTitle[4] = { "OPTIONS", "GRAPHICS", "AUDIO", "CONTROLS" };
+/* Los titulos (sTrTitle, mas abajo) usan la fuente de colores del HUD: en la version US solo existen las letras A-I, K-P, R-U, W, Y (no hay J, Q, V, X ni Z;
+ * en la europea faltan J, Q y X) y una letra que falta cuelga el dibujo; por eso la pagina de video se llama "Graphics" y no "Video", y los titulos en
+ * frances y aleman solo usan letras que existen. */
 
 /* Botones del N64 y su asignacion por defecto en la PSP (la misma que en configfile.c / controller_psp.c). */
 static const struct { const char *name; unsigned int *mask; unsigned int def; } sBind[NUM_BINDS] = {
@@ -123,9 +123,6 @@ float gPspVolSfx = 1.0f;       /* volumen de los efectos de sonido, 0.0 a 1.0 */
 int gPspClockWant = 333;       /* reloj de CPU fijo (ya no es opcion): lo pide gfx_psp.c al arrancar */
 unsigned int gPspOptChanges;   /* cuantas veces se cambio una opcion (la lee el registro de rendimiento) */
 
-static const char *const sLabel[OPT_COUNT] = {
-    "FPS Limit", "Frame Pacing", "FPS Counter", "Show Sound CPU", "Object Distance", "Far Distance", "Object Culling", "Reset to Defaults",
-};
 
 /* Cada fila tiene sus valores de menor a mayor (derecha = mas), y sDef es el indice del valor por defecto. */
 static const char *const sFpsTxt[2] = { "30", "60" };
@@ -286,8 +283,11 @@ static void psp_opt_mask_text(unsigned int mask, char *out, int max) {
     }
 }
 
+/* Igual que psp_opt_mask_text pero con los nombres del idioma del menu (para mostrar en pantalla; el archivo siempre usa los ingleses) */
+static void psp_opt_mask_disp(unsigned int mask, char *out, int max);
+static const char *psp_opt_phys_disp(int i);
+
 /* Modo de sonido (0 Stereo, 1 Mono, 2 Headset): mismos indices que el menu de seleccion de archivo. Se aplica al instante; el guardado se hace al cerrar. */
-static const char *const sSndModeTxt[3] = { "Stereo", "Mono", "Headset" };
 static int sSndMode = 0;
 static int sSndDirty = 0;
 static void psp_opt_set_sound_mode(int mode) {
@@ -298,18 +298,116 @@ static void psp_opt_set_sound_mode(int mode) {
     }
 }
 
+/* ------------------------------------------------------------------------------------------------------------------------------------------
+ * Idioma del menu. Se elige solo, segun la version del juego: US = ingles; EU = el idioma elegido en el juego (ingles / frances / aleman);
+ * JP y Shindou = japones (solo kana: la fuente del juego no tiene kanji). Los textos van en UTF-8 y psp_opt_str() los convierte a los codigos de
+ * texto de cada version. El archivo sm64config.txt sigue usando siempre los nombres en ingles (de eso se encargan las tablas de arriba).
+ * ------------------------------------------------------------------------------------------------------------------------------------------ */
+enum { LANG_EN, LANG_FR, LANG_DE, LANG_JP, LANG_COUNT };
+#define TR(en, fr, de, jp) { en, fr, de, jp }
+#define LT(t) ((t)[psp_opt_lang()])
+
+static int psp_opt_lang(void) {
+#if defined(VERSION_JP) || defined(VERSION_SH)
+    return LANG_JP;
+#elif defined(VERSION_EU)
+    const u16 l = eu_get_language();
+    return (l == 1) ? LANG_FR : ((l == 2) ? LANG_DE : LANG_EN);
+#else
+    return LANG_EN;
+#endif
+}
+
+static const char *const sTrTitle[4][LANG_COUNT] = {
+    TR("OPTIONS", "OPTIONS", "OPTIONEN", "オプション"),
+    TR("GRAPHICS", "GRAPHISMES", "GRAFIK", "グラフィック"),
+    TR("AUDIO", "AUDIO", "AUDIO", "オーディオ"),
+    TR("CONTROLS", "COMMANDES", "STEUERUNG", "コントロール"),
+};
+static const char *const sTrLabel[OPT_COUNT][LANG_COUNT] = {
+    TR("FPS Limit", "Limite de FPS", "FPS-Limit", "FPSセイゲン"),
+    TR("Frame Pacing", "Cadence", "Bildtempo", "フレームペース"),
+    TR("FPS Counter", "Compteur FPS", "FPS-Anzeige", "FPSヒョウジ"),
+    TR("Show Sound CPU", "Afficher CPU son", "Sound-CPU zeigen", "サウンドCPUヒョウジ"),
+    TR("Object Distance", "Distance objets", "Objektdistanz", "オブジェクトキョリ"),
+    TR("Far Distance", "Distance lointaine", "Fernsicht", "エンキョリ"),
+    TR("Object Culling", "Masquage objets", "Objekt-Culling", "オブジェクトカリング"),
+    TR("Reset to Defaults", "Réinitialiser", "Zurücksetzen", "ショキチニモドス"),
+};
+static const char *const sTrPacing[2][LANG_COUNT] = {
+    TR("Keep FPS", "Garder les FPS", "FPS halten", "FPSユウセン"),
+    TR("Keep Speed", "Garder la vitesse", "Tempo halten", "スピードユウセン"),
+};
+static const char *const sTrOnOff[2][LANG_COUNT] = {
+    TR("Off", "Non", "Aus", "オフ"),
+    TR("On", "Oui", "Ein", "オン"),
+};
+static const char *const sTrCull[2][LANG_COUNT] = {
+    TR("Original", "Original", "Original", "オリジナル"),
+    TR("Vertical", "Vertical", "Vertikal", "スイチョク"),
+};
+static const char *const sTrSndMode[3][LANG_COUNT] = {
+    TR("Stereo", "Stéréo", "Stereo", "ステレオ"),
+    TR("Mono", "Mono", "Mono", "モノラル"),
+    TR("Headset", "Casque", "Kopfhörer", "ヘッドホン"),
+};
+static const char *const sTrPage[3][LANG_COUNT] = {
+    TR("Graphics", "Graphismes", "Grafik", "グラフィック"),
+    TR("Audio", "Audio", "Audio", "オーディオ"),
+    TR("Controls", "Commandes", "Steuerung", "コントロール"),
+};
+static const char *const sTrAudio[3][LANG_COUNT] = {
+    TR("Music Volume", "Volume musique", "Musiklautstärke", "オンガクボリューム"),
+    TR("Effects Volume", "Volume effets", "Effektlautstärke", "コウカオンボリューム"),
+    TR("Sound Mode", "Mode sonore", "Tonmodus", "サウンドモード"),
+};
+static const char *const sTrDead[LANG_COUNT] = TR("Stick Deadzone", "Zone morte du stick", "Stick-Totzone", "スティックデッドゾーン");
+static const char *const sTrBind[NUM_BINDS][LANG_COUNT] = {
+    TR("A Button", "Bouton A", "A-Taste", "Aボタン"),
+    TR("B Button", "Bouton B", "B-Taste", "Bボタン"),
+    TR("Start", "Start", "Start", "スタート"),
+    TR("L Trigger", "Gâchette L", "L-Taste", "Lトリガー"),
+    TR("R Trigger", "Gâchette R", "R-Taste", "Rトリガー"),
+    TR("Z Trigger", "Gâchette Z", "Z-Taste", "Zトリガー"),
+    TR("C-Up", "C-Haut", "C-Hoch", "Cウエ"),
+    TR("C-Down", "C-Bas", "C-Runter", "Cシタ"),
+    TR("C-Left", "C-Gauche", "C-Links", "Cヒダリ"),
+    TR("C-Right", "C-Droite", "C-Rechts", "Cミギ"),
+};
+/* botones fisicos de la PSP, en el mismo orden que sPhys[] */
+static const char *const sTrPhys[12][LANG_COUNT] = {
+    TR("Cross", "Croix", "Kreuz", "バツ"),
+    TR("Circle", "Rond", "Kreis", "マル"),
+    TR("Square", "Carré", "Quadrat", "シカク"),
+    TR("Triangle", "Triangle", "Dreieck", "サンカク"),
+    TR("L Trig", "L", "L", "L"),
+    TR("R Trig", "R", "R", "R"),
+    TR("Select", "Select", "Select", "セレクト"),
+    TR("Start", "Start", "Start", "スタート"),
+    TR("D-Up", "Haut", "Hoch", "ウエ"),
+    TR("D-Down", "Bas", "Runter", "シタ"),
+    TR("D-Left", "Gauche", "Links", "ヒダリ"),
+    TR("D-Right", "Droite", "Rechts", "ミギ"),
+};
+static const char *const sTrNone[LANG_COUNT] = TR("None", "Aucun", "Keine", "ナシ");
+static const char *const sTrPress[LANG_COUNT] = TR("Press a button", "Appuyez sur un bouton", "Taste drücken", "ボタンをおして");
+static const char *const sTrBack[LANG_COUNT] = TR("B: Return", "B: Retour", "B: Zurück", "B: モドル");
+static const char *const sTrChange[LANG_COUNT] = TR("A: Change", "A: Changer", "A: Ändern", "A: ヘンコウ");
+static const char *const sTrWait[LANG_COUNT] = TR("Wait to cancel", "Patientez pour annuler", "Warten zum Abbrechen", "ホウチデキャンセル");
+static const char *const sTrOptions[LANG_COUNT] = TR("Options", "Options", "Optionen", "オプション");
+
 static const char *psp_opt_label(int row) {
-    if (row < OPT_COUNT) return sLabel[row];
-    if (row == ROW_VIDEO) return "Graphics";
-    if (row == ROW_AUDIO) return "Audio";
-    if (row == ROW_MUSIC) return "Music Volume";
-    if (row == ROW_SFX) return "Effects Volume";
-    if (row == ROW_SOUNDMODE) return "Sound Mode";
-    if (row == ROW_AUDRESET) return "Reset to Defaults";
-    if (row == ROW_CONTROLS) return "Controls";
-    if (row == ROW_DEAD) return "Stick Deadzone";
-    if (row == ROW_CTRLRESET) return "Reset to Defaults";
-    return sBind[row - ROW_BIND0].name;
+    if (row < OPT_COUNT) return LT(sTrLabel[row]);
+    if (row == ROW_VIDEO) return LT(sTrPage[0]);
+    if (row == ROW_AUDIO) return LT(sTrPage[1]);
+    if (row == ROW_MUSIC) return LT(sTrAudio[0]);
+    if (row == ROW_SFX) return LT(sTrAudio[1]);
+    if (row == ROW_SOUNDMODE) return LT(sTrAudio[2]);
+    if (row == ROW_AUDRESET) return LT(sTrLabel[OPT_RESET]);
+    if (row == ROW_CONTROLS) return LT(sTrPage[2]);
+    if (row == ROW_DEAD) return LT(sTrDead);
+    if (row == ROW_CTRLRESET) return LT(sTrLabel[OPT_RESET]);
+    return LT(sTrBind[row - ROW_BIND0]);
 }
 
 /* filas de una sola linea (entradas de pagina y "Reset"): el texto va centrado en la casilla, sin linea de valor */
@@ -321,12 +419,12 @@ static const char *psp_opt_value_text(int row) {
     static char buf[40];
     switch (row) {
         case OPT_FPSCAP: return sFpsTxt[sVal[row]];
-        case OPT_PACING: return sPacingTxt[sVal[row]];
-        case OPT_SHOWFPS: return sFpsCtrTxt[sVal[row]];
-        case OPT_SOUNDCPU: return sOnOffTxt[sVal[row]];
+        case OPT_PACING: return LT(sTrPacing[sVal[row]]);
+        case OPT_SHOWFPS: return LT(sTrOnOff[sVal[row]]);
+        case OPT_SOUNDCPU: return LT(sTrOnOff[sVal[row]]);
         case OPT_OBJDIST: return sObjTxt[sVal[row]];
         case OPT_FARDIST: return sFarTxt[sVal[row]];
-        case OPT_CULLOBJ: return sCullTxt[sVal[row]];
+        case OPT_CULLOBJ: return LT(sTrCull[sVal[row]]);
         case ROW_DEAD:
             snprintf(buf, sizeof(buf), "%u", configDeadzone);
             return buf;
@@ -336,13 +434,13 @@ static const char *psp_opt_value_text(int row) {
         case ROW_SFX:
             snprintf(buf, sizeof(buf), "%d%%", sSfx);
             return buf;
-        case ROW_SOUNDMODE: return sSndModeTxt[sSndMode];
+        case ROW_SOUNDMODE: return LT(sTrSndMode[sSndMode]);
         default:
             if (row >= ROW_BIND0 && row < ROW_BIND0 + NUM_BINDS) {
                 if (sCapture == row - ROW_BIND0) {
-                    return "Press a button";
+                    return LT(sTrPress);
                 }
-                psp_opt_mask_text(*sBind[row - ROW_BIND0].mask, buf, sizeof(buf));
+                psp_opt_mask_disp(*sBind[row - ROW_BIND0].mask, buf, sizeof(buf));
                 return buf;
             }
             return "";
@@ -730,35 +828,172 @@ void psp_options_load_file(const char *filename) {
     }
 }
 
-/* ASCII -> codigos de texto del juego (letras, numeros y unos pocos simbolos; lo demas es un espacio) */
+/* mask -> nombres de los botones fisicos en el idioma del menu */
+static const char *psp_opt_phys_disp(int i) {
+    return LT(sTrPhys[i]);
+}
+
+static void psp_opt_mask_disp(unsigned int mask, char *out, int max) {
+    int i, n = 0;
+    out[0] = '\0';
+    for (i = 0; i < NUM_PHYS; i++) {
+        if (mask & sPhys[i].mask) {
+            n += snprintf(out + n, max - n, "%s%s", n ? "/" : "", psp_opt_phys_disp(i));
+            if (n >= max - 1) {
+                return;
+            }
+        }
+    }
+    if (n == 0) {
+        snprintf(out, max, "%s", LT(sTrNone));
+    }
+}
+
+#if defined(VERSION_JP) || defined(VERSION_SH)
+/* codigos de la fuente del juego para los kana U+3041..U+30FF (0 = no existe); salen de charmap.txt */
+static const u8 sKana[191] = {
+    0xA5, 0x40, 0xA6, 0x41, 0xA7, 0x42, 0xA0, 0x43, 0xA8, 0x44, 0x45, 0x00,
+    0x46, 0x00, 0x47, 0x00, 0x48, 0x00, 0x49, 0x00, 0x4A, 0x00, 0x4B, 0x00,
+    0x4C, 0x00, 0x4D, 0x00, 0x4E, 0x00, 0x4F, 0x00, 0x50, 0x00, 0xA1, 0x51,
+    0x00, 0x52, 0x00, 0x53, 0x00, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x00,
+    0x00, 0x5A, 0x00, 0x00, 0x5B, 0x00, 0x00, 0x5C, 0x00, 0x00, 0x5D, 0x00,
+    0x00, 0x5E, 0x5F, 0x60, 0x61, 0x62, 0xA2, 0x63, 0xA3, 0x64, 0xA4, 0x65,
+    0x66, 0x67, 0x68, 0x69, 0x6A, 0x00, 0x6B, 0x00, 0x00, 0x6C, 0x6D, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0xF1, 0x00, 0x00, 0x00, 0x00,
+    0xD5, 0x70, 0xD6, 0x71, 0xD7, 0x72, 0xD0, 0x73, 0xD8, 0x74, 0x75, 0x00,
+    0x76, 0x00, 0x77, 0x00, 0x78, 0x00, 0x79, 0x00, 0x7A, 0x00, 0x7B, 0x00,
+    0x7C, 0x00, 0x7D, 0x00, 0x7E, 0x00, 0x7F, 0x00, 0x80, 0x00, 0xD1, 0x81,
+    0x00, 0x82, 0x00, 0x83, 0x00, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x00,
+    0x00, 0x8A, 0x00, 0x00, 0x8B, 0x00, 0x00, 0x8C, 0x00, 0x00, 0x8D, 0x00,
+    0x00, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0xD2, 0x93, 0xD3, 0x94, 0xD4, 0x95,
+    0x96, 0x97, 0x98, 0x99, 0x9A, 0x00, 0x9B, 0x00, 0x00, 0x9C, 0x9D, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x9F, 0x00, 0x00, 0x00,
+};
+
+/* El kana con dakuten (゛) o handakuten (゜) es la marca (0xF0 / 0xF1) seguida del kana base; devuelve el desplazamiento al base (1 o 2) o 0 */
+static int psp_opt_kana_mark(u32 cp) {
+    u32 k = cp;
+    if (k >= 0x30A1) k -= 0x60; /* katakana -> equivalente hiragana */
+    if ((k >= 0x304C && k <= 0x3062 && !(k & 1)) || k == 0x3065 || k == 0x3067 || k == 0x3069
+        || k == 0x3070 || k == 0x3073 || k == 0x3076 || k == 0x3079 || k == 0x307C) {
+        return 1;
+    }
+    if (k == 0x3071 || k == 0x3074 || k == 0x3077 || k == 0x307A || k == 0x307D) {
+        return 2;
+    }
+    return 0;
+}
+#endif
+
+/* Texto UTF-8 -> codigos de texto del juego (los de la version que se compila): letras, numeros, unos pocos simbolos, y segun la version las letras con
+ * acento (EU) o los kana (JP / Shindou). Lo que no existe en la fuente queda como un espacio. */
 static void psp_opt_str(u8 *dst, const char *src, int max) {
     int n = 0;
-    for (; *src != '\0' && n < max - 1; src++, n++) {
-        const char c = *src;
-        u8 d;
-        if (c >= '0' && c <= '9') d = (u8) (c - '0');
-        else if (c >= 'A' && c <= 'Z') d = (u8) (c - 'A' + 0x0A);
-        else if (c >= 'a' && c <= 'z') d = (u8) (c - 'a' + 0x24);
-        else if (c == '-') d = 0x9F;
-        else if (c == '.') d = 0x3F;
-        else if (c == '%') d = 0xF3;
-        else if (c == '/') d = 0xD0;
-        else if (c == ':') d = 0xE6;
-        else if (c == '>') d = 0x53;
-        else if (c == '<') d = 0x52;
-        else d = 0x9E; /* espacio */
-        dst[n] = d;
+    while (*src != '\0' && n < max - 3) {
+        u32 cp = (u8) *src++;
+        u8 d = 0x9E; /* espacio */
+        if (cp >= 0xC0 && cp < 0xE0 && (*src & 0xC0) == 0x80) {
+            cp = ((cp & 0x1F) << 6) | ((u8) *src++ & 0x3F);
+        } else if (cp >= 0xE0 && cp < 0xF0 && (src[0] & 0xC0) == 0x80 && (src[1] & 0xC0) == 0x80) {
+            cp = ((cp & 0x0F) << 12) | (((u8) src[0] & 0x3F) << 6) | ((u8) src[1] & 0x3F);
+            src += 2;
+        }
+        if (cp >= '0' && cp <= '9') d = (u8) (cp - '0');
+        else if (cp >= 'A' && cp <= 'Z') d = (u8) (cp - 'A' + 0x0A);
+#if defined(VERSION_JP) || defined(VERSION_SH)
+        /* la fuente japonesa solo tiene letras MAYUSCULAS (sin minusculas, ':' ni apostrofe: un glifo inexistente cierra el juego) */
+        else if (cp >= 'a' && cp <= 'z') d = (u8) (cp - 'a' + 0x0A);
+        else if (cp == '-') d = 0x9F;
+        else if (cp == '%') d = 0xF3;
+#else
+        else if (cp >= 'a' && cp <= 'z') d = (u8) (cp - 'a' + 0x24);
+        else if (cp == '-') d = 0x9F;
+        else if (cp == '%') d = 0xF3;
+        else if (cp == ':') d = 0xE6;
+        else if (cp == '\'') d = 0x3E;
+#endif
+#if defined(VERSION_JP) || defined(VERSION_SH)
+        /* JP / Shindou: el punto '.' no avanza y la barra '/' es otro caracter; los kana van por tabla */
+        else if (cp == '/') d = 0xFC;
+        else if (cp == '.') d = 0x9E;
+        else if (cp == 0x30FC) d = 0x9F;
+        else if (cp >= 0x3041 && cp <= 0x30FF) {
+            const int mk = psp_opt_kana_mark(cp);
+            if (mk) {
+                dst[n++] = (mk == 1) ? 0xF0 : 0xF1;
+                cp -= (u32) mk;
+            }
+            d = sKana[cp - 0x3041];
+            if (d == 0) d = 0x9E;
+        }
+#else
+        else if (cp == '.') d = 0x3F;
+        else if (cp == '/') d = 0xD0;
+        else if (cp == '>') d = 0x53;
+        else if (cp == '<') d = 0x52;
+#ifdef VERSION_EU
+        /* letras con acento de la fuente europea (codigos de ingame_menu.h); en US se escriben sin acento */
+        else if (cp == 0xE0) d = 0x60;
+        else if (cp == 0xE2) d = 0x61;
+        else if (cp == 0xE4) d = 0x62;
+        else if (cp == 0xC4) d = 0x66;
+        else if (cp == 0xE8) d = 0x70;
+        else if (cp == 0xEA) d = 0x71;
+        else if (cp == 0xEB) d = 0x72;
+        else if (cp == 0xE9) d = 0x73;
+        else if (cp == 0xC9) d = 0x77;
+        else if (cp == 0xF9) d = 0x80;
+        else if (cp == 0xFB) d = 0x81;
+        else if (cp == 0xFC) d = 0x82;
+        else if (cp == 0xDC) d = 0x86;
+        else if (cp == 0xF4) d = 0x91;
+        else if (cp == 0xF6) d = 0x92;
+        else if (cp == 0xD6) d = 0x96;
+        else if (cp == 0xEE) d = 0xA1;
+        else if (cp == 0xEF) d = 0xA2;
+        else if (cp == 0xDF) d = 0xEC;
+        else if (cp == 0xE7) d = 0xEE;
+#else
+        else if (cp == 0xE0 || cp == 0xE2 || cp == 0xE4) d = 0x24;
+        else if (cp == 0xC4) d = 0x0A;
+        else if (cp >= 0xE8 && cp <= 0xEB) d = 0x28;
+        else if (cp == 0xC9) d = 0x0E;
+        else if (cp == 0xF9 || cp == 0xFB || cp == 0xFC) d = 0x38;
+        else if (cp == 0xDC) d = 0x1E;
+        else if (cp == 0xF4 || cp == 0xF6) d = 0x32;
+        else if (cp == 0xD6) d = 0x18;
+        else if (cp == 0xEE || cp == 0xEF) d = 0x2C;
+        else if (cp == 0xE7) d = 0x26;
+        else if (cp == 0xDF) d = 0x36;
+#endif
+#endif
+        dst[n++] = d;
     }
     dst[n] = 0xFF; /* terminador */
 }
 
+/* ancho en pixeles de un texto ya convertido, igual que lo dibuja print_generic_string de cada version */
+extern u8 gDialogCharWidths[256];
+static s16 psp_opt_width(const u8 *str) {
+    int w = 0;
+    for (; *str != 0xFF; str++) {
+#if defined(VERSION_JP) || defined(VERSION_SH)
+        if (*str == 0xF0 || *str == 0xF1) continue; /* dakuten / handakuten: marcas sin ancho */
+        w += (*str == 0x9E) ? 5 : 10;
+#else
+        w += gDialogCharWidths[*str];
+#endif
+    }
+    return (s16) w;
+}
+
 /* texto centrado en x con sombra negra, blanco (col 0) o rojo (col 1); y se mide desde abajo como en los dialogos */
 static void psp_opt_text(s16 x, s16 y, const char *txt, int col) {
-    u8 buf[48];
+    u8 buf[96];
     s16 tx;
 
     psp_opt_str(buf, txt, sizeof(buf));
-    tx = get_str_x_pos_from_center(x, buf, 10.0f);
+    tx = x - (psp_opt_width(buf) / 2);
     gDPSetEnvColor(gDisplayListHead++, 0, 0, 0, 255);
     print_generic_string(tx + 1, y - 1, buf);
     if (col) {
@@ -778,6 +1013,23 @@ static void psp_opt_box(s16 x, s16 ytop, s16 w, s16 h, u8 r, u8 g, u8 b, u8 a) {
     gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
 }
 
+#if defined(VERSION_JP) || defined(VERSION_SH)
+/* triangulo blanco de 6 px hecho con cajas de 2 px apiladas: dir 0 = izquierda, 1 = derecha, 2 = arriba, 3 = abajo; (x, ytop) = esquina superior izquierda */
+static void psp_opt_tri(int dir, s16 x, s16 ytop) {
+    int k;
+    for (k = 0; k < 5; k++) {
+        const int step = (k < 3) ? k : (4 - k); /* 0 1 2 1 0 */
+        if (dir <= 1) { /* 5 filas de 2 px: anchos 2 4 6 4 2 */
+            const int w = 2 * (step + 1);
+            psp_opt_box((dir == 0) ? (x + 6 - w) : x, ytop - 2 * k, w, 2, 255, 255, 255, 255);
+        } else if (k < 3) { /* 3 filas de 2 px */
+            const int w = 2 * ((dir == 2) ? (k + 1) : (3 - k));
+            psp_opt_box(x + 3 - w / 2, ytop - 2 * k, w, 2, 255, 255, 255, 255);
+        }
+    }
+}
+#endif
+
 static const u8 *psp_opt_page_rows(int *n) {
     switch (sPage) {
         case PG_VIDEO: *n = (int) sizeof(sPgVideo); return sPgVideo;
@@ -788,19 +1040,35 @@ static const u8 *psp_opt_page_rows(int *n) {
 }
 
 static void psp_opt_draw(void) {
-    u8 title[16];
+    u8 title[48];
     const u8 *rows;
     int n, i;
 
     rows = psp_opt_page_rows(&n);
     shade_screen();
 
-    /* titulo grande (letras de colores del HUD), 12 px por letra */
-    psp_opt_str(title, sPgTitle[sPage], sizeof(title));
-    gSPDisplayList(gDisplayListHead++, dl_rgba16_text_begin);
-    gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
-    print_hud_lut_string(HUD_LUT_GLOBAL, 160 - (int) strlen(sPgTitle[sPage]) * 6, 40, title);
-    gSPDisplayList(gDisplayListHead++, dl_rgba16_text_end);
+    /* titulo grande: letras de colores del HUD (12 px por letra); en japones la fuente del HUD no tiene kana, asi que va con la fuente de los
+     * dialogos al doble de tamano */
+    psp_opt_str(title, LT(sTrTitle[sPage]), sizeof(title));
+    if (psp_opt_lang() == LANG_JP) {
+        const f32 sc = 1.8f;
+        const s16 tx = 160 - (s16) ((f32) psp_opt_width(title) * sc * 0.5f);
+        int k;
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+        for (k = 0; k < 2; k++) {
+            gDPSetEnvColor(gDisplayListHead++, k ? 255 : 0, k ? 255 : 0, k ? 255 : 0, 255);
+            create_dl_translation_matrix(MENU_MTX_PUSH, tx + (k ? 0 : 1), 174 + (k ? 0 : -1), 0.0f);
+            create_dl_scale_matrix(MENU_MTX_NOPUSH, sc, sc, 1.0f);
+            print_generic_string(0, 0, title);
+            gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
+        }
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+    } else {
+        gSPDisplayList(gDisplayListHead++, dl_rgba16_text_begin);
+        gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
+        print_hud_lut_string(HUD_LUT_GLOBAL, 160 - (int) strlen(LT(sTrTitle[sPage])) * 6, 40, title);
+        gSPDisplayList(gDisplayListHead++, dl_rgba16_text_end);
+    }
 
     /* barra de desplazamiento a la derecha (pista y deslizador), de la altura de las 4 filas visibles; solo si hay mas de 4 filas */
     if (n > 4) {
@@ -820,16 +1088,17 @@ static void psp_opt_draw(void) {
             psp_opt_text(160, y - 13, psp_opt_value_text(rows[i]), col);
         }
     }
-    psp_opt_text(48, 14, "B: Return", 0); /* esquina inferior izquierda */
+    psp_opt_text(48, 14, LT(sTrBack), 0); /* esquina inferior izquierda */
     /* ayuda al centro, abajo, en las filas de botones */
     if (sPage == PG_CTRL && rows[sSel] >= ROW_BIND0 && rows[sSel] < ROW_BIND0 + NUM_BINDS) {
-        psp_opt_text(160, 14, (sCapture >= 0) ? "Wait to cancel" : "A: Change", 0);
+        psp_opt_text(160, 14, (sCapture >= 0) ? LT(sTrWait) : LT(sTrChange), 0);
     }
     /* flechas a los lados del valor de la fila seleccionada: solo aparece la del lado hacia donde se puede ir
      * (sin flecha izquierda = primer valor, sin flecha derecha = ultimo valor) */
+#if !defined(VERSION_JP) && !defined(VERSION_SH)
     gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
     if (!psp_opt_is_action(rows[sSel])) {
-        u8 l[2], r[2];
+        u8 l[8], r[8];
         const int ay = 140 - 32 * (sSel - sScroll) - 13;
         psp_opt_str(l, "<", sizeof(l));
         psp_opt_str(r, ">", sizeof(r));
@@ -853,7 +1122,28 @@ static void psp_opt_draw(void) {
             print_generic_string(273, 14, dn);
         }
     }
+#endif
     gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+#if defined(VERSION_JP) || defined(VERSION_SH)
+    /* la fuente japonesa no tiene flechas: se dibujan con cajas apiladas (triangulos de 6 px) */
+    if (!psp_opt_is_action(rows[sSel])) {
+        const int ay = 140 - 32 * (sSel - sScroll) - 13 + 12; /* arriba del renglon del valor */
+        if (psp_opt_can_dec(rows[sSel])) {
+            psp_opt_tri(0, 88, ay);
+        }
+        if (psp_opt_can_inc(rows[sSel])) {
+            psp_opt_tri(1, 222, ay);
+        }
+    }
+    if (n > 4) {
+        if (sScroll > 0) {
+            psp_opt_tri(2, 273, 158);
+        }
+        if (sScroll < n - 4) {
+            psp_opt_tri(3, 273, 24);
+        }
+    }
+#endif
 }
 
 /* "SOUND: CPU / ME": que procesador sintetiza el audio (el CPU principal o el Media Engine). Se dibuja en las dos pausas (castillo y niveles) solo si
@@ -868,19 +1158,25 @@ void psp_options_sound_info(void) {
 /* "R Options" en la esquina de la pausa, mientras el menu esta cerrado (se llama despues de dibujar la pausa normal).
  * Si el boton R del N64 se reasigno, muestra el boton fisico que lo abre ahora. */
 void psp_options_pause_prompt(void) {
-    char name[24], txt[40];
+    char name[48], txt[96];
+    u8 buf[96];
     s16 x;
 
     if (sOpen) {
         return;
     }
     if (configKeyR == PSP_CTRL_RTRIGGER) {
-        snprintf(txt, sizeof(txt), "R Options");
+        snprintf(txt, sizeof(txt), "R %s", LT(sTrOptions));
     } else {
-        psp_opt_mask_text(configKeyR, name, sizeof(name));
-        snprintf(txt, sizeof(txt), "%s Options", name);
+        psp_opt_mask_disp(configKeyR, name, sizeof(name));
+        snprintf(txt, sizeof(txt), "%s %s", name, LT(sTrOptions));
     }
-    x = 304 - (s16) strlen(txt) * 5; /* alineado a la derecha, sin salirse de la pantalla */
+    if (psp_opt_lang() == LANG_EN) {
+        x = 304 - (s16) strlen(txt) * 5; /* alineado a la derecha, sin salirse de la pantalla */
+    } else {
+        psp_opt_str(buf, txt, sizeof(buf));
+        x = 296 - psp_opt_width(buf) / 2; /* igual, pero midiendo el texto (frances, aleman, japones) */
+    }
     if (x > 264) {
         x = 264;
     }

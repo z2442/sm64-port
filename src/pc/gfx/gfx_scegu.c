@@ -1575,6 +1575,25 @@ void gfx_scegu_draw_triangles_2d(float buf_vbo[], UNUSED size_t buf_vbo_len, UNU
     }
 }
 
+/* Cuadrilatero 2D (tira de 4 vertices) para G_TEXRECTFLIP; ver gfx_sp_quad_flip_2d() en gfx_pc.c */
+void gfx_scegu_draw_quad_2d(float buf_vbo[]) {
+    if (!is_shader_enabled(cur_shader->shader_id)) {
+        gfx_scegu_apply_shader(get_shader_from_id(get_shader_remap(cur_shader->shader_id)));
+    }
+
+    gfx_scegu_reserve_list_memory(sizeof(VertexColor) * 4);
+    void *quad_buf = sceGuGetMemory(sizeof(VertexColor) * 4);
+    memcpy(quad_buf, buf_vbo, sizeof(VertexColor) * 4);
+    if (PSP_GPUP()) {
+        sGpupBucket = 9; sGpupTris = 2; sGpupPx = 0;
+        gpup_begin();
+    }
+    sceGuDrawArray(GU_TRIANGLE_STRIP, GU_TEXTURE_16BIT | GU_COLOR_8888 | GU_VERTEX_16BIT | GU_TRANSFORM_2D, 4, 0, quad_buf);
+    if (PSP_GPUP()) {
+        gpup_end();
+    }
+}
+
 #ifndef PSP_ASYNC_PRESENT
 #define PSP_ASYNC_PRESENT 1
 #endif

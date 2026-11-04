@@ -128,8 +128,8 @@ ifeq ($(VERSION),sh)
   $(warning Building SH is experimental and is prone to breaking. Try at your own risk.)
   VERSION_DEF := VERSION_SH
   GRUCODE_DEF := F3D_NEW
-# TODO: GET RID OF THIS!!! We should mandate assets for Shindou like EU but we dont have the addresses extracted yet so we'll just pretend you have everything extracted for now.
-  NOEXTRACT := 1 
+# Shindou: las texturas se extraen de baserom.sh.z64 y el sonido (secuencias, muestras) de baserom.jp.z64, asi que hacen falta las dos ROM.
+  EXTRACT_LANGS := jp sh
 else
   $(error unknown version "$(VERSION)")
 endif
@@ -198,7 +198,8 @@ ifneq ($(MAKECMDGOALS),distclean)
 # Make sure assets exist
 NOEXTRACT ?= 0
 ifeq ($(NOEXTRACT),0)
-DUMMY != $(PYTHON) ./extract_assets.py $(VERSION) >&2 || echo FAIL
+EXTRACT_LANGS ?= $(VERSION)
+DUMMY != $(PYTHON) ./extract_assets.py $(EXTRACT_LANGS) >&2 || echo FAIL
 ifeq ($(DUMMY),FAIL)
   $(error Failed to extract assets)
 endif
@@ -916,19 +917,25 @@ ifeq ($(TARGET_PSP),1)
 		psp-prxgen $@ $@.prx; \
 	fi
 
-TITLE := "Super Mario 64™"
+ifneq ($(filter jp sh,$(VERSION)),)
+  TITLE     := "スーパーマリオ64"
+  EBOOT_DIR := psp/JP_EBOOT
+else
+  TITLE     := "Super Mario 64™"
+  EBOOT_DIR := psp/EBOOT
+endif
 
 pbp: $(EXE)
 	@mkdir -p $(BUILD_DIR)/mario64
 	mksfoex -d MEMSIZE=1 $(TITLE) $(BUILD_DIR)/PARAM.SFO
 	@if [ "$(PROFILE_PSP)" = "1" ]; then \
-		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(EXE) NULL; \
+		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO $(EBOOT_DIR)/ICON0.png NULL NULL $(EBOOT_DIR)/PIC0.png $(EBOOT_DIR)/SND0.at3 $(EXE) NULL; \
 	else \
 		psp-gcc -O2 -G0 -Wall -D_PSP_FW_VERSION=500 -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -c psp/launcher/launcher.c -o $(BUILD_DIR)/launcher.o && \
 		psp-gcc -o $(BUILD_DIR)/launcher.elf $(BUILD_DIR)/launcher.o -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx $(PSPSDK_PREFIX)/lib/prxexports.o -lpspdebug -lpspdisplay -lpspge -lpsprtc -lc -lpspuser && \
 		psp-fixup-imports $(BUILD_DIR)/launcher.elf && \
 		psp-prxgen $(BUILD_DIR)/launcher.elf $(BUILD_DIR)/launcher.prx && \
-		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO psp/EBOOT/ICON0.png NULL NULL psp/EBOOT/PIC0.png psp/EBOOT/SND0.at3 $(BUILD_DIR)/launcher.prx NULL && \
+		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO $(EBOOT_DIR)/ICON0.png NULL NULL $(EBOOT_DIR)/PIC0.png $(EBOOT_DIR)/SND0.at3 $(BUILD_DIR)/launcher.prx NULL && \
 		cp $(EXE).prx $(BUILD_DIR)/mario64/SM64.PRX; \
 	fi
 

@@ -452,7 +452,7 @@ void render_hud_camera_status(void) {
  */
 void render_hud(void) {
     s16 hudDisplayFlags;
-#ifdef VERSION_EU
+#if defined(VERSION_EU) && !defined(TARGET_PSP)
     Mtx *mtx;
 #endif
 
@@ -463,7 +463,7 @@ void render_hud(void) {
         sPowerMeterStoredHealth = 8;
         sPowerMeterVisibleTimer = 0;
     } else {
-#ifdef VERSION_EU
+#if defined(VERSION_EU) && !defined(TARGET_PSP)
         // basically create_dl_ortho_matrix but guOrtho screen width is different
 
         mtx = alloc_display_list(sizeof(*mtx));

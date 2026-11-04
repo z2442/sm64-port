@@ -2768,6 +2768,9 @@ static void print_file_select_strings(void) {
     UNUSED s32 unused1;
     UNUSED s32 unused2;
 
+#if defined(VERSION_EU) && defined(TARGET_PSP)
+    gPspEuMenuX = 1.1f; /* ver ingame_menu.c: textos alineados con los botones 3D sin el aspecto x1,1 de PAL */
+#endif
     create_dl_ortho_matrix_menu_hack();
     switch (sSelectedButtonID) {
         case MENU_BUTTON_NONE:
@@ -2804,6 +2807,9 @@ static void print_file_select_strings(void) {
             print_sound_mode_menu_strings();
             break;
     }
+#if defined(VERSION_EU) && defined(TARGET_PSP)
+    gPspEuMenuX = 1.0f;
+#endif
     // If all 4 save file exists, define true to sAllFilesExist to prevent more copies in copy menu
     if (save_file_exists(SAVE_FILE_A) == TRUE && save_file_exists(SAVE_FILE_B) == TRUE &&
         save_file_exists(SAVE_FILE_C) == TRUE && save_file_exists(SAVE_FILE_D) == TRUE) {

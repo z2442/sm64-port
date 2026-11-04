@@ -2,7 +2,7 @@
 
 🇬🇧 [Read it in English](README.md)
 
-Port nativo de **Super Mario 64** (versión US) para la **Sony PSP**, basado en la decompilación
+Port nativo de **Super Mario 64** para la **Sony PSP**, disponible para las versiones **US, japonesa (JP), europea (EU) y Shindou (SH)**, basado en la decompilación
 [sm64-port](https://github.com/sm64-port/sm64-port) / [n64decomp/sm64](https://github.com/n64decomp/sm64)
 y en el port a PSP de [z2442](https://github.com/z2442/sm64-port).
 
@@ -13,8 +13,9 @@ y en el port a PSP de [z2442](https://github.com/z2442/sm64-port).
 - **Menú de opciones dentro del juego** (se abre desde la pausa) con tres páginas: **Graphics** (gráficos), **Audio** (volumen de música, de efectos y modo de sonido) y **Controls** (reasignar cada botón).
 - Todos los ajustes se guardan en **un solo archivo de texto legible**, `sm64config.txt`, que también puedes editar a mano.
 - El progreso se guarda en el Memory Stick como cualquier juego de PSP.
+- **Cuatro versiones con el mismo código**: US, JP, EU (inglés, francés y alemán, con el formato PAL adaptado a la pantalla 16:9 de la PSP) y Shindou (experimental). Mira [Versiones compatibles](#versiones-compatibles).
 
-> **Este repositorio NO incluye los datos del juego.** Necesitas **tu propia copia de la ROM de Super Mario 64 (US)**;
+> **Este repositorio NO incluye los datos del juego.** Necesitas **tu propia copia de la ROM de Super Mario 64** de la versión que quieras;
 > el proceso de compilación la convierte en la versión de PSP. No se incluye ninguna ROM ni se va a facilitar.
 > Es un proyecto de fans, sin relación con Nintendo.
 
@@ -38,18 +39,36 @@ y en el port a PSP de [z2442](https://github.com/z2442/sm64-port).
 | Cosa | Detalle |
 |---|---|
 | **Un PC** | Windows 10 u 11 de 64 bits, unos **10 GB libres** en disco e internet (solo para la primera compilación). |
-| **Una ROM de Super Mario 64** | Versión **US**, en formato **`.z64`** (8 MB, "big-endian"). Su SHA-1 debe ser `9bef1128717f958171a4afac3ed78ee2bb4e86ce`. |
+| **Una ROM de Super Mario 64** | La versión que quieras compilar, en formato **`.z64`** (8 MB, "big-endian"). El nombre exacto del archivo y el SHA-1 de cada versión están en la tabla de abajo. |
 | **Docker Desktop** | Gratis para uso personal. Trae todo el compilador de PSP, así que **no** tienes que instalar ninguna herramienta de programación. |
 | **Una PSP con firmware personalizado** | Por ejemplo ARK-4 o PRO CFW, y un Memory Stick. *O bien* el emulador [PPSSPP](https://www.ppsspp.org/). |
 
 Lo único que instalas en el PC es Docker Desktop. Todo lo demás (compilador, Python, librerías) vive dentro de un contenedor Docker
 que crea el script de compilación por ti.
 
+### Versiones compatibles
+
+| Versión | Archivo(s) que debes aportar | SHA-1 de la ROM | Estado |
+|---|---|---|---|
+| **US** (EE. UU.) | `baserom.us.z64` | `9bef1128717f958171a4afac3ed78ee2bb4e86ce` | Versión principal, la más probada. |
+| **JP** (Japón) | `baserom.jp.z64` | `8a20a5c83d6ceb0f0506cfc9fa20d8f438cafe51` | Compila; menos probada. |
+| **EU** (Europa) | `baserom.eu.z64` | `4ac5721683d0e0b6bbb561b58a71740845dceea9` | Inglés, francés y alemán. Probada en PSP y PPSSPP. |
+| **SH** (Shindou, Japón 1997) | `baserom.sh.z64` **y** `baserom.jp.z64` | `3f319ae697533a255a1003d09202379d78d5a2e0` (SH) | **Experimental.** El juego y los gráficos salen de la ROM SH, pero el sonido todavía sale de la ROM JP, así que el audio aún no es el de Shindou real. |
+
+Cada compilación es su propio juego: la versión que compilas es la que obtienes. Renombra tu ROM exactamente como se indica (todo en minúsculas).
+
+**Limitaciones conocidas**
+
+- Shindou necesita **las dos** ROM (SH y JP) y usa los datos y el motor de audio japoneses (el motor de sonido original de Shindou aún no está portado). No hay vibración (la PSP no tiene motor de vibración).
+- Todas las versiones comparten la misma carpeta y nombre de partida (`PSP\SAVEDATA\SM64PORT\sm64_save_file.bin`). Las partidas de versiones distintas no tienen por qué ser compatibles, así que **haz una copia de ese archivo antes de cambiar de versión**.
+
 ---
 
 ## 2. Compilarlo en Windows, paso a paso
 
 ### Paso 1 — Comprueba tu ROM
+
+(El ejemplo usa la ROM US; para otra versión compara con su SHA-1 de la [tabla](#versiones-compatibles).)
 
 1. Haz que Windows **muestre las extensiones**: en el Explorador de archivos ve a **Ver → Mostrar → Extensiones de nombre de archivo**.
    (Con las extensiones ocultas, un archivo que renombras a `baserom.us.z64` puede quedar como `baserom.us.z64.z64` sin que lo notes, y la compilación no lo encontrará.)
@@ -59,8 +78,8 @@ que crea el script de compilación por ti.
    Get-FileHash -Algorithm SHA1 "C:\ruta\a\tu\rom.z64"
    ```
 
-3. El resultado debe ser exactamente `9BEF1128717F958171A4AFAC3ED78EE2BB4E86CE`.
-   Si es distinto, tu ROM no es la versión US, o está en otro formato (`.v64` / `.n64`). La compilación necesita el formato `.z64`.
+3. El resultado debe ser exactamente `9BEF1128717F958171A4AFAC3ED78EE2BB4E86CE` (US).
+   Si es distinto, tu ROM no es esa versión, o está en otro formato (`.v64` / `.n64`). La compilación necesita el formato `.z64`.
 
 ### Paso 2 — Instala Docker Desktop
 
@@ -93,9 +112,10 @@ La forma más fácil, sin programas extra:
 ### Paso 4 — Pon la ROM en la carpeta del proyecto
 
 1. Copia tu ROM dentro de la carpeta del proyecto, **junto al archivo `Makefile`**.
-2. Renómbrala exactamente como **`baserom.us.z64`** (todo en minúsculas).
+2. Renómbrala exactamente como **`baserom.<versión>.z64`** (todo en minúsculas), donde `<versión>` es `us`, `jp`, `eu` o `sh`: por ejemplo `baserom.us.z64`.
+   Shindou necesita dos archivos: `baserom.sh.z64` y `baserom.jp.z64`.
 
-La carpeta debe contener, entre otros: `Makefile`, `build_psp.ps1`, `Dockerfile.psp`, `src` y `baserom.us.z64`.
+La carpeta debe contener, entre otros: `Makefile`, `build_psp.ps1`, `Dockerfile.psp`, `src` y tu ROM (por ejemplo `baserom.us.z64`).
 
 ### Paso 5 — Ejecuta el script de compilación
 
@@ -107,7 +127,13 @@ La carpeta debe contener, entre otros: `Makefile`, `build_psp.ps1`, `Dockerfile.
    powershell -ExecutionPolicy Bypass -File .\build_psp.ps1
    ```
 
-   (La parte `-ExecutionPolicy Bypass` permite a Windows ejecutar el script solo esta vez, sin cambiar ningún ajuste.)
+   Eso compila la versión **US**. Para otra versión añade `-Version`:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\build_psp.ps1 -Version eu
+   ```
+
+   (`us`, `jp`, `eu` o `sh`.) La parte `-ExecutionPolicy Bypass` permite a Windows ejecutar el script solo esta vez, sin cambiar ningún ajuste.)
 
 3. Espera. La **primera vez** hace tres cosas y tarda, así que ten paciencia:
    1. Descarga el compilador de PSP y crea una imagen Docker pequeña llamada `sm64psp` (unos minutos, necesita internet).
@@ -119,22 +145,25 @@ La carpeta debe contener, entre otros: `Makefile`, `build_psp.ps1`, `Dockerfile.
    Listo: build\us_psp\mario64\  (copia EBOOT.PBP y SM64.PRX juntos a la misma carpeta de la PSP)
    ```
 
+   (El nombre de la carpeta cambia con la versión: `build\eu_psp\mario64\`, `build\jp_psp\mario64\`, `build\sh_psp\mario64\`.)
+
    Las siguientes compilaciones son mucho más rápidas: solo se recompila lo que cambiaste.
 
 **Opciones del script (opcionales)**
 
 | Comando | Qué hace |
 |---|---|
-| `.\build_psp.ps1 -Clean` | Borra antes la compilación anterior. Úsalo si algo quedó roto o trabado. |
+| `.\build_psp.ps1 -Version eu` | Elige la versión: `us` (por defecto), `jp`, `eu` o `sh`. |
+| `.\build_psp.ps1 -Clean` | Borra antes la compilación anterior de esa versión. Úsalo si algo quedó roto o trabado. |
 | `.\build_psp.ps1 -Opt O2` | Compila con `-O2` en vez de `-O3` (en otra carpeta: `build_O2\`). |
 | `.\build_psp.ps1 -Rebuild` | Vuelve a construir la imagen de Docker (solo si cambia `Dockerfile.psp`). |
 
 (Recuerda poner delante `powershell -ExecutionPolicy Bypass -File` si las usas, por ejemplo:
-`powershell -ExecutionPolicy Bypass -File .\build_psp.ps1 -Clean`.)
+`powershell -ExecutionPolicy Bypass -File .\build_psp.ps1 -Version eu -Clean`.)
 
 ### Paso 6 — Encuentra el resultado
 
-El juego son los dos archivos **`EBOOT.PBP`** y **`SM64.PRX`**, dentro de **`build\us_psp\mario64\`**. Guárdalos siempre juntos en la misma carpeta: `EBOOT.PBP` es un cargador diminuto y `SM64.PRX` es el juego en sí (así arranca mucho más rápido en una PSP real).
+El juego son los dos archivos **`EBOOT.PBP`** y **`SM64.PRX`**, dentro de **`build\<versión>_psp\mario64\`** (por ejemplo `build\us_psp\mario64\`). Guárdalos siempre juntos en la misma carpeta: `EBOOT.PBP` es un cargador diminuto y `SM64.PRX` es el juego en sí (así arranca mucho más rápido en una PSP real).
 
 ---
 
@@ -144,7 +173,7 @@ El juego son los dos archivos **`EBOOT.PBP`** y **`SM64.PRX`**, dentro de **`bui
 
 1. Conecta la PSP al PC con el cable USB y activa **Conexión USB** desde el XMB, *o* saca el Memory Stick y ponlo en un lector de tarjetas.
 2. En el Memory Stick abre la carpeta **`PSP`** y luego **`GAME`**.
-3. Crea una carpeta nueva llamada **`SM64`** y copia dentro **los dos** archivos, `EBOOT.PBP` y `SM64.PRX`, de modo que las rutas sean:
+3. Crea una carpeta nueva llamada **`SM64`** (usa otro nombre, p. ej. `SM64_EU`, si instalas varias versiones) y copia dentro **los dos** archivos, `EBOOT.PBP` y `SM64.PRX`, de modo que las rutas sean:
 
    ```
    PSP\GAME\SM64\EBOOT.PBP
@@ -227,12 +256,12 @@ Abre **Docker Desktop** y espera a que ponga **"Engine running"**; luego repite.
 **"running scripts is disabled on this system" (la ejecución de scripts está deshabilitada)**
 Lanza el script exactamente así: `powershell -ExecutionPolicy Bypass -File .\build_psp.ps1`.
 
-**`Failed to open baserom.us.z64!`**
-La ROM no está en el sitio correcto o tiene otro nombre. Debe estar **junto al `Makefile`** y llamarse exactamente `baserom.us.z64`
-(con las extensiones visibles, comprueba que no sea `baserom.us.z64.z64`).
+**`Failed to open baserom.us.z64!`** (o `baserom.jp/eu/sh.z64`)
+La ROM no está en el sitio correcto o tiene otro nombre. Debe estar **junto al `Makefile`** y llamarse exactamente `baserom.<versión>.z64`
+(con las extensiones visibles, comprueba que no sea `baserom.us.z64.z64`). Para Shindou hacen falta `baserom.sh.z64` **y** `baserom.jp.z64`.
 
-**`baserom.us.z64 has the wrong hash!`**
-No es la ROM US, o está en otro formato. Repite el [Paso 1](#paso-1--comprueba-tu-rom).
+**`baserom.us.z64 has the wrong hash!`** (o lo mismo con `jp`, `eu` o `sh`)
+No es la ROM de esa versión, o está en otro formato. Repite el [Paso 1](#paso-1--comprueba-tu-rom).
 
 **La compilación se detiene con un error a la mitad, o cambiaste algo y se comporta raro**
 Repítela con `-Clean`: `powershell -ExecutionPolicy Bypass -File .\build_psp.ps1 -Clean`.
@@ -254,14 +283,14 @@ Abre un *Issue* en la página de GitHub del repositorio e incluye las últimas 2
 
 ## 6. Compilar en Linux / WSL
 
-Puedes usar la misma imagen de Docker desde una terminal de Linux (o dentro de WSL con Docker funcionando), en la raíz del proyecto y con `baserom.us.z64` en su sitio:
+Puedes usar la misma imagen de Docker desde una terminal de Linux (o dentro de WSL con Docker funcionando), en la raíz del proyecto y con tu ROM (por ejemplo `baserom.us.z64`) en su sitio. Cambia `VERSION=us` por `jp`, `eu` o `sh` para las otras versiones:
 
 ```bash
 docker build -t sm64psp - < Dockerfile.psp
 docker run --rm -v "$PWD:/sm64" -w /sm64 sm64psp make TARGET_PSP=1 pbp VERSION=us -j$(nproc)
 ```
 
-El resultado vuelve a ser `build/us_psp/mario64/` (`EBOOT.PBP` + `SM64.PRX`). (En Linux los archivos que crea Docker pertenecen a `root`; si te estorba, arréglalo con `sudo chown -R $USER .`.)
+El resultado vuelve a ser `build/<versión>_psp/mario64/` (`build/us_psp/mario64/` para US), con `EBOOT.PBP` + `SM64.PRX`. (En Linux los archivos que crea Docker pertenecen a `root`; si te estorba, arréglalo con `sudo chown -R $USER .`.)
 
 **Sin Docker**: instala el [toolchain de PSP (pspdev)](https://github.com/pspdev/pspdev), más `python3` y los paquetes de desarrollo `build-essential`/`audiofile`, y luego:
 

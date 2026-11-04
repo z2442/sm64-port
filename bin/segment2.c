@@ -2183,7 +2183,7 @@ const Gfx dl_draw_text_bg_box[] = {
 #ifndef VERSION_EU
 // 0x0200EE28 - 0x0200EE68
 static const Vtx vertex_ia8_char[] = {
-#ifndef VERSION_JP
+#if !defined(VERSION_JP) && !defined(VERSION_SH) /* PSP: Shindou usa el mismo glifo 8x16 IA8 que JP (dl_ia_text_tex_settings); con las coordenadas de US las letras salian como puntos */
     {{{     0,      0,      0}, 0, {     0,    256}, {0xff, 0xff, 0xff, 0xff}}},
     {{{     8,      0,      0}, 0, {     0,      0}, {0xff, 0xff, 0xff, 0xff}}},
     {{{     8,     16,      0}, 0, {   480,      0}, {0xff, 0xff, 0xff, 0xff}}},
