@@ -76,3 +76,7 @@ sm64config.txt
 build_O2/
 Makefile.bak*
 *Zone.Identifier
+# Release packages (tools/psp/release.sh, make release) and ROMs in other byte orders: never commit these
+dist/
+*.v64
+*.n64

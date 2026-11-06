@@ -6,13 +6,18 @@
 #   .\build_psp.ps1 -Opt O2          -> -O2 sin alinear funciones. Resultado: build_O2\us_psp\mario64\ (EBOOT.PBP + SM64.PRX)
 #   .\build_psp.ps1 -Clean           -> borra antes la compilacion de esa version y configuracion (las otras versiones no se tocan)
 #   .\build_psp.ps1 -Rebuild      -> vuelve a construir la imagen de Docker (si cambias Dockerfile.psp)
+#   .\build_psp.ps1 -Version eu -Release -> ademas del build normal, prepara el release SIN datos de la ROM (instalador en la PSP):
+#                                       dist\psp_release\eu\PSP\GAME\SM64_EU\ (copia la carpeta PSP al Memory Stick). Solo con -Opt O3.
+#                                       Con -Fast se salta la comprobacion lenta de que no queda nada de la ROM en la plantilla.
 #
 # Cada configuracion usa su propia carpeta de compilacion, asi se puede cambiar de -O3 a -O2 sin borrar nada ni recompilar todo.
 param(
     [ValidateSet("us", "jp", "eu", "sh")][string]$Version = "us",
     [ValidateSet("O3", "O2")][string]$Opt = "O3",
     [switch]$Clean,
-    [switch]$Rebuild
+    [switch]$Rebuild,
+    [switch]$Release,
+    [switch]$Fast
 )
 
 $img = "sm64psp"
@@ -51,8 +56,18 @@ foreach ($r in $roms) {
 # 3) compilar
 $jobs = $env:NUMBER_OF_PROCESSORS
 if (-not $jobs) { $jobs = 8 }
-docker run --rm @envArgs -v "${PWD}:/sm64" -w /sm64 $img make TARGET_PSP=1 pbp VERSION=$Version "-j$jobs" "BUILD_DIR_BASE=$buildDir"
+$target = "pbp"
+$extra = @()
+if ($Release) {
+    if ($Opt -ne "O3") { Write-Host "-Release solo se puede combinar con -Opt O3"; exit 1 }
+    $target = "release"
+    if ($Fast) { $extra += "FAST=1" }
+}
+docker run --rm @envArgs -v "${PWD}:/sm64" -w /sm64 $img make TARGET_PSP=1 $target VERSION=$Version "-j$jobs" "BUILD_DIR_BASE=$buildDir" @extra
 if ($LASTEXITCODE -ne 0) { Write-Host "La compilacion fallo"; exit 1 }
 
 Write-Host ""
 Write-Host "Listo: $buildDir\${Version}_psp\mario64\  (copia EBOOT.PBP y SM64.PRX juntos a la misma carpeta de la PSP)"
+if ($Release) {
+    Write-Host "Release sin datos de la ROM: dist\psp_release\$Version\PSP\GAME\SM64_$($Version.ToUpper())\  (copia la carpeta PSP al Memory Stick; la ROM va en data\)"
+}

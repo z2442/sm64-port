@@ -128,7 +128,7 @@ ifeq ($(VERSION),sh)
   $(warning Building SH is experimental and is prone to breaking. Try at your own risk.)
   VERSION_DEF := VERSION_SH
   GRUCODE_DEF := F3D_NEW
-# Shindou: las texturas se extraen de baserom.sh.z64 y el sonido (secuencias, muestras) de baserom.jp.z64, asi que hacen falta las dos ROM.
+# Shindou: the textures are extracted from baserom.sh.z64 and the sound (sequences, samples) from baserom.jp.z64, so both ROMs are needed.
   EXTRACT_LANGS := jp sh
 else
   $(error unknown version "$(VERSION)")
@@ -305,7 +305,7 @@ C_FILES := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.c)) $(LEVEL_C_FILES)
 CXX_FILES := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.cpp))
 S_FILES := $(foreach dir,$(ASM_DIRS),$(wildcard $(dir)/*.s))
 ifeq ($(TARGET_PSP),1)
-  PSP_S_FILES := src/pc/gfx/gfx_clip_vfpu.s src/pc/gfx/gfx_transform_vfpu.s src/pc/psp_me_kcall.s
+  PSP_S_FILES := src/pc/gfx/gfx_clip_vfpu.s src/pc/gfx/gfx_transform_vfpu.s src/pc/psp_me_kcall.s src/pc/psp_dve_user.s
   S_FILES += $(PSP_S_FILES)
 endif
 ULTRA_C_FILES := $(foreach dir,$(ULTRA_SRC_DIRS),$(wildcard $(dir)/*.c))
@@ -505,22 +505,22 @@ ifeq ($(TARGET_LINUX),1)
   PLATFORM_LDFLAGS := -lm -lpthread `pkg-config --libs libusb-1.0` -lasound -lpulse -no-pie
 endif
 ifeq ($(TARGET_PSP),1)
-  # Optimizacion de la PSP (se puede cambiar por linea de comandos, p. ej. "make PSP_OPT=-O2", o editando aqui).
-  # La PSP solo tiene 16 KB de cache de instrucciones: -O3 con las funciones alineadas a 64 bytes agranda el codigo y a veces es mas
-  # lento que -O2 (los puertos de Sonic R / Sonic Mania para PSP usan -O2). Probar: PSP_OPT=-O2 y PSP_FALIGN= (vacio).
-  # Al cambiar estas opciones hay que borrar la carpeta build (make no sabe que cambiaron las banderas).
+  # PSP optimization level (can be changed from the command line, e.g. "make PSP_OPT=-O2", or by editing here).
+  # The PSP only has 16 KB of instruction cache: -O3 with functions aligned to 64 bytes enlarges the code and is sometimes
+  # slower than -O2 (the Sonic R / Sonic Mania PSP ports use -O2). Try: PSP_OPT=-O2 and PSP_FALIGN= (empty).
+  # After changing these options the build folder must be deleted (make does not know the flags changed).
   PSP_OPT ?= -O3
   PSP_FALIGN ?= -falign-functions=64 -flimit-function-alignment
-  # Sin la comprobacion de division por cero (instrucciones extra tras cada division entera); igual que en la N64 no hay trampa.
-  # -fno-math-errno: sqrtf() se compila a la instruccion sqrt.s (sin comprobar errno ni llamar a la libm); el resultado es el mismo.
-  # -fno-trapping-math: el compilador puede reordenar operaciones de coma flotante sin cambiar ningun resultado (la PSP no genera trampas).
+  # Without the divide-by-zero check (extra instructions after every integer division); as on the N64 there is no trap.
+  # -fno-math-errno: sqrtf() compiles to the sqrt.s instruction (without checking errno or calling libm); the result is the same.
+  # -fno-trapping-math: the compiler may reorder floating-point operations without changing any result (the PSP does not generate traps).
   PSP_EXTRA_CFLAGS ?= -mno-check-zero-division -fno-math-errno -fno-trapping-math
   PSPSDK_PREFIX = $(shell psp-config -p)
   PSP_PREFIX    = $(shell psp-config -P)
   # Notes from neo
   #-gdwarf-2 -gstrict-dwarf -g3 --ffunction-sections -fdata-sections -Wl,-gc-sections
   PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
-  PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -lme-core
+  PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -Wl,-u,sm64PspDveImport -lme-core
   
   ifeq ($(PROFILE_PSP),1)
     # gprof builds run as ELF EBOOTs, not PRX modules.
@@ -925,6 +925,58 @@ else
   EBOOT_DIR := psp/EBOOT
 endif
 
+# Kernel module for the TV output (optional): it is built and EMBEDDED INSIDE SM64.PRX (build/<ver>_psp/dvemgr/dvemgr_prx.inc, which includes psp_dve.c).
+# The game writes it by itself to the savedata folder and loads it when needed (as libme-core does with kcall.prx): there is nothing to copy separately.
+DVEMGR_DIR := $(BUILD_DIR)/dvemgr
+DVEMGR_PRX := $(DVEMGR_DIR)/dvemgr.prx
+$(DVEMGR_DIR)/%.o: psp/dvemgr/%.c
+	@mkdir -p $(dir $@)
+	psp-gcc -c -Os -G0 -Wall -fshort-wchar -fno-pic -mno-check-zero-division -D_PSP_FW_VERSION=500 -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -o $@ $<
+$(DVEMGR_DIR)/%.o: psp/dvemgr/%.s
+	@mkdir -p $(dir $@)
+	psp-gcc -c -x assembler-with-cpp -D_PSP_FW_VERSION=500 -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -o $@ $<
+$(DVEMGR_DIR)/dvemgr.elf: $(DVEMGR_DIR)/main.o $(DVEMGR_DIR)/exports.o $(DVEMGR_DIR)/imports.o
+	psp-gcc -L$(PSP_PREFIX)/lib -L$(PSPSDK_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx -nostartfiles -Wl,-zmax-page-size=128 $^ -nostdlib -lpspdebug -lpspdisplay_driver -lpspctrl_driver -lpspmodinfo -lpspsdk -lpspkernel -o $@
+	psp-fixup-imports $@
+$(DVEMGR_PRX): $(DVEMGR_DIR)/dvemgr.elf
+	psp-prxgen $< $@
+$(DVEMGR_DIR)/dvemgr_prx.inc: $(DVEMGR_PRX)
+	$(PYTHON) -c "import sys; d=open(sys.argv[1],'rb').read(); open(sys.argv[2],'w').write('static const unsigned char sDveModule[%d] = {\n%s\n};\n' % (len(d), ','.join(str(b) for b in d)))" $< $@
+$(BUILD_DIR)/src/pc/psp_dve.o: $(DVEMGR_DIR)/dvemgr_prx.inc
+
+# Cable diagnostic module (read only, temporary): same as dvemgr, it goes inside SM64.PRX and is only loaded when requested.
+DVEDIAG_DIR := $(BUILD_DIR)/dvediag
+DVEDIAG_PRX := $(DVEDIAG_DIR)/dvediag.prx
+$(DVEDIAG_DIR)/%.o: psp/dvediag/%.c
+	@mkdir -p $(dir $@)
+	psp-gcc -c -Os -G0 -Wall -fshort-wchar -fno-pic -mno-check-zero-division -D_PSP_FW_VERSION=500 -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -o $@ $<
+$(DVEDIAG_DIR)/%.o: psp/dvediag/%.s
+	@mkdir -p $(dir $@)
+	psp-gcc -c -x assembler-with-cpp -D_PSP_FW_VERSION=500 -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -o $@ $<
+$(DVEDIAG_DIR)/dvediag.elf: $(DVEDIAG_DIR)/main.o $(DVEDIAG_DIR)/exports.o $(DVEDIAG_DIR)/imports.o
+	psp-gcc -L$(PSP_PREFIX)/lib -L$(PSPSDK_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx -nostartfiles -Wl,-zmax-page-size=128 $^ -nostdlib -lpspdebug -lpspdisplay_driver -lpspctrl_driver -lpspmodinfo -lpspsdk -lpspkernel -o $@
+	psp-fixup-imports $@
+$(DVEDIAG_PRX): $(DVEDIAG_DIR)/dvediag.elf
+	psp-prxgen $< $@
+$(DVEDIAG_DIR)/dvediag_prx.inc: $(DVEDIAG_PRX)
+	$(PYTHON) -c "import sys; d=open(sys.argv[1],'rb').read(); open(sys.argv[2],'w').write('static const unsigned char sDiagModule[%d] = {\n%s\n};\n' % (len(d), ','.join(str(b) for b in d)))" $< $@
+$(BUILD_DIR)/src/pc/psp_dve.o: $(DVEDIAG_DIR)/dvediag_prx.inc
+
+# System native TV mode module (read only): same as dvediag, it goes inside SM64.PRX and is only loaded when requested.
+DVENAT_DIR := $(BUILD_DIR)/dvenat
+DVENAT_PRX := $(DVENAT_DIR)/dvenat.prx
+$(DVENAT_DIR)/%.o: psp/dvenat/%.c
+	@mkdir -p $(dir $@)
+	psp-gcc -c -Os -G0 -Wall -fshort-wchar -fno-pic -mno-check-zero-division -D_PSP_FW_VERSION=500 -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -o $@ $<
+$(DVENAT_DIR)/dvenat.elf: $(DVENAT_DIR)/main.o $(DVENAT_DIR)/exports.o
+	psp-gcc -L$(PSP_PREFIX)/lib -L$(PSPSDK_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx -nostartfiles -Wl,-zmax-page-size=128 $^ -nostdlib -lpspdebug -lpspdisplay_driver -lpspctrl_driver -lpspmodinfo -lpspsdk -lpspkernel -o $@
+	psp-fixup-imports $@
+$(DVENAT_PRX): $(DVENAT_DIR)/dvenat.elf
+	psp-prxgen $< $@
+$(DVENAT_DIR)/dvenat_prx.inc: $(DVENAT_PRX)
+	$(PYTHON) -c "import sys; d=open(sys.argv[1],'rb').read(); open(sys.argv[2],'w').write('static const unsigned char sNatModule[%d] = {\n%s\n};\n' % (len(d), ','.join(str(b) for b in d)))" $< $@
+$(BUILD_DIR)/src/pc/psp_dve.o: $(DVENAT_DIR)/dvenat_prx.inc
+
 pbp: $(EXE)
 	@mkdir -p $(BUILD_DIR)/mario64
 	mksfoex -d MEMSIZE=1 $(TITLE) $(BUILD_DIR)/PARAM.SFO
@@ -939,10 +991,17 @@ pbp: $(EXE)
 		cp $(EXE).prx $(BUILD_DIR)/mario64/SM64.PRX; \
 	fi
 
-# mario64\EBOOT.PBP es solo un cargador minimo (psp/launcher/launcher.c): el juego va en mario64\SM64.PRX, que hay que copiar a la MISMA carpeta de la PSP.
-# (La PSP lee el EBOOT al arrancar con un lector lento: un EBOOT de 14,5 MB tardaba ~27 s; con el cargador, ~15 s.)
+# mario64\EBOOT.PBP is just a minimal loader (psp/launcher/launcher.c): the game is in mario64\SM64.PRX, which must be copied to the SAME folder on the PSP.
+# (The PSP reads the EBOOT at startup with a slow reader: a 14.5 MB EBOOT took ~27 s; with the loader, ~15 s.)
 
 .PHONY: pbp
+
+# Release that contains no data from the ROM (tools/psp/README.md): the same build as pbp, then the finished module is split into a ROM-free
+# template + manifest and the folder to copy to the Memory Stick is packed in dist/psp_release/<version>/PSP/GAME/. Nothing above changes.
+#   make TARGET_PSP=1 release VERSION=us -j8          (FAST=1 skips the slow check that no ROM data is left in the template)
+release: pbp
+	MAKEFLAGS= $(PYTHON) tools/psp/make_release.py --version $(VERSION) --verify $(if $(FAST),,--leak-check) --pack
+.PHONY: release
 endif
 endif
 
