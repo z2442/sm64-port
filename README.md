@@ -195,7 +195,7 @@ If a release is published for your version (GitHub → *Releases*), you do not n
 2. Put your own ROM in `PSP\GAME\SM64_<VERSION>\data\` (any file name; `.z64`, `.v64` or `.n64`). The Shindou version needs both the SH and the JP ROM.
 3. Start **Super Mario 64** from the XMB. The first time it checks your ROM and builds the game (a progress bar is shown and it can take a while), then it starts. The next times it starts directly; the ROM, `SM64.template.prx` and `manifest.bin` are no longer needed and can be deleted.
 
-The installer shows its messages in the language of your PSP (English, French, German, Spanish, Italian or Japanese). If it says the ROM is missing, check that it is the original 8 MB ROM of that version (SHA-1 in the [table above](#supported-versions)). The installer has only been tested in an emulator so far; reports from real PSPs are welcome.
+The installer shows its messages in the language of your PSP (English, French, German, Spanish, Italian or Japanese). If it says the ROM is missing, check that it is the original 8 MB ROM of that version (SHA-1 in the [table above](#supported-versions)). The installer has been tested on a real PSP-3000; reports from other models (especially the PSP-1000) are welcome.
 
 ### Optional: TV output (experimental)
 
@@ -416,6 +416,7 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 - **demmis98** — PSP optimizations and fixes in z2442's repository (VFPU work, Boos, Bob-omb explosions, cannons, screen transitions).
 - **z2442's Ocarina of Time port (oot-PSP) and Daedalus** — the TV-output helper module (`psp/dvemgr`) is adapted from the one in the OoT port, which in turn follows the video-out method used by the Daedalus N64 emulator for the PSP.
 - **ghurone / Sonic-R-PSP** — the ideas of the cached vertex arena and of letting the GE do the lateral clipping, and the compiler-flag hint, come from their Sonic R port for the PSP.
+- **beckerd ([psp_mk64_portable](https://github.com/beckerd/psp_mk64_portable)) and JustKidding23 ([Ocarina-of-Time-PSP](https://github.com/JustKidding23/Ocarina-of-Time-PSP), based on [z2442/oot-PSP](https://github.com/z2442/oot-PSP))** — the idea of shipping no game data and building it on the PSP, from the player's own ROM, the first time the game is launched comes from these two PSP ports (Mario Kart 64 and Ocarina of Time). The installer in this repository (`psp/installer/`) is a separate implementation: it rebuilds `SM64.PRX` from a template and a manifest instead.
 - **Claude (Anthropic)** — AI assistant that wrote or helped write most of the later code changes of this port: the 60 fps adaptation and frame pacing, the rendering and GE optimizations, the options menu, the JP/EU/SH version support and the documentation.
 - Everyone else who contributed to the PSP project and everyone listed in this repository's Git history (`git shortlog -sn`).
 

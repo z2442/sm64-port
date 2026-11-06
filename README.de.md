@@ -197,7 +197,7 @@ Wenn für Ihre Version ein Release veröffentlicht ist (GitHub → *Releases*), 
 2. Legen Sie Ihre eigene ROM in `PSP\GAME\SM64_<VERSION>\data\` ab (beliebiger Dateiname; `.z64`, `.v64` oder `.n64`). Die Shindou-Version benötigt die SH- und die JP-ROM.
 3. Starten Sie **Super Mario 64** aus dem XMB. Beim ersten Mal prüft es Ihre ROM und baut das Spiel (ein Fortschrittsbalken wird angezeigt, und es kann eine Weile dauern), danach startet es. Bei den nächsten Malen startet es direkt; ROM, `SM64.template.prx` und `manifest.bin` werden dann nicht mehr gebraucht und können gelöscht werden.
 
-Der Installer zeigt seine Meldungen in der Sprache Ihrer PSP an (Englisch, Französisch, Deutsch, Spanisch, Italienisch oder Japanisch). Meldet er, dass die ROM fehlt, prüfen Sie, ob es die originale 8-MB-ROM dieser Version ist (SHA-1 in der [Tabelle oben](#unterstützte-versionen)). Der Installer wurde bisher nur in einem Emulator getestet; Rückmeldungen von echten PSPs sind willkommen.
+Der Installer zeigt seine Meldungen in der Sprache Ihrer PSP an (Englisch, Französisch, Deutsch, Spanisch, Italienisch oder Japanisch). Meldet er, dass die ROM fehlt, prüfen Sie, ob es die originale 8-MB-ROM dieser Version ist (SHA-1 in der [Tabelle oben](#unterstützte-versionen)). Der Installer wurde auf einer echten PSP-3000 getestet; Rückmeldungen zu anderen Modellen (vor allem zur PSP-1000) sind willkommen.
 
 ### Optional: TV-Ausgang (experimentell)
 
@@ -356,6 +356,7 @@ Pull Requests sind willkommen. Bei größeren Änderungen eröffnen Sie bitte zu
 - **demmis98** — PSP-Optimierungen und Korrekturen im Repository von z2442.
 - **z2442s Ocarina-of-Time-Portierung (oot-PSP) und Daedalus** — das Hilfsmodul für den TV-Ausgang (`psp/dvemgr`) ist von dem der OoT-Portierung übernommen, das wiederum der Videoausgabe-Methode des N64-Emulators Daedalus für die PSP folgt.
 - **ghurone / Sonic-R-PSP** — die Ideen des zwischengespeicherten Vertex-Arenas und, das seitliche Clipping vom GE erledigen zu lassen, sowie der Hinweis zu den Compiler-Flags stammen aus ihrer Sonic-R-Portierung für die PSP.
+- **beckerd ([psp_mk64_portable](https://github.com/beckerd/psp_mk64_portable)) und JustKidding23 ([Ocarina-of-Time-PSP](https://github.com/JustKidding23/Ocarina-of-Time-PSP), basierend auf [z2442/oot-PSP](https://github.com/z2442/oot-PSP))** — die Idee, keine Spieldaten auszuliefern und sie beim ersten Start auf der PSP aus der ROM des Spielers zu erzeugen, stammt von diesen beiden PSP-Portierungen (Mario Kart 64 und Ocarina of Time). Der Installer in diesem Repository (`psp/installer/`) ist eine eigenständige Implementierung: Er baut `SM64.PRX` aus einer Vorlage und einem Manifest neu auf.
 - **Claude (Anthropic)** — KI-Assistent, der den Großteil der späteren Codeänderungen dieser Portierung geschrieben oder mitgeschrieben hat: die 60-fps-Anpassung und das Frame-Pacing, die Render- und GE-Optimierungen, das Optionsmenü, die Unterstützung der Versionen JP/EU/SH und die Dokumentation.
 - Alle anderen, die zum PSP-Projekt beigetragen haben, und alle im Git-Verlauf dieses Repositorys (`git shortlog -sn`).
 

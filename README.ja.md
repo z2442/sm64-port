@@ -197,7 +197,7 @@ PCにインストールするのはDocker Desktopだけです。それ以外(コ
 2. ご自身のROMを `PSP\GAME\SM64_<VERSION>\data\` に置きます(ファイル名は自由、`.z64`・`.v64`・`.n64` 可)。Shindou版はSHとJPの両方のROMが必要です。
 3. XMBから **Super Mario 64** を起動します。初回はROMを確認してゲームを組み立てます(進行バーが表示され、時間がかかることがあります)。完了後にゲームが始まります。次回からは直接起動し、ROM・`SM64.template.prx`・`manifest.bin` は不要になり削除できます。
 
-インストーラーはPSPの言語(英語・フランス語・ドイツ語・スペイン語・イタリア語・日本語)でメッセージを表示します。ROMが見つからないと表示される場合は、そのバージョンの元の8 MBのROMか確認してください(SHA-1は[上の表](#対応バージョン))。インストーラーはこれまでエミュレータでのみテストされています。実機での結果報告を歓迎します。
+インストーラーはPSPの言語(英語・フランス語・ドイツ語・スペイン語・イタリア語・日本語)でメッセージを表示します。ROMが見つからないと表示される場合は、そのバージョンの元の8 MBのROMか確認してください(SHA-1は[上の表](#対応バージョン))。インストーラーは実機のPSP-3000でテスト済みです。他の機種(特にPSP-1000)での結果報告を歓迎します。
 
 ### オプション:TV出力(実験的)
 
@@ -356,6 +356,7 @@ make TARGET_PSP=1 VERSION=us pbp        # build/us_psp/mario64/{EBOOT.PBP,SM64.P
 - **demmis98** — z2442のリポジトリでのPSP最適化と修正。
 - **z2442のOcarina of Time移植(oot-PSP)とDaedalus** — TV出力の補助モジュール(`psp/dvemgr`)はOoT移植のものを取り入れており、それはN64エミュレータDaedalusのPSP向け映像出力方式に基づいています。
 - **ghurone / Sonic-R-PSP** — 頂点アリーナのキャッシュ、横方向クリッピングをGEに任せる発想、コンパイラフラグに関するヒントは、PSP向けSonic R移植に由来します。
+- **beckerd([psp_mk64_portable](https://github.com/beckerd/psp_mk64_portable))と JustKidding23([Ocarina-of-Time-PSP](https://github.com/JustKidding23/Ocarina-of-Time-PSP)、[z2442/oot-PSP](https://github.com/z2442/oot-PSP)ベース)** — ゲームデータを同梱せず、初回起動時にPSP上でプレイヤー自身のROMから生成するというアイデアは、これらの2つのPSP移植(マリオカート64とゼルダの伝説 時のオカリナ)に由来します。このリポジトリのインストーラー(`psp/installer/`)は別個の実装で、テンプレートとマニフェストから `SM64.PRX` を再構築します。
 - **Claude(Anthropic)** — この移植の後期のコード変更の大半を書いた、または共同で書いたAIアシスタント:60 fps対応とフレームペーシング、描画とGEの最適化、オプションメニュー、JP/EU/SH版への対応、ドキュメント。
 - PSPプロジェクトに貢献した他のすべての方々、およびこのリポジトリのGit履歴に名前のある全員(`git shortlog -sn`)。
 
