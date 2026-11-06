@@ -1,6 +1,6 @@
 # Super Mario 64 para PSP
 
-🇬🇧 [Read it in English](README.md)
+🌐 [English](README.md) · **Español** · [Français](README.fr.md) · [Deutsch](README.de.md) · [日本語](README.ja.md)
 
 Port nativo de **Super Mario 64** para la **Sony PSP**, disponible para las versiones **US, japonesa (JP), europea (EU) y Shindou (SH)**, basado en la decompilación
 [sm64-port](https://github.com/sm64-port/sm64-port) / [n64decomp/sm64](https://github.com/n64decomp/sm64)
@@ -187,6 +187,16 @@ El juego son los dos archivos **`EBOOT.PBP`** y **`SM64.PRX`**, dentro de **`bui
 > Tu PSP necesita **firmware personalizado** (ARK-4, PRO, ME, …) para ejecutar homebrew. Este port se desarrolló y probó en una PSP con **ARK-4 a 333 MHz**.
 > En una **PSP Go**, copia la carpeta en el `PSP\GAME` del almacenamiento interno.
 
+### Sin PC: instalar desde un release
+
+Si hay un release publicado para tu versión (GitHub → *Releases*), no necesitas compilar nada ni instalar Docker. El release no contiene datos del juego: se prepara solo con **tu propia ROM** la primera vez que lo abres.
+
+1. Descarga el zip de tu versión (`SM64-PSP-us.zip`, `-jp`, `-eu` o `-sh`), extráelo y copia la carpeta **`PSP`** a la raíz de tu Memory Stick (combina las carpetas si te lo pide).
+2. Pon tu propia ROM en `PSP\GAME\SM64_<VERSIÓN>\data\` (cualquier nombre; `.z64`, `.v64` o `.n64`). La versión Shindou necesita la ROM SH y la JP.
+3. Abre **Super Mario 64** desde el XMB. La primera vez comprueba tu ROM y construye el juego (muestra una barra de progreso y puede tardar), y luego arranca. Las siguientes veces arranca directamente; la ROM, `SM64.template.prx` y `manifest.bin` ya no hacen falta y se pueden borrar.
+
+El instalador muestra sus mensajes en el idioma de tu PSP (inglés, francés, alemán, español, italiano o japonés). Si dice que falta la ROM, comprueba que es la ROM original de 8 MB de esa versión (SHA-1 en la [tabla de arriba](#versiones-compatibles)). Por ahora el instalador solo se ha probado en un emulador; se agradecen los reportes desde PSP reales.
+
 ### Opcional: salida a TV (experimental)
 
 El juego puede enviar la imagen a una TV con el cable de video de la PSP. Solo funciona en una **PSP-2000 / 3000** (no en una PSP-1000; la PSP Go no se ha tenido en cuenta) y usa un pequeño módulo auxiliar que ya va **dentro de `SM64.PRX`** (el juego lo escribe en la carpeta de partidas y lo carga cuando hace falta), así que no hay nada extra que copiar. Abre **Options → Graphics → TV Settings** (una sub-página que solo se abre con el cable de video puesto; sin el cable la fila sale en gris, dice *No cable* y, si desconectas el cable estando dentro, el menú te devuelve a Graphics) y pon **TV Output** en **240p**, **480i** o **480p** (**480p** necesita cable de *componentes*; **240p** y **480i** también funcionan con cable compuesto/AV, y **480i** es el que hay que usar con una TV solo AV). El cambio se aplica **al momento**, sin reiniciar el juego (espera medio segundo después de que dejes de cambiarlo). El juego lee el estado real del cable con un segundo módulo auxiliar de solo lectura (también dentro de `SM64.PRX`), y **la TV solo se usa con un cable de video puesto**: con TV Output seleccionado, abajo en el menú sale **No cable / Composite cable / Component cable** (más los Hz medidos del modo de TV). Si el cable no está puesto la imagen se queda en la pantalla de la PSP (también al arrancar; el ajuste TV Output se conserva), y al conectar el cable la TV se enciende **sola** en el modo elegido; si lo desconectas, la imagen vuelve a la pantalla de la PSP. **El cable es obligatorio:** sin cable detectado la fila no se puede pasar a un modo de TV (suena el zumbido de "no se puede" y se ve en gris mientras está en Off); siempre se puede volver a Off. Si ese módulo no carga en tu firmware, el juego no puede saber del cable y vuelve al comportamiento anterior (supone cable de componentes; **L** reconecta a mano). La fila se ve **gris** (muestra el motivo, por ejemplo "PSP-1000" o "Safe mode", y suena el zumbido de "no se puede mover" si intentas cambiarla) si la consola es una PSP-1000, si no se pudo cargar el módulo o si iniciaste el juego manteniendo **L**.
@@ -344,7 +354,11 @@ El audio se genera con el Media Engine mediante `libme-core`; no hace falta ning
 
 El perfilado añade sobrecarga. Con él activado, el PBP usa el ELF directamente en vez de un PRX.
 
-### Otros destinos (sin cambios respecto al proyecto original, sin mantenimiento en este fork)
+### Crear un paquete de release
+
+Los paquetes de la sección "Sin PC: instalar desde un release" se hacen con `make TARGET_PSP=1 release VERSION=us -j8` (o `.\build_psp.ps1 -Version us -Release`); el instalador está en `psp/installer/`. Mira `tools/psp/README.md`.
+
+### Otros destinos (sin cambios respecto al proyecto original, sin mantenimiento aquí)
 
 El proyecto original también puede compilar ejecutables nativos para **Linux** y **Windows (MSYS2)**, y ROMs de N64.
 Mira [sm64-port/sm64-port](https://github.com/sm64-port/sm64-port) y [n64decomp/sm64](https://github.com/n64decomp/sm64) para esas instrucciones.
@@ -398,16 +412,12 @@ Los pull requests son bienvenidos. Para cambios grandes, abre antes un issue par
 **El port a PSP**
 
 - **Hayden Kowalchuk (HaydenKow)** — el port original a PSP (2020): según el historial de Git, el primer backend gráfico para PSP (sceGu), los controles, el gestor de texturas y el sistema de compilación para PSP de los que parte todo lo demás.
-- **z2442** — continuó el port a PSP (transformación y recorte de vértices con la VFPU, audio en el Media Engine) y es dueño del repositorio del que sale este.
+- **z2442** — continuó el port a PSP (transformación y recorte de vértices con la VFPU, audio en el Media Engine) y es dueño del repositorio en el que se basa este proyecto.
 - **demmis98** — optimizaciones y arreglos para PSP en el repositorio de z2442 (trabajo con la VFPU, Boos, explosiones de Bob-omb, cañones, transiciones de pantalla).
 - **El port de Ocarina of Time de z2442 (oot-PSP) y Daedalus** — el módulo auxiliar de salida a TV (`psp/dvemgr`) está adaptado del que lleva el port de OoT, que a su vez sigue el método de salida de video del emulador de N64 Daedalus para la PSP.
 - **ghurone / Sonic-R-PSP** — de su port de Sonic R para PSP salen las ideas de la arena de vértices con caché, de dejar que el GE haga el recorte lateral y la pista sobre las banderas del compilador.
-- Todos los demás que han colaborado en el proyecto PSP (Discord: <https://discord.gg/5w4B69>) y todos los que aparecen en el historial de Git de este repositorio (`git shortlog -sn`).
-
-**Este fork**
-
-- **Edwintendo** — mantenedor de este fork: dirección, pruebas en una PSP real y en PPSSPP, y las decisiones sobre qué se queda.
-- **Claude (Anthropic)** — asistente de IA que escribió o ayudó a escribir la mayor parte de los cambios de código de este fork: la adaptación a 60 fps y el control del ritmo de cuadros, las optimizaciones de renderizado y del GE, el menú de opciones, el soporte de las versiones JP/EU/SH y la documentación.
+- **Claude (Anthropic)** — asistente de IA que escribió o ayudó a escribir la mayor parte de los cambios de código posteriores de este port: la adaptación a 60 fps y el control del ritmo de cuadros, las optimizaciones de renderizado y del GE, el menú de opciones, el soporte de las versiones JP/EU/SH y la documentación.
+- Todos los demás que han colaborado en el proyecto PSP y todos los que aparecen en el historial de Git de este repositorio (`git shortlog -sn`).
 
 **Herramientas usadas**
 
