@@ -91,17 +91,17 @@ gfx_transform_vertices_vfpu:
  *     uint32_t count,
  *     const float matrices[2][4][4]);
  *
- * Igual que gfx_transform_vertices_vfpu, pero ademas de la posicion de recorte (offset 16, matrices[0] = modelo*vista*proyeccion)
- * guarda en el offset 0 la posicion en ESPACIO DE VISTA (matrices[1] = modelo*vista, afin; w = 1) en vez de la del modelo.
- * Con eso el GE solo necesita la proyeccion (la misma durante todo el cuadro) y objetos distintos con el mismo estado pueden ir en
- * una sola llamada de dibujo.
+ * Same as gfx_transform_vertices_vfpu, but besides the clip position (offset 16, matrices[0] = model*view*projection)
+ * it stores at offset 0 the position in EYE SPACE (matrices[1] = model*view, affine; w = 1) instead of the model one.
+ * With that the GE only needs the projection (the same during the whole frame) and different objects with the same state can go in
+ * a single draw call.
  */
 .globl gfx_transform_vertices_eye_vfpu
 gfx_transform_vertices_eye_vfpu:
 	beq     $a2, $zero, .Leye_done
 	nop
 
-	/* Columnas de la matriz de recorte (matrices[0]). */
+	/* Columns of the clip matrix (matrices[0]). */
 	lv.s    S000, 0($a3)
 	lv.s    S001, 16($a3)
 	lv.s    S002, 32($a3)
@@ -119,7 +119,7 @@ gfx_transform_vertices_eye_vfpu:
 	lv.s    S032, 44($a3)
 	lv.s    S033, 60($a3)
 
-	/* Columnas 0, 1 y 2 de la matriz de vista (matrices[1], 64 bytes mas alla). */
+	/* Columns 0, 1 and 2 of the view matrix (matrices[1], 64 bytes further on). */
 	lv.s    S100, 64($a3)
 	lv.s    S101, 80($a3)
 	lv.s    S102, 96($a3)
@@ -176,12 +176,12 @@ gfx_transform_vertices_eye_vfpu:
 
 #ifdef F3DEX_GBI_2E
 /*
- * void gfx_transform_vertices_eye2_vfpu(...)  (mismos argumentos y mismo resultado, bit a bit, que gfx_transform_vertices_eye_vfpu)
+ * void gfx_transform_vertices_eye2_vfpu(...)  (same arguments and same result, bit for bit, as gfx_transform_vertices_eye_vfpu)
  *
- * Procesa DOS vertices por vuelta con registros distintos (A: C200 -> C300 recorte, C310 vista; B: C210 -> C320 recorte, C330 vista) para
- * que las latencias de carga / producto punto / guardado de uno se solapen con el trabajo del otro, y deja la "w = 1" de entrada (S203, S213)
- * y de la posicion de vista (S313, S333) puesta una sola vez: las cargas solo tocan x, y, z. Si el numero de vertices es impar, el ultimo va solo.
- * Solo se usa para GBI_FLOATS (Vtx de 24 bytes con coordenadas float); el codigo C lo comprueba con una autoprueba al arrancar.
+ * Processes TWO vertices per turn with different registers (A: C200 -> C300 clip, C310 view; B: C210 -> C320 clip, C330 view) so
+ * that the load / dot product / store latencies of one overlap with the other's work, and leaves the input "w = 1" (S203, S213)
+ * and the view position's (S313, S333) set only once: the loads only touch x, y, z. If the number of vertices is odd, the last one goes alone.
+ * Only used for GBI_FLOATS (24-byte Vtx with float coordinates); the C code checks it with a self-test at boot.
  */
 .globl gfx_transform_vertices_eye2_vfpu
 gfx_transform_vertices_eye2_vfpu:
@@ -224,7 +224,7 @@ gfx_transform_vertices_eye2_vfpu:
 	vone.s  S333
 
 	addiu   $t3, $a2, -1
-	blez    $t3, .Leye2_single        /* un solo vertice */
+	blez    $t3, .Leye2_single        /* a single vertex */
 	nop
 
 .Leye2_pair:
@@ -260,7 +260,7 @@ gfx_transform_vertices_eye2_vfpu:
 	addiu   $a0, $a0, 96
 	addiu   $a2, $a2, -2
 	addiu   $t3, $a2, -1
-	bgtz    $t3, .Leye2_pair          /* quedan al menos 2 */
+	bgtz    $t3, .Leye2_pair          /* at least 2 remain */
 	nop
 
 	beq     $a2, $zero, .Leye2_done

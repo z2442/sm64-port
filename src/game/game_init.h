@@ -9,7 +9,7 @@
 #include "types.h"
 #include "memory.h"
 
-#define GFX_POOL_SIZE 13600 // el doble: las matrices interpoladas (60 fps) usan mas memoria de la lista de dibujo
+#define GFX_POOL_SIZE 13600 // double: the interpolated matrices (60 fps) use more of the draw list's memory
 
 struct GfxPool {
     Gfx buffer[GFX_POOL_SIZE];

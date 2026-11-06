@@ -1,17 +1,17 @@
 #ifdef TARGET_PSP
 
-/* Menu de opciones de la PSP (graficos, audio y controles).
+/* PSP options menu (graphics, audio and controls).
  *
- * Disenado igual que el menu de opciones de sm64rt / sm64ex: se abre con R en la pantalla de pausa (la pausa sigue de fondo, oscurecida),
- * titulo grande arriba, de a 4 opciones con la seleccionada en roja y el valor debajo, flechas a los lados y una barra de desplazamiento.
- * Pagina principal: Graphics / Audio / Controls. Texto con la misma fuente del juego (la de los dialogos).
- * Entradas (siempre los botones FISICOS de la PSP, para que remapear los controles nunca deje el menu inutilizable):
- *   moverse: stick o cruceta arriba / abajo; cambiar el valor: izquierda / derecha o X (cruz); volver: cuadrado o circulo; cerrar: START o R.
- * En Controls, X sobre un boton pide "Press a button" y asigna el siguiente boton que se pulse (si ese boton ya lo usaba otra accion, se intercambian);
- * si no se pulsa nada en unos 5 s se cancela.
- * TODOS los ajustes (graficos, audio y controles) se guardan en un solo archivo de texto legible, sm64config.txt, al cerrar el menu y al salir del juego;
- * se cargan al iniciar (configfile_load los pide a psp_options_load_file). Tambien se puede editar a mano. Los archivos antiguos (sm64config.txt solo con
- * controles numericos + sm64_options.txt) se leen y se convierten al formato nuevo la primera vez. */
+ * Designed like the sm64rt / sm64ex options menu: it opens with R on the pause screen (the pause stays in the background, darkened),
+ * big title at the top, 4 options at a time with the selected one in red and its value below, arrows at the sides and a scroll bar.
+ * Main page: Graphics / Audio / Controls. Text uses the same font as the game (the dialog one).
+ * Input (always the PSP's PHYSICAL buttons, so that remapping the controls never leaves the menu unusable):
+ * move: stick or D-pad up / down; change the value: left / right or X (cross); go back: square or circle; close: START or R.
+ * In Controls, X on a button asks for "Press a button" and assigns the next button that is pressed (if another action was already using that button, they are swapped);
+ * if nothing is pressed within about 5 s it is cancelled.
+ * ALL settings (graphics, audio and controls) are saved in a single readable text file, sm64config.txt, when the menu is closed and when leaving the game;
+ * they are loaded at startup (configfile_load asks psp_options_load_file for them). It can also be edited by hand. Old files (sm64config.txt with only
+ * numeric controls + sm64_options.txt) are read and converted to the new format the first time. */
 
 #include <ultra64.h>
 #include <stdio.h>
@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <psppower.h>
 #include <pspctrl.h>
+#include <psprtc.h>
 
 #include "sm64.h"
 #include "audio/external.h"
@@ -33,17 +34,28 @@
 #include "sound_init.h"
 #include "pc/fs_utils.h"
 #include "pc/psp_me.h"
+#include "pc/psp_dve.h"
 #include "pc/configfile.h"
 
 void create_dl_scale_matrix(s8 pushOp, f32 x, f32 y, f32 z); /* ingame_menu.c */
 void shade_screen(void);                                      /* ingame_menu.c */
-extern int gPspFpsLogOff;                                    /* game_init.c: en la version final siempre 1 (el registro de rendimiento esta apagado) */
-extern u8 gRenderFPS;                                        /* game_init.c: contador de FPS (y registro de rendimiento) */
-extern unsigned int gPspRawButtons;                          /* controller_psp.c: botones fisicos de la PSP (PSP_CTRL_*) */
-extern int gPspRawStickX, gPspRawStickY;                     /* controller_psp.c: stick fisico, -128..127, arriba y derecha positivos */
+extern int gPspFpsLogOff;                                    /* game_init.c: in the final version always 1 (the performance log is off) */
+void gfx_scegu_tv_request(int mode);
+void gfx_scegu_tv_refresh(void);
+void gfx_scegu_tv_area_refresh(void);
+void gfx_scegu_tv_reconnect(void);
+int gfx_scegu_tv_probation_left(void);
+void gfx_scegu_tv_confirm(void);
+void gfx_scegu_tv_cancel(void);
+int gfx_scegu_tv_take_revert(void);
+int gfx_scegu_tv_vbl_hz10(void);
+void psp_options_save_file(const char *filename);                       /* gfx_scegu.c: applies the TV output (0 / 1 / 2) within a few frames */
+extern u8 gRenderFPS;                                        /* game_init.c: FPS counter (and performance log) */
+extern unsigned int gPspRawButtons;                          /* controller_psp.c: the PSP's physical buttons (PSP_CTRL_*) */
+extern int gPspRawStickX, gPspRawStickY;                     /* controller_psp.c: physical stick, -128..127, up and right positive */
 
-#define OPT_FILE "sm64_options.txt" /* formato antiguo (solo se lee, para migrar) */
-#define CTRL_FILE "sm64config.txt"  /* el archivo unico de ajustes (el mismo que usa pc_main.c, CONFIG_FILE) */
+#define OPT_FILE "sm64_options.txt" /* old format (read only, to migrate) */
+#define CTRL_FILE "sm64config.txt"  /* the single settings file (the same one pc_main.c uses, CONFIG_FILE) */
 
 enum {
     OPT_FPSCAP,
@@ -53,37 +65,45 @@ enum {
     OPT_OBJDIST,
     OPT_FARDIST,
     OPT_CULLOBJ,
+    OPT_TVOUT,
+    OPT_TVASPECT,
+    OPT_TVAREA,  /* TV Width */
+    OPT_TVAREAY, /* TV Height */
+    OPT_TVSHIFT, /* TV Vertical Shift */
     OPT_RESET,
     OPT_COUNT
 };
 
-/* Filas que no son de video (los indices empiezan donde acaban los OPT_*, asi los arreglos de arriba no cambian). */
+/* Non-video rows (the indices start where the OPT_* end, so the arrays above do not change). */
 #define NUM_BINDS 10
 enum {
-    ROW_VIDEO = OPT_COUNT, /* entrada a la pagina Graphics (video) */
-    ROW_AUDIO,             /* entrada a la pagina Audio */
-    ROW_CONTROLS,          /* entrada a la pagina Controls */
-    ROW_BIND0,             /* ROW_BIND0 .. ROW_BIND0 + NUM_BINDS - 1: un boton del N64 cada una */
+    ROW_VIDEO = OPT_COUNT, /* entry to the Graphics page (video) */
+    ROW_AUDIO,             /* entry to the Audio page */
+    ROW_CONTROLS,          /* entry to the Controls page */
+    ROW_BIND0,             /* ROW_BIND0 .. ROW_BIND0 + NUM_BINDS - 1: one N64 button each */
     ROW_DEAD = ROW_BIND0 + NUM_BINDS,
     ROW_CTRLRESET,
-    ROW_MUSIC,    /* volumen de la musica (0 a 100) */
-    ROW_SFX,      /* volumen de los efectos de sonido (0 a 100) */
-    ROW_SOUNDMODE, /* Stereo / Mono / Headset: el mismo ajuste del menu de seleccion de archivo */
-    ROW_AUDRESET
+    ROW_MUSIC,    /* music volume (0 to 100) */
+    ROW_SFX,      /* sound effects volume (0 to 100) */
+    ROW_SOUNDMODE, /* Stereo / Mono / Headset: the same setting as the file select menu */
+    ROW_AUDRESET,
+    ROW_TVPAGE,    /* entry to the TV page (inside Graphics); can only be entered with the video cable plugged in */
+    ROW_TVRESET    /* "Reset TV": leaves TV Aspect and TV Area at their defaults (does not touch TV Output or the rest of Graphics) */
 };
 
-enum { PG_MAIN, PG_VIDEO, PG_AUDIO, PG_CTRL };
+enum { PG_MAIN, PG_VIDEO, PG_AUDIO, PG_CTRL, PG_TV };
 
 static const u8 sPgMain[] = { ROW_VIDEO, ROW_AUDIO, ROW_CONTROLS };
 static const u8 sPgAudio[] = { ROW_MUSIC, ROW_SFX, ROW_SOUNDMODE, ROW_AUDRESET };
-static const u8 sPgVideo[] = { OPT_FPSCAP, OPT_PACING, OPT_OBJDIST, OPT_FARDIST, OPT_CULLOBJ, OPT_SHOWFPS, OPT_SOUNDCPU, OPT_RESET };
+static const u8 sPgVideo[] = { OPT_FPSCAP, OPT_PACING, OPT_OBJDIST, OPT_FARDIST, OPT_CULLOBJ, OPT_SHOWFPS, OPT_SOUNDCPU, ROW_TVPAGE, OPT_RESET };
+static const u8 sPgTv[] = { OPT_TVOUT, OPT_TVASPECT, OPT_TVAREA, OPT_TVAREAY, OPT_TVSHIFT, ROW_TVRESET };
 static const u8 sPgCtrl[] = { ROW_BIND0, ROW_BIND0 + 1, ROW_BIND0 + 2, ROW_BIND0 + 3, ROW_BIND0 + 4, ROW_BIND0 + 5, ROW_BIND0 + 6,
                               ROW_BIND0 + 7, ROW_BIND0 + 8, ROW_BIND0 + 9, ROW_DEAD, ROW_CTRLRESET };
-/* Los titulos (sTrTitle, mas abajo) usan la fuente de colores del HUD: en la version US solo existen las letras A-I, K-P, R-U, W, Y (no hay J, Q, V, X ni Z;
- * en la europea faltan J, Q y X) y una letra que falta cuelga el dibujo; por eso la pagina de video se llama "Graphics" y no "Video", y los titulos en
- * frances y aleman solo usan letras que existen. */
+/* The titles (sTrTitle, below) use the HUD's color font: in the US version only the letters A-I, K-P, R-U, W, Y exist (no J, Q, V, X or Z;
+ * in the European one J, Q and X are missing) and a missing letter hangs the drawing; that is why the video page is called "Graphics" and not "Video", and the titles in
+ * French and German only use letters that exist. */
 
-/* Botones del N64 y su asignacion por defecto en la PSP (la misma que en configfile.c / controller_psp.c). */
+/* N64 buttons and their default assignment on the PSP (the same as in configfile.c / controller_psp.c). */
 static const struct { const char *name; unsigned int *mask; unsigned int def; } sBind[NUM_BINDS] = {
     { "A Button", &configKeyA, PSP_CTRL_CROSS },
     { "B Button", &configKeyB, PSP_CTRL_SQUARE },
@@ -96,10 +116,10 @@ static const struct { const char *name; unsigned int *mask; unsigned int def; } 
     { "C-Left", &configKeyCLeft, PSP_CTRL_LEFT },
     { "C-Right", &configKeyCRight, PSP_CTRL_RIGHT },
 };
-#define DEAD_DEF 32 /* zona muerta por defecto del stick (la de configfile.c) */
+#define DEAD_DEF 32 /* default stick dead zone (the one from configfile.c) */
 #define DEAD_MAX 80
 
-/* Botones fisicos que se pueden asignar (en este orden se prefiere uno si se pulsan varios a la vez). */
+/* Physical buttons that can be assigned (in this order one is preferred if several are pressed at once). */
 static const struct { const char *name; unsigned int mask; } sPhys[] = {
     { "Cross", PSP_CTRL_CROSS },     { "Circle", PSP_CTRL_CIRCLE }, { "Square", PSP_CTRL_SQUARE },   { "Triangle", PSP_CTRL_TRIANGLE },
     { "L Trig", PSP_CTRL_LTRIGGER }, { "R Trig", PSP_CTRL_RTRIGGER }, { "Select", PSP_CTRL_SELECT }, { "Start", PSP_CTRL_START },
@@ -108,82 +128,99 @@ static const struct { const char *name; unsigned int mask; } sPhys[] = {
 #define NUM_PHYS ((int) (sizeof(sPhys) / sizeof(sPhys[0])))
 #define BINDABLE (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE | PSP_CTRL_SQUARE | PSP_CTRL_TRIANGLE | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_SELECT \
                   | PSP_CTRL_START | PSP_CTRL_UP | PSP_CTRL_DOWN | PSP_CTRL_LEFT | PSP_CTRL_RIGHT)
-#define CAPTURE_TICKS 150 /* ~5 s a 30 ticks por segundo */
+#define CAPTURE_TICKS 150 /* ~5 s at 30 ticks per second */
 
-/* Regla del menu: ningun valor deja el juego por debajo de como se ve en la N64. Las filas de distancia empiezan en el 100 % (lo original) y
- * solo suben; lo demas (limite de fps, ritmo, contador) no cambia lo que se dibuja. */
-int gPspOptFpsCap = 60;   /* limite de fps: 30 / 60 */
-int gPspOptPipe = 1;      /* Triple Buffer: la CPU empieza el cuadro siguiente sin esperar a que el anterior llegue a pantalla (gfx_scegu.c) */
-int gPspOptKeepSpeed = 0; /* 0 = "Keep FPS": siempre intenta el limite (si no cabe, el juego va mas lento); 1 = "Keep Speed": baja los fps para no perder velocidad */
-float gPspObjDistScale = 1.5f; /* multiplica la distancia a la que los objetos se desactivan (>= 1.0); por defecto 150 % */
-float gPspFarScale = 1.5f;     /* multiplica el plano lejano de la camara (>= 1.0); por defecto 150 % */
-int gPspOptCullObj = 1;        /* 0 = culling de objetos original (solo horizontal), 1 = tambien vertical (por defecto) */
-float gPspVolMusic = 1.0f;     /* volumen de la musica, 0.0 a 1.0 (1.0 = el original del juego); lo lee effects.c */
-float gPspVolSfx = 1.0f;       /* volumen de los efectos de sonido, 0.0 a 1.0 */
-int gPspClockWant = 333;       /* reloj de CPU fijo (ya no es opcion): lo pide gfx_psp.c al arrancar */
-unsigned int gPspOptChanges;   /* cuantas veces se cambio una opcion (la lee el registro de rendimiento) */
+/* Menu rule: no value leaves the game below how it looks on the N64. The distance rows start at 100 % (the original) and
+ * only go up; the rest (fps limit, pacing, counter) does not change what is drawn. */
+int gPspOptFpsCap = 60;   /* fps limit: 30 / 60 */
+int gPspOptPipe = 1;      /* Triple Buffer: the CPU starts the next frame without waiting for the previous one to reach the screen (gfx_scegu.c) */
+int gPspOptKeepSpeed = 0; /* 0 = "Keep FPS": always tries for the limit (if it does not fit, the game runs slower); 1 = "Keep Speed": lowers the fps so as not to lose speed */
+float gPspObjDistScale = 1.5f; /* multiplies the distance at which objects are deactivated (>= 1.0); default 150 % */
+float gPspFarScale = 1.5f;     /* multiplies the camera's far plane (>= 1.0); default 150 % */
+int gPspOptTvAspect = 1;       /* TV Aspect: 0 = 4:3 (16:9 image with bars), 1 = 16:9 (fills the TV frame) */
+int gPspOptTvArea = 100;       /* TV Width: percentage of the TV frame's WIDTH that the image takes (60 to 100); the rest stays black, for TVs that crop the edges */
+int gPspOptTvAreaY = 100;      /* TV Height: the same for the HEIGHT (60 to 100) */
+int gPspOptTvShiftY = 0;       /* TV Vertical Shift: lines (of 480) that the image goes down inside the TV frame; negative = up (-60 to 60) */
+int gPspOptTv = 0;             /* TV Output (psp_dve.h): 0 Off / 1 240p / 2 480i / 3 480p; applied immediately */
+int gPspOptCullObj = 1;        /* 0 = original object culling (horizontal only), 1 = vertical too (default) */
+float gPspVolMusic = 1.0f;     /* music volume, 0.0 to 1.0 (1.0 = the game's original); read by effects.c */
+float gPspVolSfx = 1.0f;       /* sound effects volume, 0.0 to 1.0 */
+int gPspClockWant = 333;       /* fixed CPU clock (no longer an option): requested by gfx_psp.c at boot */
+unsigned int gPspOptChanges;   /* how many times an option was changed (read by the performance log) */
 
 
-/* Cada fila tiene sus valores de menor a mayor (derecha = mas), y sDef es el indice del valor por defecto. */
+/* Each row has its values from lowest to highest (right = more), and sDef is the index of the default value. */
 static const char *const sFpsTxt[2] = { "30", "60" };
 static const int sFpsCap[2] = { 30, 60 };
 static const char *const sPacingTxt[2] = { "Keep FPS", "Keep Speed" };
 static const char *const sOnOffTxt[2] = { "Off", "On" };
 static const char *const sFpsCtrTxt[2] = { "Off", "On" };
-/* Object Distance y Far Distance: de 100 % (lo original) a 300 %. (La opcion "Unlimited" se quito: rompia cosas.) El limite de profundidad de los objetos es
- * 20000 * escala y no debe pasar de 65536 (ver obj_is_in_view): con 300 % queda en 60000. */
+/* Object Distance and Far Distance: from 100 % (the original) to 300 %. (The "Unlimited" option was removed: it broke things.) The objects' depth limit is
+ * 20000 * scale and must not exceed 65536 (see obj_is_in_view): at 300 % it ends up at 60000. */
 static const char *const sObjTxt[5] = { "100%", "150%", "200%", "250%", "300%" };
 static const float sObjScale[5] = { 1.0f, 1.5f, 2.0f, 2.5f, 3.0f };
 static const char *const sFarTxt[5] = { "100%", "150%", "200%", "250%", "300%" };
-static const float sFarScale[5] = { 1.0f, 1.5f, 2.0f, 2.5f, 3.0f }; /* plano lejano de la camara; el nivel de detalle siempre es el maximo */
-#define DIST_ROW_MAX 4 /* indice del mayor valor de las filas de distancia (300 %) */
+static const float sFarScale[5] = { 1.0f, 1.5f, 2.0f, 2.5f, 3.0f }; /* camera far plane; the level of detail is always the maximum */
+#define DIST_ROW_MAX 4 /* index of the highest value of the distance rows (300 %) */
 static const char *const sCullTxt[2] = { "Original", "Vertical" };
 
-static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 0 };
-static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0 }; /* 60 fps, Keep FPS, contador Off, Object / Far Distance 150 %, culling Vertical */
+static const char *const sTvTxt[4] = { "Off", "240p", "480i", "480p" };
+static const char *const sTvAspTxt[2] = { "4:3", "16:9" };
+#define TV_SHIFT_MAX 60 /* value i of the row is i - TV_SHIFT_MAX lines */
+static const char *const sTvShiftTxt[121] = { "-60","-59","-58","-57","-56","-55","-54","-53","-52","-51","-50","-49","-48","-47","-46","-45","-44","-43","-42","-41","-40","-39","-38","-37","-36","-35","-34","-33","-32","-31","-30","-29","-28","-27","-26","-25","-24","-23","-22","-21","-20","-19","-18","-17","-16","-15","-14","-13","-12","-11","-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","53","54","55","56","57","58","59","60" };
+#define TV_AREA_MIN 60 /* value i of the row is TV_AREA_MIN + i percent */
+static const char *const sTvAreaTxt[41] = { "60%","61%","62%","63%","64%","65%","66%","67%","68%","69%","70%","71%","72%","73%","74%","75%","76%","77%","78%","79%","80%","81%","82%","83%","84%","85%","86%","87%","88%","89%","90%","91%","92%","93%","94%","95%","96%","97%","98%","99%","100%" };
+static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 4, 2, 41, 41, 121, 0 };
+static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0 }; /* 60 fps, Keep FPS, counter Off, Object / Far Distance 150 %, culling Vertical */
 
-static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0 }; /* indice elegido en cada fila */
-#define VOL_STEP 5 /* el menu sube / baja el volumen de 5 en 5 */
+static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0 }; /* index chosen in each row */
+#define VOL_STEP 5 /* the menu raises / lowers the volume in steps of 5 */
 static int sMusic = 100; /* 0 a 100 */
 static int sSfx = 100;
 static int sInit;
 static int sOpen;
 static int sSel;
 static int sScroll;
-static int sPage;           /* PG_MAIN / PG_VIDEO / PG_CTRL */
-static int sCapture = -1;   /* indice (0..NUM_BINDS-1) del boton que espera un boton fisico, -1 = ninguno */
+static int sPage;           /* PG_MAIN / PG_VIDEO / PG_AUDIO / PG_CTRL / PG_TV */
+static int sCapture = -1;   /* index (0..NUM_BINDS-1) of the button waiting for a physical button, -1 = none */
 static int sCaptureTimer;
-static int sWaitRelease;    /* despues de asignar: ignora todo hasta soltar los botones (el mapeo acaba de cambiar) */
+static int sWaitRelease;    /* after assigning: ignore everything until the buttons are released (the mapping just changed) */
 static unsigned int sPrevRaw;
 static int sJustOpened;
 static int sPrevX, sPrevY, sTimeX, sTimeY;
+static int sNavBuzzed; /* the buzz already sounded on this press (the cursor cannot advance: what follows is greyed out) */
 
 static void psp_opt_apply(void) {
     gPspOptFpsCap = sFpsCap[sVal[OPT_FPSCAP]];
     gPspOptKeepSpeed = sVal[OPT_PACING];
-    gPspOptPipe = 1; /* Triple Buffer: siempre activo (ya no es opcion) */
+    gPspOptPipe = 1; /* Triple Buffer: always on (no longer an option) */
     gPspObjDistScale = sObjScale[sVal[OPT_OBJDIST]];
     gPspFarScale = sFarScale[sVal[OPT_FARDIST]];
     gPspOptCullObj = sVal[OPT_CULLOBJ];
+    gPspOptTv = sVal[OPT_TVOUT];
+    gPspOptTvAspect = sVal[OPT_TVASPECT];
+    gPspOptTvArea = TV_AREA_MIN + sVal[OPT_TVAREA];
+    gPspOptTvAreaY = TV_AREA_MIN + sVal[OPT_TVAREAY];
+    gPspOptTvShiftY = sVal[OPT_TVSHIFT] - TV_SHIFT_MAX;
     gPspVolMusic = (float) sMusic * 0.01f;
     gPspVolSfx = (float) sSfx * 0.01f;
-    /* "FPS Counter": 0 = apagado, 1 = contador en pantalla. Sin registro en archivo (version final). */
+    /* "FPS Counter": 0 = off, 1 = on-screen counter. No file log (final version). */
     gRenderFPS = sVal[OPT_SHOWFPS] ? 1 : 0;
     gPspFpsLogOff = 1;
 }
 
-/* Archivo de opciones ANTIGUO: "SM64OPT 7" y despues una linea "clave valor" por opcion (las que falten o no se reconozcan quedan en su valor por
- * defecto, asi se pueden agregar opciones sin invalidar el archivo). De las versiones 2 a 5 solo se leen FPS Limit y Frame Pacing: Object Distance,
- * Far Distance y Object Culling toman los valores por defecto nuevos (150 % / 150 % / Vertical), y Triple Buffer y CPU Clock ya no son opciones. */
+/* OLD options file: "SM64OPT 7" and then one "key value" line per option (missing or unrecognized ones keep their default
+ * value, so options can be added without invalidating the file). From versions 2 to 5 only FPS Limit and Frame Pacing are read: Object Distance,
+ * Far Distance and Object Culling take the new defaults (150 % / 150 % / Vertical), and Triple Buffer and CPU Clock are no longer options. */
 static const struct { const char *key; int row; } sSaveKeys[] = {
     { "fps", OPT_FPSCAP }, { "pace", OPT_PACING }, { "scpu", OPT_SOUNDCPU }, { "obj", OPT_OBJDIST }, { "farp", OPT_FARDIST }, { "cull", OPT_CULLOBJ },
 };
 #define SAVE_KEYS ((int) (sizeof(sSaveKeys) / sizeof(sSaveKeys[0])))
 
-/* valor de una version anterior (hasta la 5) -> indice actual (-1 = no se lee, queda el valor por defecto) */
+/* value from an earlier version (up to 5) -> current index (-1 = not read, the default value stays) */
 static int psp_opt_from_old(int row, int v) {
     switch (row) {
-        case OPT_FPSCAP: /* antes 30 / 40 / 45 / 50 / 60: ahora 30 / 60 */
+        case OPT_FPSCAP: /* before 30 / 40 / 45 / 50 / 60: now 30 / 60 */
             return (v >= 2) ? 1 : 0;
         case OPT_PACING:
             return v;
@@ -192,7 +229,7 @@ static int psp_opt_from_old(int row, int v) {
     }
 }
 
-/* Lee el archivo de opciones ANTIGUO (sm64_options.txt) para migrar los ajustes la primera vez. */
+/* Reads the OLD options file (sm64_options.txt) to migrate the settings the first time. */
 static void psp_opt_load_legacy(void) {
     char path[FS_MAX_PATH];
     FILE *f;
@@ -206,7 +243,7 @@ static void psp_opt_load_legacy(void) {
     if (fscanf(f, "SM64OPT %d", &ver) == 1) {
         if (ver == 2) {
             int v[7] = { 0 };
-            static const int rows[7] = { OPT_FPSCAP, OPT_PACING, -1, -1, -1, -1, -1 }; /* el resto ya no se lee */
+            static const int rows[7] = { OPT_FPSCAP, OPT_PACING, -1, -1, -1, -1, -1 }; /* the rest is no longer read */
             if (fscanf(f, "%d %d %d %d %d %d %d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]) == 7) {
                 for (i = 0; i < 7; i++) {
                     const int nv = (rows[i] < 0) ? -1 : psp_opt_from_old(rows[i], v[i]);
@@ -222,11 +259,11 @@ static void psp_opt_load_legacy(void) {
                 for (i = 0; i < SAVE_KEYS; i++) {
                     if (strcmp(key, sSaveKeys[i].key) == 0) {
                         int nv = (ver <= 5) ? psp_opt_from_old(sSaveKeys[i].row, val) : val;
-                        /* version 6: Object / Far Distance no tenian 250 % (300 % y Unlimited eran los indices 3 y 4) */
+                        /* version 6: Object / Far Distance did not have 250 % (300 % and Unlimited were indices 3 and 4) */
                         if (ver == 6 && (sSaveKeys[i].row == OPT_OBJDIST || sSaveKeys[i].row == OPT_FARDIST) && val >= 3) {
                             nv = val + 1;
                         }
-                        /* "Unlimited" (ya no existe) pasa a 300 % */
+                        /* "Unlimited" (no longer exists) becomes 300 % */
                         if ((sSaveKeys[i].row == OPT_OBJDIST || sSaveKeys[i].row == OPT_FARDIST) && nv > DIST_ROW_MAX && nv <= 5) {
                             nv = DIST_ROW_MAX;
                         }
@@ -243,11 +280,11 @@ static void psp_opt_load_legacy(void) {
 
 void psp_options_poll(void) {
     if (!sInit) {
-        psp_options_load_file(CTRL_FILE); /* normalmente configfile_load ya lo hizo al arrancar */
+        psp_options_load_file(CTRL_FILE); /* normally configfile_load already did it at boot */
     }
 }
 
-/* Repite el movimiento mientras se mantiene el stick / la cruceta: primero espera ~8 ticks y luego avanza cada 3. */
+/* Repeats the movement while the stick / D-pad is held: first it waits ~8 ticks and then advances every 3. */
 static int psp_opt_repeat(int cur, int *prev, int *timer) {
     if (cur == 0) {
         *prev = 0;
@@ -266,7 +303,7 @@ static int psp_opt_repeat(int cur, int *prev, int *timer) {
     return 0;
 }
 
-/* "Cross", "Circle/L Trig"... (un boton del N64 puede tener varios botones fisicos, p. ej. Z por defecto) */
+/* "Cross", "Circle/L Trig"... (an N64 button can have several physical buttons, e.g. Z by default) */
 static void psp_opt_mask_text(unsigned int mask, char *out, int max) {
     int i, n = 0;
     out[0] = '\0';
@@ -283,11 +320,11 @@ static void psp_opt_mask_text(unsigned int mask, char *out, int max) {
     }
 }
 
-/* Igual que psp_opt_mask_text pero con los nombres del idioma del menu (para mostrar en pantalla; el archivo siempre usa los ingleses) */
+/* Same as psp_opt_mask_text but with the names in the menu's language (to display on screen; the file always uses the English ones) */
 static void psp_opt_mask_disp(unsigned int mask, char *out, int max);
 static const char *psp_opt_phys_disp(int i);
 
-/* Modo de sonido (0 Stereo, 1 Mono, 2 Headset): mismos indices que el menu de seleccion de archivo. Se aplica al instante; el guardado se hace al cerrar. */
+/* Sound mode (0 Stereo, 1 Mono, 2 Headset): same indices as the file select menu. Applied instantly; saving is done on close. */
 static int sSndMode = 0;
 static int sSndDirty = 0;
 static void psp_opt_set_sound_mode(int mode) {
@@ -299,9 +336,9 @@ static void psp_opt_set_sound_mode(int mode) {
 }
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------
- * Idioma del menu. Se elige solo, segun la version del juego: US = ingles; EU = el idioma elegido en el juego (ingles / frances / aleman);
- * JP y Shindou = japones (solo kana: la fuente del juego no tiene kanji). Los textos van en UTF-8 y psp_opt_str() los convierte a los codigos de
- * texto de cada version. El archivo sm64config.txt sigue usando siempre los nombres en ingles (de eso se encargan las tablas de arriba).
+ * Menu language. It is chosen automatically, according to the game version: US = English; EU = the language chosen in the game (English / French / German);
+ * JP and Shindou = Japanese (kana only: the game's font has no kanji). Texts are in UTF-8 and psp_opt_str() converts them to the text codes of
+ * each version. The sm64config.txt file always keeps using the English names (the tables above take care of that).
  * ------------------------------------------------------------------------------------------------------------------------------------------ */
 enum { LANG_EN, LANG_FR, LANG_DE, LANG_JP, LANG_COUNT };
 #define TR(en, fr, de, jp) { en, fr, de, jp }
@@ -318,11 +355,12 @@ static int psp_opt_lang(void) {
 #endif
 }
 
-static const char *const sTrTitle[4][LANG_COUNT] = {
+static const char *const sTrTitle[5][LANG_COUNT] = {
     TR("OPTIONS", "OPTIONS", "OPTIONEN", "オプション"),
     TR("GRAPHICS", "GRAPHISMES", "GRAFIK", "グラフィック"),
     TR("AUDIO", "AUDIO", "AUDIO", "オーディオ"),
     TR("CONTROLS", "COMMANDES", "STEUERUNG", "コントロール"),
+    TR("OUTPUT", "SORTIE", "AUSGABE", "TVシュツリョク"), /* no "TV": in the US version the letter V does not exist in the color font */
 };
 static const char *const sTrLabel[OPT_COUNT][LANG_COUNT] = {
     TR("FPS Limit", "Limite de FPS", "FPS-Limit", "FPSセイゲン"),
@@ -332,6 +370,11 @@ static const char *const sTrLabel[OPT_COUNT][LANG_COUNT] = {
     TR("Object Distance", "Distance objets", "Objektdistanz", "オブジェクトキョリ"),
     TR("Far Distance", "Distance lointaine", "Fernsicht", "エンキョリ"),
     TR("Object Culling", "Masquage objets", "Objekt-Culling", "オブジェクトカリング"),
+    TR("TV Output", "Sortie TV", "TV-Ausgabe", "TVシュツリョク"),
+    TR("TV Aspect", "Format TV", "TV-Format", "TVヒリツ"),
+    TR("TV Width", "Largeur TV", "TV-Breite", "TVヨコハバ"),
+    TR("TV Height", "Hauteur TV", "TV-Höhe", "TVタカサ"),
+    TR("TV Vertical Shift", "Décalage vertical TV", "TV vertikal", "TVタテイチ"),
     TR("Reset to Defaults", "Réinitialiser", "Zurücksetzen", "ショキチニモドス"),
 };
 static const char *const sTrPacing[2][LANG_COUNT] = {
@@ -346,15 +389,27 @@ static const char *const sTrCull[2][LANG_COUNT] = {
     TR("Original", "Original", "Original", "オリジナル"),
     TR("Vertical", "Vertical", "Vertikal", "スイチョク"),
 };
+static const char *const sTrUp[LANG_COUNT] = TR("Up", "Haut", "Hoch", "ウエ");
+static const char *const sTrDown[LANG_COUNT] = TR("Down", "Bas", "Runter", "シタ");
+static const char *const sTrTvReset[LANG_COUNT] = TR("Reset TV Settings", "Réinit. réglages TV", "TV zurücksetzen", "TVセッテイヲショキカ");
+static const char *const sTrTvSafe[LANG_COUNT] = TR("Safe mode", "Mode sûr", "Sicherer Modus", "アンゼン");
+static const char *const sTrTvHelp[LANG_COUNT] = TR("L: Reconnect TV", "L: Reconnecter la TV", "L: TV neu verbinden", "L: TVサイセツゾク");
+static const char *const sTrCable[3][LANG_COUNT] = {
+    TR("No cable", "Pas de cable", "Kein Kabel", "No cable"),
+    TR("Composite cable", "Cable composite", "Composite-Kabel", "Composite cable"),
+    TR("Component cable", "Cable composante", "Komponenten-Kabel", "Component cable"),
+};
+static const char *const sTrTvKeep[LANG_COUNT] = TR("A: keep %s (%d)", "A: garder %s (%d)", "A: %s behalten (%d)", "A: OK %s (%d)");
 static const char *const sTrSndMode[3][LANG_COUNT] = {
     TR("Stereo", "Stéréo", "Stereo", "ステレオ"),
     TR("Mono", "Mono", "Mono", "モノラル"),
     TR("Headset", "Casque", "Kopfhörer", "ヘッドホン"),
 };
-static const char *const sTrPage[3][LANG_COUNT] = {
+static const char *const sTrPage[4][LANG_COUNT] = {
     TR("Graphics", "Graphismes", "Grafik", "グラフィック"),
     TR("Audio", "Audio", "Audio", "オーディオ"),
     TR("Controls", "Commandes", "Steuerung", "コントロール"),
+    TR("TV Settings", "Réglages TV", "TV-Einstellungen", "TVセッテイ"),
 };
 static const char *const sTrAudio[3][LANG_COUNT] = {
     TR("Music Volume", "Volume musique", "Musiklautstärke", "オンガクボリューム"),
@@ -374,7 +429,7 @@ static const char *const sTrBind[NUM_BINDS][LANG_COUNT] = {
     TR("C-Left", "C-Gauche", "C-Links", "Cヒダリ"),
     TR("C-Right", "C-Droite", "C-Rechts", "Cミギ"),
 };
-/* botones fisicos de la PSP, en el mismo orden que sPhys[] */
+/* physical PSP buttons, in the same order as sPhys[] */
 static const char *const sTrPhys[12][LANG_COUNT] = {
     TR("Cross", "Croix", "Kreuz", "バツ"),
     TR("Circle", "Rond", "Kreis", "マル"),
@@ -405,15 +460,40 @@ static const char *psp_opt_label(int row) {
     if (row == ROW_SOUNDMODE) return LT(sTrAudio[2]);
     if (row == ROW_AUDRESET) return LT(sTrLabel[OPT_RESET]);
     if (row == ROW_CONTROLS) return LT(sTrPage[2]);
+    if (row == ROW_TVPAGE) return LT(sTrPage[3]);
+    if (row == ROW_TVRESET) return LT(sTrTvReset);
     if (row == ROW_DEAD) return LT(sTrDead);
     if (row == ROW_CTRLRESET) return LT(sTrLabel[OPT_RESET]);
     return LT(sTrBind[row - ROW_BIND0]);
 }
 
-/* filas de una sola linea (entradas de pagina y "Reset"): el texto va centrado en la casilla, sin linea de valor */
+/* single-line rows (page entries and "Reset"): the text is centered in the box, with no value line */
 static int psp_opt_is_action(int row) {
-    return row == OPT_RESET || row == ROW_VIDEO || row == ROW_AUDIO || row == ROW_CONTROLS || row == ROW_CTRLRESET || row == ROW_AUDRESET;
+    return row == OPT_RESET || row == ROW_VIDEO || row == ROW_AUDIO || row == ROW_CONTROLS || row == ROW_TVPAGE || row == ROW_TVRESET || row == ROW_CTRLRESET || row == ROW_AUDRESET;
 }
+
+/* can the "TV Output" row be used? (module loaded + slim PSP; the cable is not required). Queried now and then, not every frame. */
+static int sNoCable = 0; /* cable not detected (queried every ~0.25 s while drawing the menu): the TV row is shown grey and does not go up */
+static int psp_opt_tv_ready(void) {
+    static int sPoll = 0, sReady = 0;
+    if (--sPoll <= 0) {
+        sPoll = 20;
+        sReady = psp_dve_tv_ready();
+    }
+    return sReady;
+}
+
+/* can the TV page be entered? It needs the TV module and the video cable plugged in (cable_state: 0 = none; -1 = unknown, let through), whatever value TV Output
+ * has: without a cable the game already returned the image to the console screen (the setting is kept and the TV turns on by itself when the cable is connected). */
+static int psp_opt_tv_access_now(void) {
+    return psp_dve_tv_ready() && psp_dve_cable_state() != 0;
+}
+
+/* With TV Output at Off nothing else on the TV page works (format, width, height and reset): there is no TV image to adjust. They are shown grey and do not change. */
+static int psp_opt_tv_row_off(int row) {
+    return (row == OPT_TVASPECT || row == OPT_TVAREA || row == OPT_TVAREAY || row == OPT_TVSHIFT || row == ROW_TVRESET) && sVal[OPT_TVOUT] == 0;
+}
+static int sTvAcc; /* copy updated every ~0.25 s while drawing the menu */
 
 static const char *psp_opt_value_text(int row) {
     static char buf[40];
@@ -425,6 +505,30 @@ static const char *psp_opt_value_text(int row) {
         case OPT_OBJDIST: return sObjTxt[sVal[row]];
         case OPT_FARDIST: return sFarTxt[sVal[row]];
         case OPT_CULLOBJ: return LT(sTrCull[sVal[row]]);
+        case OPT_TVASPECT: return sTvAspTxt[sVal[row]];
+        case OPT_TVAREA:
+        case OPT_TVAREAY: return sTvAreaTxt[sVal[row]];
+        case OPT_TVSHIFT: {
+            const int sh = sVal[row] - TV_SHIFT_MAX;
+            if (sh == 0) {
+                snprintf(buf, sizeof(buf), "0");
+            } else {
+                snprintf(buf, sizeof(buf), "%s %d", LT(sh > 0 ? sTrDown : sTrUp), sh > 0 ? sh : -sh);
+            }
+            return buf;
+        }
+        case OPT_TVOUT:
+            if (!psp_opt_tv_ready()) {
+                /* cause + code (to know why it is not available: module not loaded, PSP-1000 or safe mode) */
+                int det;
+                switch (psp_dve_status(&det)) {
+                    case PSP_DVE_LOAD_FAILED: snprintf(buf, sizeof(buf), "Plugin error %08X", (unsigned int) det); break;
+                    case PSP_DVE_PSP1000: snprintf(buf, sizeof(buf), "PSP-1000 (model %d)", det); break;
+                    default: snprintf(buf, sizeof(buf), "%s", LT(sTrTvSafe)); break;
+                }
+                return buf;
+            }
+            return (sVal[row] == 0) ? LT(sTrOnOff[0]) : sTvTxt[sVal[row]];
         case ROW_DEAD:
             snprintf(buf, sizeof(buf), "%u", configDeadzone);
             return buf;
@@ -447,26 +551,42 @@ static const char *psp_opt_value_text(int row) {
     }
 }
 
-/* ¿hay mas valores hacia la izquierda / derecha? (para las flechas) */
+/* are there more values to the left / right? (for the arrows) */
+/* Greyed-out row (not usable now): shown grey and the cursor skips it. */
+/* Exception: only the "TV Settings" row (in Graphics) can be selected even if it is greyed out, so that the reason (no cable, etc.) can be read below; pressing X plays the buzz. */
+static int psp_opt_row_grey(int row) {
+    return (row == OPT_TVOUT && (!psp_opt_tv_ready() || (sVal[OPT_TVOUT] == 0 && sNoCable))) || (row == ROW_TVPAGE && !sTvAcc) || psp_opt_tv_row_off(row);
+}
+static int psp_opt_row_skip(int row) {
+    return psp_opt_row_grey(row) && row != ROW_TVPAGE;
+}
+
 static int psp_opt_can_dec(int row) {
+    if (psp_opt_tv_row_off(row)) return 0;
     if (row == ROW_DEAD) return configDeadzone > 0;
     if (row == ROW_MUSIC) return sMusic > 0;
     if (row == ROW_SFX) return sSfx > 0;
     if (row == ROW_SOUNDMODE) return sSndMode > 0;
+    if (row == OPT_TVOUT) return psp_opt_tv_ready() && sVal[row] > 0;
     return row < OPT_RESET && sVal[row] > 0;
 }
 static int psp_opt_can_inc(int row) {
+    if (psp_opt_tv_row_off(row)) return 0;
     if (row == ROW_DEAD) return configDeadzone < DEAD_MAX;
     if (row == ROW_MUSIC) return sMusic < 100;
     if (row == ROW_SFX) return sSfx < 100;
     if (row == ROW_SOUNDMODE) return sSndMode < 2;
+    if (row == OPT_TVOUT) return psp_opt_tv_ready() && psp_dve_cable_state() != 0 && sVal[row] < ((psp_dve_cable() == PSP_CABLE_COMPONENT) ? 3 : 2);
     return row < OPT_RESET && sVal[row] < sCount[row] - 1;
 }
 
-/* Sin vuelta: en el primer/ultimo valor no pasa nada (las flechas de los lados indican hacia donde se puede ir).
- * wrap = 1 solo para el boton A en filas de dos valores (Si/No), donde "siguiente" es alternar. */
+/* No wrap-around: on the first/last value nothing happens (the arrows at the sides show which way you can go).
+ * wrap = 1 only for the A button on two-value rows (Yes/No), where "next" means toggle. */
 static void psp_opt_change(int row, int dir, int wrap) {
     int nv;
+    if (psp_opt_tv_row_off(row)) {
+        return;
+    }
     if (row == ROW_DEAD) {
         nv = (int) configDeadzone + dir * 2;
         if (nv < 0 || nv > DEAD_MAX) {
@@ -494,7 +614,35 @@ static void psp_opt_change(int row, int dir, int wrap) {
         }
         *vol = nv;
         psp_opt_apply();
-        play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs); /* es un efecto: se oye al volumen nuevo */
+        play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs); /* it is an effect: it is heard at the new volume */
+        return;
+    }
+    if (row == OPT_TVOUT) {
+        /* without module / PSP-1000 / safe mode the row is greyed out: the "cannot move any further" buzz plays */
+        const int maxv = (psp_dve_cable() == PSP_CABLE_COMPONENT) ? 3 : 2; /* 480p only with a component cable; 480i and 240p also with the composite one */
+        if (!psp_opt_tv_ready()) {
+            play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+            return;
+        }
+        nv = sVal[row] + dir;
+        if (nv > sVal[row] && nv <= maxv && psp_dve_cable_state() == 0) {
+            play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs); /* cable required: without a detected cable you cannot switch to a TV mode (going down to Off is always possible) */
+            return;
+        }
+        if (nv < 0 || nv > maxv) {
+            if (!wrap) {
+                if (nv > maxv && nv < sCount[row]) {
+                    play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs); /* 480p without a component cable */
+                }
+                return;
+            }
+            nv = 0; /* A button: back to the start */
+        }
+        sVal[row] = nv;
+        gPspOptChanges++;
+        psp_opt_apply();
+        gfx_scegu_tv_request(nv); /* applied within a few frames, without restarting the game (only 480p stays "on trial": see psp_options_pause_frame) */
+        play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
         return;
     }
     if (row < 0 || row >= OPT_RESET) {
@@ -510,16 +658,39 @@ static void psp_opt_change(int row, int dir, int wrap) {
     sVal[row] = nv;
     gPspOptChanges++;
     psp_opt_apply();
+    if (row == OPT_TVASPECT) {
+        gfx_scegu_tv_refresh(); /* with the TV on, the buffers are rebuilt with the new format */
+    } else if (row == OPT_TVAREA || row == OPT_TVAREAY || row == OPT_TVSHIFT) {
+        gfx_scegu_tv_area_refresh(); /* only the image rectangle changes: fast, it can be adjusted by holding the D-pad */
+    }
     play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+}
+
+/* Graphics "Reset to Defaults": does NOT touch anything TV-related (those settings have their own reset on the TV page). */
+static int psp_opt_is_tv_row(int row) {
+    return row == OPT_TVOUT || row == OPT_TVASPECT || row == OPT_TVAREA || row == OPT_TVAREAY || row == OPT_TVSHIFT;
 }
 
 static void psp_opt_reset(void) {
     int i;
     for (i = 0; i < OPT_RESET; i++) {
-        sVal[i] = sDef[i];
+        if (!psp_opt_is_tv_row(i)) {
+            sVal[i] = sDef[i];
+        }
     }
     gPspOptChanges++;
     psp_opt_apply();
+}
+
+/* "Reset TV Settings": TV Aspect, TV Width and TV Height go back to their default. TV Output is left as is (it is whether the TV is on, not an image setting). */
+static void psp_opt_reset_tv(void) {
+    sVal[OPT_TVASPECT] = sDef[OPT_TVASPECT];
+    sVal[OPT_TVAREA] = sDef[OPT_TVAREA];
+    sVal[OPT_TVAREAY] = sDef[OPT_TVAREAY];
+    sVal[OPT_TVSHIFT] = sDef[OPT_TVSHIFT];
+    gPspOptChanges++;
+    psp_opt_apply();
+    gfx_scegu_tv_refresh(); /* with the TV on, the buffers are rebuilt with the default format and area */
 }
 
 static void psp_opt_reset_controls(void) {
@@ -537,8 +708,8 @@ static void psp_opt_reset_audio(void) {
     psp_opt_apply();
 }
 
-/* Asigna el boton fisico b al boton i del N64. Si otra accion ya lo usaba se intercambian (esa recibe lo que tenia i), asi ninguna accion se
- * queda sin boton y no hay dos acciones en el mismo boton. */
+/* Assigns physical button b to N64 button i. If another action was already using it they are swapped (that one receives what i had), so no action
+ * is left without a button and no two actions share a button. */
 static void psp_opt_bind(int i, unsigned int b) {
     const unsigned int old = *sBind[i].mask;
     int j;
@@ -557,22 +728,22 @@ static void psp_opt_bind(int i, unsigned int b) {
 }
 
 /* ------------------------------------------------------------------------------------------------------------------------------------------
- * Archivo unico de ajustes (sm64config.txt): texto legible, "nombre = valor" con comentarios. Se escribe entero al cerrar el menu y al salir.
+ * Single settings file (sm64config.txt): readable text, "name = value" with comments. It is written in full when the menu is closed and when leaving.
  * ------------------------------------------------------------------------------------------------------------------------------------------ */
 
 static char sCfgName[40] = CTRL_FILE;
-static int sSawNew; /* el archivo tenia al menos un ajuste del formato nuevo (si no, es uno antiguo y se migra) */
+static int sSawNew; /* the file had at least one setting of the new format (if not, it is an old one and gets migrated) */
 
 static const char *const sRowKey[OPT_COUNT] = {
-    "fps_limit", "frame_pacing", "fps_counter", "show_sound_cpu", "object_distance", "far_distance", "object_culling", NULL,
+    "fps_limit", "frame_pacing", "fps_counter", "show_sound_cpu", "object_distance", "far_distance", "object_culling", "tv_output", "tv_aspect", "tv_width", "tv_height", "tv_shift_y", NULL,
 };
 static const char *const sBindKey[NUM_BINDS] = {
     "a_button", "b_button", "start", "l_trigger", "r_trigger", "z_trigger", "c_up", "c_down", "c_left", "c_right",
 };
-static const char *const sBindKeyOld[NUM_BINDS] = { /* nombres del sm64config.txt antiguo (el valor era la mascara numerica) */
+static const char *const sBindKeyOld[NUM_BINDS] = { /* names from the old sm64config.txt (the value was the numeric mask) */
     "key_a", "key_b", "key_start", "key_l", "key_r", "key_z", "key_cup", "key_cdown", "key_cleft", "key_cright",
 };
-/* otros nombres que se aceptan al leer botones fisicos */
+/* other names accepted when reading physical buttons */
 static const struct { const char *name; unsigned int mask; } sPhysAlias[] = {
     { "L", PSP_CTRL_LTRIGGER }, { "R", PSP_CTRL_RTRIGGER }, { "L Trigger", PSP_CTRL_LTRIGGER }, { "R Trigger", PSP_CTRL_RTRIGGER },
     { "Up", PSP_CTRL_UP }, { "Down", PSP_CTRL_DOWN }, { "Left", PSP_CTRL_LEFT }, { "Right", PSP_CTRL_RIGHT },
@@ -587,6 +758,11 @@ static const char *const *psp_opt_texts(int row) {
         case OPT_OBJDIST: return sObjTxt;
         case OPT_FARDIST: return sFarTxt;
         case OPT_CULLOBJ: return sCullTxt;
+        case OPT_TVOUT: return sTvTxt;
+        case OPT_TVASPECT: return sTvAspTxt;
+        case OPT_TVAREA:
+        case OPT_TVAREAY: return sTvAreaTxt;
+        case OPT_TVSHIFT: return sTvShiftTxt;
         default: return NULL;
     }
 }
@@ -609,7 +785,7 @@ static char *psp_trim(char *s) {
     return s;
 }
 
-/* numero entero al principio del texto (sin nada raro: "abc" no vale); devuelve 0 si no es un numero */
+/* integer at the start of the text (nothing odd: "abc" is not valid); returns 0 if it is not a number */
 static int psp_parse_int(const char *s, int *out) {
     char *end;
     long v = strtol(s, &end, 10);
@@ -620,7 +796,7 @@ static int psp_parse_int(const char *s, int *out) {
     return 1;
 }
 
-/* "Cross", "Circle/L Trig", "None" o (archivo antiguo) un numero -> mascara de botones. Devuelve 0 si no se entiende. */
+/* "Cross", "Circle/L Trig", "None" or (old file) a number -> button mask. Returns 0 if not understood. */
 static int psp_opt_parse_mask(char *v, unsigned int *out) {
     unsigned int m = 0;
     if (v[0] >= '0' && v[0] <= '9') {
@@ -649,7 +825,7 @@ static int psp_opt_parse_mask(char *v, unsigned int *out) {
     return 1;
 }
 
-/* una linea del archivo: "nombre = valor  # comentario" (tambien "nombre valor", como el archivo antiguo); [secciones] y comentarios se saltan */
+/* a file line: "name = value  # comment" (also "name value", like the old file); [sections] and comments are skipped */
 static void psp_cfg_line(char *line) {
     char *c = strchr(line, '#');
     char *key, *val, *eq;
@@ -675,6 +851,14 @@ static void psp_cfg_line(char *line) {
         if (*c >= 'A' && *c <= 'Z') *c += 32;
     }
 
+    if (strcmp(key, "tv_area") == 0) { /* old name (a single value for width and height): read as both */
+        v = atoi(val);
+        if (v >= 50 && v <= 100) {
+            sVal[OPT_TVAREA] = sVal[OPT_TVAREAY] = (v < TV_AREA_MIN) ? 0 : (v - TV_AREA_MIN);
+            sSawNew = 1;
+        }
+        return;
+    }
     for (i = 0; i < OPT_RESET; i++) {
         if (strcmp(key, sRowKey[i]) == 0) {
             const char *const *t = psp_opt_texts(i);
@@ -685,7 +869,7 @@ static void psp_cfg_line(char *line) {
                     break;
                 }
             }
-            /* "Unlimited" (ya no existe) de un sm64config.txt anterior pasa a 300 % */
+            /* "Unlimited" (no longer exists) from an earlier sm64config.txt becomes 300 % */
             if ((i == OPT_OBJDIST || i == OPT_FARDIST) && psp_ci_eq(val, "unlimited")) {
                 sVal[i] = DIST_ROW_MAX;
                 sSawNew = 1;
@@ -720,7 +904,7 @@ static void psp_cfg_line(char *line) {
     }
 }
 
-/* A, B, Start y R no pueden quedar sin boton (con ellos se juega, se pausa y se abre este menu): un archivo con "None" ahi se corrige. */
+/* A, B, Start and R cannot be left without a button (they are used to play, pause and open this menu): a file with "None" there gets corrected. */
 static void psp_opt_sanitize_controls(void) {
     int i;
     for (i = 0; i < NUM_BINDS; i++) {
@@ -754,6 +938,11 @@ void psp_options_save_file(const char *filename) {
         "100%, 150%, 200%, 250% or 300% (how far away objects stay active)",
         "100%, 150%, 200%, 250% or 300% (how far you see)",
         "Original or Vertical (Vertical also hides objects above / below the view)",
+        "Off, 240p, 480i or 480p (PSP slim/3000 with a video cable; applies right away; 480p asks you to confirm; hold L at start to force the PSP screen)",
+        "4:3 (the original 4:3 view) or 16:9 (the widescreen view); both fill the video frame, so set the TV to its matching 4:3 / 16:9 mode",
+        "60% to 100%, in steps of 1% (how much of the TV frame WIDTH the picture uses; lower it if your TV cuts off the left / right edges)",
+        "60% to 100%, in steps of 1% (how much of the TV frame HEIGHT the picture uses; lower it if your TV cuts off the top / bottom edges; if the picture looks squashed, adjust it against the width)",
+        "-60 to 60 (moves the picture vertically inside the TV frame, in lines of the 480-line signal; positive = down, negative = up; it needs room, so lower TV Height first)",
         NULL,
     };
     static const char *const sBindComment[NUM_BINDS] = {
@@ -819,16 +1008,16 @@ void psp_options_load_file(const char *filename) {
         fclose(f);
     }
     if (!sSawNew) {
-        psp_opt_load_legacy(); /* instalacion antigua: los ajustes graficos estaban en sm64_options.txt */
+        psp_opt_load_legacy(); /* old installation: the graphics settings were in sm64_options.txt */
     }
     psp_opt_sanitize_controls();
     psp_opt_apply();
     if (!sSawNew) {
-        psp_options_save_file(sCfgName); /* crea el archivo (o lo convierte al formato nuevo) */
+        psp_options_save_file(sCfgName); /* creates the file (or converts it to the new format) */
     }
 }
 
-/* mask -> nombres de los botones fisicos en el idioma del menu */
+/* mask -> physical button names in the menu's language */
 static const char *psp_opt_phys_disp(int i) {
     return LT(sTrPhys[i]);
 }
@@ -850,7 +1039,7 @@ static void psp_opt_mask_disp(unsigned int mask, char *out, int max) {
 }
 
 #if defined(VERSION_JP) || defined(VERSION_SH)
-/* codigos de la fuente del juego para los kana U+3041..U+30FF (0 = no existe); salen de charmap.txt */
+/* game font codes for the kana U+3041..U+30FF (0 = does not exist); they come from charmap.txt */
 static const u8 sKana[191] = {
     0xA5, 0x40, 0xA6, 0x41, 0xA7, 0x42, 0xA0, 0x43, 0xA8, 0x44, 0x45, 0x00,
     0x46, 0x00, 0x47, 0x00, 0x48, 0x00, 0x49, 0x00, 0x4A, 0x00, 0x4B, 0x00,
@@ -870,10 +1059,10 @@ static const u8 sKana[191] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x9F, 0x00, 0x00, 0x00,
 };
 
-/* El kana con dakuten (゛) o handakuten (゜) es la marca (0xF0 / 0xF1) seguida del kana base; devuelve el desplazamiento al base (1 o 2) o 0 */
+/* A kana with dakuten (゛) or handakuten (゜) is the mark (0xF0 / 0xF1) followed by the base kana; returns the offset to the base (1 or 2) or 0 */
 static int psp_opt_kana_mark(u32 cp) {
     u32 k = cp;
-    if (k >= 0x30A1) k -= 0x60; /* katakana -> equivalente hiragana */
+    if (k >= 0x30A1) k -= 0x60; /* katakana -> equivalent hiragana */
     if ((k >= 0x304C && k <= 0x3062 && !(k & 1)) || k == 0x3065 || k == 0x3067 || k == 0x3069
         || k == 0x3070 || k == 0x3073 || k == 0x3076 || k == 0x3079 || k == 0x307C) {
         return 1;
@@ -885,13 +1074,13 @@ static int psp_opt_kana_mark(u32 cp) {
 }
 #endif
 
-/* Texto UTF-8 -> codigos de texto del juego (los de la version que se compila): letras, numeros, unos pocos simbolos, y segun la version las letras con
- * acento (EU) o los kana (JP / Shindou). Lo que no existe en la fuente queda como un espacio. */
+/* UTF-8 text -> game text codes (those of the version being compiled): letters, numbers, a few symbols, and depending on the version accented letters
+ * (EU) or kana (JP / Shindou). What does not exist in the font becomes a space. */
 static void psp_opt_str(u8 *dst, const char *src, int max) {
     int n = 0;
     while (*src != '\0' && n < max - 3) {
         u32 cp = (u8) *src++;
-        u8 d = 0x9E; /* espacio */
+        u8 d = 0x9E; /* space */
         if (cp >= 0xC0 && cp < 0xE0 && (*src & 0xC0) == 0x80) {
             cp = ((cp & 0x1F) << 6) | ((u8) *src++ & 0x3F);
         } else if (cp >= 0xE0 && cp < 0xF0 && (src[0] & 0xC0) == 0x80 && (src[1] & 0xC0) == 0x80) {
@@ -901,7 +1090,7 @@ static void psp_opt_str(u8 *dst, const char *src, int max) {
         if (cp >= '0' && cp <= '9') d = (u8) (cp - '0');
         else if (cp >= 'A' && cp <= 'Z') d = (u8) (cp - 'A' + 0x0A);
 #if defined(VERSION_JP) || defined(VERSION_SH)
-        /* la fuente japonesa solo tiene letras MAYUSCULAS (sin minusculas, ':' ni apostrofe: un glifo inexistente cierra el juego) */
+        /* the Japanese font only has UPPERCASE letters (no lowercase, ':' or apostrophe: a nonexistent glyph closes the game) */
         else if (cp >= 'a' && cp <= 'z') d = (u8) (cp - 'a' + 0x0A);
         else if (cp == '-') d = 0x9F;
         else if (cp == '%') d = 0xF3;
@@ -913,7 +1102,7 @@ static void psp_opt_str(u8 *dst, const char *src, int max) {
         else if (cp == '\'') d = 0x3E;
 #endif
 #if defined(VERSION_JP) || defined(VERSION_SH)
-        /* JP / Shindou: el punto '.' no avanza y la barra '/' es otro caracter; los kana van por tabla */
+        /* JP / Shindou: the period '.' does not advance and the slash '/' is another character; kana go by table */
         else if (cp == '/') d = 0xFC;
         else if (cp == '.') d = 0x9E;
         else if (cp == 0x30FC) d = 0x9F;
@@ -932,7 +1121,7 @@ static void psp_opt_str(u8 *dst, const char *src, int max) {
         else if (cp == '>') d = 0x53;
         else if (cp == '<') d = 0x52;
 #ifdef VERSION_EU
-        /* letras con acento de la fuente europea (codigos de ingame_menu.h); en US se escriben sin acento */
+        /* accented letters of the European font (codes from ingame_menu.h); in US they are written without accents */
         else if (cp == 0xE0) d = 0x60;
         else if (cp == 0xE2) d = 0x61;
         else if (cp == 0xE4) d = 0x62;
@@ -972,13 +1161,13 @@ static void psp_opt_str(u8 *dst, const char *src, int max) {
     dst[n] = 0xFF; /* terminador */
 }
 
-/* ancho en pixeles de un texto ya convertido, igual que lo dibuja print_generic_string de cada version */
+/* width in pixels of an already converted text, same as each version's print_generic_string draws it */
 extern u8 gDialogCharWidths[256];
 static s16 psp_opt_width(const u8 *str) {
     int w = 0;
     for (; *str != 0xFF; str++) {
 #if defined(VERSION_JP) || defined(VERSION_SH)
-        if (*str == 0xF0 || *str == 0xF1) continue; /* dakuten / handakuten: marcas sin ancho */
+        if (*str == 0xF0 || *str == 0xF1) continue; /* dakuten / handakuten: zero-width marks */
         w += (*str == 0x9E) ? 5 : 10;
 #else
         w += gDialogCharWidths[*str];
@@ -987,7 +1176,7 @@ static s16 psp_opt_width(const u8 *str) {
     return (s16) w;
 }
 
-/* texto centrado en x con sombra negra, blanco (col 0) o rojo (col 1); y se mide desde abajo como en los dialogos */
+/* text centered at x with black shadow, white (col 0), red (col 1) or grey (col 2, disabled row); and measured from the bottom as in the dialogs */
 static void psp_opt_text(s16 x, s16 y, const char *txt, int col) {
     u8 buf[96];
     s16 tx;
@@ -996,7 +1185,9 @@ static void psp_opt_text(s16 x, s16 y, const char *txt, int col) {
     tx = x - (psp_opt_width(buf) / 2);
     gDPSetEnvColor(gDisplayListHead++, 0, 0, 0, 255);
     print_generic_string(tx + 1, y - 1, buf);
-    if (col) {
+    if (col == 2) {
+        gDPSetEnvColor(gDisplayListHead++, 120, 120, 120, 255);
+    } else if (col) {
         gDPSetEnvColor(gDisplayListHead++, 255, 32, 32, 255);
     } else {
         gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
@@ -1004,7 +1195,7 @@ static void psp_opt_text(s16 x, s16 y, const char *txt, int col) {
     print_generic_string(tx, y, buf);
 }
 
-/* rectangulo relleno con la caja de los dialogos (130 x 80 de base) */
+/* filled rectangle with the dialog box (130 x 80 base) */
 static void psp_opt_box(s16 x, s16 ytop, s16 w, s16 h, u8 r, u8 g, u8 b, u8 a) {
     create_dl_translation_matrix(MENU_MTX_PUSH, x, ytop, 0);
     create_dl_scale_matrix(MENU_MTX_NOPUSH, w / 130.0f, h / 80.0f, 1.0f);
@@ -1014,15 +1205,15 @@ static void psp_opt_box(s16 x, s16 ytop, s16 w, s16 h, u8 r, u8 g, u8 b, u8 a) {
 }
 
 #if defined(VERSION_JP) || defined(VERSION_SH)
-/* triangulo blanco de 6 px hecho con cajas de 2 px apiladas: dir 0 = izquierda, 1 = derecha, 2 = arriba, 3 = abajo; (x, ytop) = esquina superior izquierda */
+/* 6 px white triangle made with stacked 2 px boxes: dir 0 = left, 1 = right, 2 = up, 3 = down; (x, ytop) = top-left corner */
 static void psp_opt_tri(int dir, s16 x, s16 ytop) {
     int k;
     for (k = 0; k < 5; k++) {
         const int step = (k < 3) ? k : (4 - k); /* 0 1 2 1 0 */
-        if (dir <= 1) { /* 5 filas de 2 px: anchos 2 4 6 4 2 */
+        if (dir <= 1) { /* 5 rows of 2 px: widths 2 4 6 4 2 */
             const int w = 2 * (step + 1);
             psp_opt_box((dir == 0) ? (x + 6 - w) : x, ytop - 2 * k, w, 2, 255, 255, 255, 255);
-        } else if (k < 3) { /* 3 filas de 2 px */
+        } else if (k < 3) { /* 3 rows of 2 px */
             const int w = 2 * ((dir == 2) ? (k + 1) : (3 - k));
             psp_opt_box(x + 3 - w / 2, ytop - 2 * k, w, 2, 255, 255, 255, 255);
         }
@@ -1030,11 +1221,22 @@ static void psp_opt_tri(int dir, s16 x, s16 ytop) {
 }
 #endif
 
+static int psp_opt_row_index(const u8 *rows, int n, int row) {
+    int i;
+    for (i = 0; i < n; i++) {
+        if (rows[i] == row) {
+            return i;
+        }
+    }
+    return 0;
+}
+
 static const u8 *psp_opt_page_rows(int *n) {
     switch (sPage) {
         case PG_VIDEO: *n = (int) sizeof(sPgVideo); return sPgVideo;
         case PG_AUDIO: *n = (int) sizeof(sPgAudio); return sPgAudio;
         case PG_CTRL: *n = (int) sizeof(sPgCtrl); return sPgCtrl;
+        case PG_TV: *n = (int) sizeof(sPgTv); return sPgTv;
         default: *n = (int) sizeof(sPgMain); return sPgMain;
     }
 }
@@ -1047,8 +1249,8 @@ static void psp_opt_draw(void) {
     rows = psp_opt_page_rows(&n);
     shade_screen();
 
-    /* titulo grande: letras de colores del HUD (12 px por letra); en japones la fuente del HUD no tiene kana, asi que va con la fuente de los
-     * dialogos al doble de tamano */
+    /* big title: HUD color letters (12 px per letter); in Japanese the HUD font has no kana, so it goes with the dialog
+     * dialogs at double size */
     psp_opt_str(title, LT(sTrTitle[sPage]), sizeof(title));
     if (psp_opt_lang() == LANG_JP) {
         const f32 sc = 1.8f;
@@ -1070,17 +1272,34 @@ static void psp_opt_draw(void) {
         gSPDisplayList(gDisplayListHead++, dl_rgba16_text_end);
     }
 
-    /* barra de desplazamiento a la derecha (pista y deslizador), de la altura de las 4 filas visibles; solo si hay mas de 4 filas */
+    /* scroll bar on the right (track and slider), the height of the 4 visible rows; only if there are more than 4 rows */
     if (n > 4) {
-        const int sh = 118 * 4 / n; /* el deslizador mide lo que las 4 filas visibles respecto del total */
+        const int sh = 118 * 4 / n; /* the slider measures what the 4 visible rows are relative to the total */
         psp_opt_box(272, 150, 8, 118, 128, 128, 128, 200);
         psp_opt_box(272, 150 - (118 - sh) * sScroll / (n - 4), 8, sh, 255, 255, 255, 255);
     }
 
+    if (sPage == PG_TV && sVal[OPT_TVOUT] > 0) {
+        /* white frame at the edge of the image: shows how far the image reaches on your TV (if any side is not visible, lower the width / height) */
+        /* from edge to edge of the REAL image: in 16:9 it is wider than the classic screen's 320 (like the HUD, which sticks to the edges) */
+        const int bl = GFX_DIMENSIONS_RECT_FROM_LEFT_EDGE(0), br = GFX_DIMENSIONS_RECT_FROM_RIGHT_EDGE(0);
+        psp_opt_box(bl, 240, br - bl, 2, 255, 255, 255, 255);
+        psp_opt_box(bl, 2, br - bl, 2, 255, 255, 255, 255);
+        psp_opt_box(bl, 240, 2, 240, 255, 255, 255, 255);
+        psp_opt_box(br - 2, 240, 2, 240, 255, 255, 255, 255);
+    }
+    {
+        static int sNcPoll = 0;
+        if (--sNcPoll <= 0) {
+            sNcPoll = 15;
+            sNoCable = (psp_opt_tv_ready() && psp_dve_cable_state() == 0);
+            sTvAcc = psp_opt_tv_access_now();
+        }
+    }
     gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
     for (i = sScroll; i < sScroll + 4 && i < n; i++) {
         const int y = 140 - 32 * (i - sScroll);
-        const int col = (i == sSel) ? 1 : 0;
+        const int col = psp_opt_row_grey(rows[i]) ? 2 : ((i == sSel) ? 1 : 0);
         if (psp_opt_is_action(rows[i])) {
             psp_opt_text(160, y - 6, psp_opt_label(rows[i]), col);
         } else {
@@ -1088,13 +1307,44 @@ static void psp_opt_draw(void) {
             psp_opt_text(160, y - 13, psp_opt_value_text(rows[i]), col);
         }
     }
-    psp_opt_text(48, 14, LT(sTrBack), 0); /* esquina inferior izquierda */
-    /* ayuda al centro, abajo, en las filas de botones */
+    psp_opt_text(48, 14, LT(sTrBack), 0); /* bottom left corner */
+    {
+        const int left = gfx_scegu_tv_probation_left();
+        if (left > 0) {
+            char kb[40];
+            snprintf(kb, sizeof(kb), LT(sTrTvKeep), sTvTxt[(sVal[OPT_TVOUT] > 0 && sVal[OPT_TVOUT] < 4) ? sVal[OPT_TVOUT] : 3], left);
+            psp_opt_text(160, 14, kb, 1); /* 480p test: the box at the bottom center asks for confirmation */
+        } else if (sPage == PG_TV && rows[sSel] == OPT_TVOUT && psp_opt_tv_ready()) {
+            /* real cable state (queried every ~0.25 s); if unknown, with the TV on the L help (reconnect) is shown */
+            static int sCabPoll = 0, sCab = -1;
+            char db[64];
+            if (--sCabPoll <= 0) {
+                sCabPoll = 15;
+                sCab = psp_dve_cable_state();
+            }
+            if (sCab >= 0 && sCab <= 2) {
+                const int hz = gfx_scegu_tv_vbl_hz10();
+                if (hz > 0) {
+                    snprintf(db, sizeof(db), "%s | %d.%dHz", LT(sTrCable[sCab]), hz / 10, hz % 10); /* (measured vblank Hz: information for tuning the pacing) */
+                } else {
+                    snprintf(db, sizeof(db), "%s", LT(sTrCable[sCab]));
+                } /* (when the cable is reconnected the TV is routed by itself; with L it can also be done by hand) */
+                psp_opt_text(160, 14, db, 0);
+            } else if (sVal[OPT_TVOUT] > 0) {
+                psp_opt_text(160, 14, LT(sTrTvHelp), 0);
+            }
+        }
+    }
+    /* the TV row is greyed out: it says why (no cable, or the reason the TV module is not available) */
+    if (sPage == PG_VIDEO && rows[sSel] == ROW_TVPAGE && !sTvAcc) {
+        psp_opt_text(160, 14, psp_opt_tv_ready() ? LT(sTrCable[0]) : psp_opt_value_text(OPT_TVOUT), 0);
+    }
+    /* help at the bottom center, on the button rows */
     if (sPage == PG_CTRL && rows[sSel] >= ROW_BIND0 && rows[sSel] < ROW_BIND0 + NUM_BINDS) {
         psp_opt_text(160, 14, (sCapture >= 0) ? LT(sTrWait) : LT(sTrChange), 0);
     }
-    /* flechas a los lados del valor de la fila seleccionada: solo aparece la del lado hacia donde se puede ir
-     * (sin flecha izquierda = primer valor, sin flecha derecha = ultimo valor) */
+    /* arrows at the sides of the selected row's value: only the one on the side you can go to appears
+     * (no left arrow = first value, no right arrow = last value) */
 #if !defined(VERSION_JP) && !defined(VERSION_SH)
     gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
     if (!psp_opt_is_action(rows[sSel])) {
@@ -1109,12 +1359,12 @@ static void psp_opt_draw(void) {
             print_generic_string(222, ay, r);
         }
     }
-    /* flechas arriba/abajo junto a la barra de desplazamiento: hay mas filas en esa direccion */
+    /* up/down arrows next to the scroll bar: there are more rows in that direction */
     if (n > 4) {
         static const u8 up[2] = { 0x50, 0xFF };
         static const u8 dn[2] = { 0x51, 0xFF };
-        /* centradas en la barra: x = 273 (el glifo mide ~7 de ancho y la barra va de 272 a 280) y a la misma distancia (~6.5) de la pista por arriba
-         * (la pista empieza en y = 150) y por abajo (termina en y = 32); medido sobre una captura de la PSP. Las bases difieren porque el glifo de abajo ocupa menos de su casilla. */
+        /* centered on the bar: x = 273 (the glyph is ~7 wide and the bar goes from 272 to 280) and at the same distance (~6.5) from the track above
+         * (the track starts at y = 150) and below (ends at y = 32); measured on a PSP screenshot. The bases differ because the bottom glyph takes up less of its box. */
         if (sScroll > 0) {
             print_generic_string(273, 151, up);
         }
@@ -1125,9 +1375,9 @@ static void psp_opt_draw(void) {
 #endif
     gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
 #if defined(VERSION_JP) || defined(VERSION_SH)
-    /* la fuente japonesa no tiene flechas: se dibujan con cajas apiladas (triangulos de 6 px) */
+    /* the Japanese font has no arrows: they are drawn with stacked boxes (6 px triangles) */
     if (!psp_opt_is_action(rows[sSel])) {
-        const int ay = 140 - 32 * (sSel - sScroll) - 13 + 12; /* arriba del renglon del valor */
+        const int ay = 140 - 32 * (sSel - sScroll) - 13 + 12; /* above the value line */
         if (psp_opt_can_dec(rows[sSel])) {
             psp_opt_tri(0, 88, ay);
         }
@@ -1146,8 +1396,8 @@ static void psp_opt_draw(void) {
 #endif
 }
 
-/* "SOUND: CPU / ME": que procesador sintetiza el audio (el CPU principal o el Media Engine). Se dibuja en las dos pausas (castillo y niveles) solo si
- * la opcion "Show Sound CPU" esta activada. */
+/* "SOUND: CPU / ME": which processor synthesizes the audio (the main CPU or the Media Engine). It is drawn on both pauses (castle and levels) only if
+ * the "Show Sound CPU" option is on. */
 void psp_options_sound_info(void) {
     if (sVal[OPT_SOUNDCPU]) {
         print_text(0, 0, "SOUND:");
@@ -1155,8 +1405,8 @@ void psp_options_sound_info(void) {
     }
 }
 
-/* "R Options" en la esquina de la pausa, mientras el menu esta cerrado (se llama despues de dibujar la pausa normal).
- * Si el boton R del N64 se reasigno, muestra el boton fisico que lo abre ahora. */
+/* "R Options" in the corner of the pause screen, while the menu is closed (called after drawing the normal pause).
+ * If the N64 R button was reassigned, it shows the physical button that opens it now. */
 void psp_options_pause_prompt(void) {
     char name[48], txt[96];
     u8 buf[96];
@@ -1172,10 +1422,10 @@ void psp_options_pause_prompt(void) {
         snprintf(txt, sizeof(txt), "%s %s", name, LT(sTrOptions));
     }
     if (psp_opt_lang() == LANG_EN) {
-        x = 304 - (s16) strlen(txt) * 5; /* alineado a la derecha, sin salirse de la pantalla */
+        x = 304 - (s16) strlen(txt) * 5; /* right-aligned, without going off the screen */
     } else {
         psp_opt_str(buf, txt, sizeof(buf));
-        x = 296 - psp_opt_width(buf) / 2; /* igual, pero midiendo el texto (frances, aleman, japones) */
+        x = 296 - psp_opt_width(buf) / 2; /* same, but measuring the text (French, German, Japanese) */
     }
     if (x > 264) {
         x = 264;
@@ -1185,11 +1435,47 @@ void psp_options_pause_prompt(void) {
     gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
 }
 
+/* HOME with the TV active: the system HOME is blocked (the firmware dialog comes out deformed on the TV and leaving through it closes the console badly). So that it does not look
+ * like the button is not responding: Lakitu's "the camera cannot move any further" buzz plays and for a few seconds a notice at the bottom center says the TV must be turned off to exit. */
+extern int gfx_scegu_tv_is_on(void);
+static const char *const sTrTvHome[LANG_COUNT] = TR("Turn TV Output Off to exit", "Désactivez la sortie TV pour quitter", "TV-Ausgabe ausschalten zum Beenden", "TVヲ オフニ シテクダサイ");
+static unsigned int sHomePrev;
+static unsigned long long sHomeUntil;
+
+void psp_options_home_notice(void) {
+    const unsigned int raw = gPspRawButtons;
+    const unsigned int pressed = raw & ~sHomePrev;
+    unsigned long long now = 0;
+
+    sHomePrev = raw;
+    if (!gfx_scegu_tv_is_on()) {
+        sHomeUntil = 0;
+        return;
+    }
+    if (sHomeUntil == 0 && !(pressed & PSP_CTRL_HOME)) {
+        return; /* no active notice and no new HOME: there is no need to even read the clock */
+    }
+    sceRtcGetCurrentTick(&now);
+    if (pressed & PSP_CTRL_HOME) {
+        play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+        sHomeUntil = now + 3000000ULL; /* 3 s (the clock runs at 1 MHz) */
+    }
+    if (now >= sHomeUntil) {
+        sHomeUntil = 0; /* already passed: the clock is no longer read until the next HOME */
+    } else {
+        create_dl_ortho_matrix();
+        gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+        psp_opt_text(160, 26, LT(sTrTvHome), 0);
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+    }
+}
+
 static void psp_opt_close(void) {
     sOpen = 0;
     sCapture = -1;
     if (sSndDirty) {
-        /* igual que al elegirlo en el menu de archivos: se guarda en el archivo de guardado (una sola escritura, al cerrar) */
+        /* same as when choosing it in the file menu: it is stored in the save file (a single write, on close) */
         save_file_set_sound_mode(sSndMode);
         sSndDirty = 0;
     }
@@ -1197,14 +1483,17 @@ static void psp_opt_close(void) {
     play_sound(SOUND_MENU_PAUSE_2, gDefaultSoundArgs);
 }
 
-/* Al cerrar, este mismo frame lo dibuja la pausa normal (oscurecido, monedas, opciones del curso): si no dibujara nada se veria un frame de la escena
- * sin oscurecer (parpadeo). Los botones que cerraron el menu se quitan para que la pausa no los lea (START/A la despausarian). */
+/* On close, this very frame is drawn by the normal pause (darkened, coins, course options): if it drew nothing, one frame of the scene would be seen
+ * undarkened (flicker). The buttons that closed the menu are removed so the pause does not read them (START/A would unpause it). */
 static int psp_opt_closed_frame(struct Controller *c) {
     c->buttonPressed &= ~(START_BUTTON | A_BUTTON | B_BUTTON | Z_TRIG | R_TRIG);
     return 0;
 }
 
 static void psp_opt_enter_page(int page, int sel) {
+    if (page == PG_VIDEO) {
+        (void) psp_dve_probe(); /* loads the TV module (only once) to know whether the "TV Output" row can be used */
+    }
     sPage = page;
     sSel = sel;
     sScroll = 0;
@@ -1223,6 +1512,17 @@ int psp_options_pause_frame(int can_open) {
 
     psp_options_poll();
 
+    {
+        /* a TV change that reverted by itself (the 480p test expired or was cancelled, or the output could not be routed): the row shows what really happens */
+        const int rv = gfx_scegu_tv_take_revert();
+        if (rv >= 0 && rv != sVal[OPT_TVOUT]) {
+            sVal[OPT_TVOUT] = rv;
+            psp_opt_apply();
+            psp_options_save_file(NULL);
+            play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+        }
+    }
+
     if (!sOpen) {
         if (!can_open || !(c->buttonPressed & R_TRIG)
             || (c->buttonDown & (L_TRIG | Z_TRIG | B_BUTTON | A_BUTTON | START_BUTTON))) {
@@ -1236,7 +1536,7 @@ int psp_options_pause_frame(int can_open) {
         sCapture = -1;
         sWaitRelease = 0;
         sPrevX = sPrevY = sTimeX = sTimeY = 0;
-        sPrevRaw = gPspRawButtons; /* lo que se esta pulsando al abrir (la R) no cuenta */
+        sPrevRaw = gPspRawButtons; /* what is being pressed on opening (the R) does not count */
         sVal[OPT_SHOWFPS] = gRenderFPS ? 1 : 0;
         sSndMode = save_file_get_sound_mode();
         if (sSndMode > 2) {
@@ -1244,6 +1544,14 @@ int psp_options_pause_frame(int can_open) {
         }
         sSndDirty = 0;
         play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
+    }
+
+    if (sPage == PG_TV && !sTvAcc) {
+        /* the cable was removed with the TV off: leaves the TV page for Graphics */
+        sPage = PG_VIDEO;
+        sSel = psp_opt_row_index(sPgVideo, (int) sizeof(sPgVideo), ROW_TVPAGE);
+        /* the cursor stays on the TV Settings row (greyed out) so "No cable" can be read */
+        sScroll = (sSel > 3) ? sSel - 3 : 0;
     }
 
     raw = gPspRawButtons;
@@ -1254,7 +1562,7 @@ int psp_options_pause_frame(int can_open) {
     if (sJustOpened) {
         sJustOpened = 0;
     } else if (sWaitRelease) {
-        /* acaba de cambiar el mapeo con botones aun pulsados: no se hace nada hasta soltarlos todos */
+        /* the mapping just changed with buttons still held: nothing is done until they are all released */
         if (!(raw & BINDABLE)) {
             sWaitRelease = 0;
         }
@@ -1271,8 +1579,17 @@ int psp_options_pause_frame(int can_open) {
             sWaitRelease = 1;
             play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
         } else if (--sCaptureTimer <= 0) {
-            sCapture = -1; /* nadie pulso nada: se cancela */
+            sCapture = -1; /* nobody pressed anything: cancelled */
             play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+        }
+    } else if (gfx_scegu_tv_probation_left() > 0) {
+        /* 480p test (the TV may not show it): A confirms, B cancels; with no answer in 10 s it goes back to the previous mode by itself. Nothing else does anything. */
+        if (pressed & PSP_CTRL_CROSS) {
+            gfx_scegu_tv_confirm();
+            psp_options_save_file(NULL);
+            play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
+        } else if (pressed & (PSP_CTRL_SQUARE | PSP_CTRL_CIRCLE)) {
+            gfx_scegu_tv_cancel();
         }
     } else {
         if (pressed & (PSP_CTRL_START | PSP_CTRL_RTRIGGER)) {
@@ -1284,7 +1601,11 @@ int psp_options_pause_frame(int can_open) {
                 psp_opt_close();
                 return psp_opt_closed_frame(c);
             }
-            psp_opt_enter_page(PG_MAIN, sPage - 1); /* la entrada de la pagina de la que se sale */
+            if (sPage == PG_TV) {
+                psp_opt_enter_page(PG_VIDEO, psp_opt_row_index(sPgVideo, (int) sizeof(sPgVideo), ROW_TVPAGE)); /* from the TV page it goes back to Graphics, on the TV row */
+            } else {
+                psp_opt_enter_page(PG_MAIN, sPage - 1); /* the entry of the page being left */
+            }
             psp_opt_draw();
             return 1;
         }
@@ -1299,8 +1620,13 @@ int psp_options_pause_frame(int can_open) {
         dx = psp_opt_repeat(dx, &sPrevX, &sTimeX);
 
         if (dy != 0) {
-            /* sin vuelta: arriba de la primera fila o abajo de la ultima no hace nada */
-            const int ns = sSel + dy;
+            /* no wrap-around: above the first row or below the last one does nothing. Greyed-out rows are skipped (except TV Settings); if all the ones left in that direction are greyed out
+             * it does not move and Lakitu's buzz plays (once per press) */
+            const int first = sSel + dy;
+            int ns = first;
+            while (ns >= 0 && ns < n && psp_opt_row_skip(rows[ns])) {
+                ns += dy;
+            }
             if (ns >= 0 && ns < n) {
                 sSel = ns;
                 if (sSel < sScroll) {
@@ -1309,10 +1635,19 @@ int psp_options_pause_frame(int can_open) {
                     sScroll = sSel - 3;
                 }
                 play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+            } else if (first >= 0 && first < n && !sNavBuzzed) {
+                sNavBuzzed = 1;
+                play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
             }
+        } else {
+            sNavBuzzed = 0;
         }
         if (dx != 0) {
             psp_opt_change(rows[sSel], dx, 0);
+        }
+        if ((pressed & PSP_CTRL_LTRIGGER) && rows[sSel] == OPT_TVOUT && psp_opt_tv_ready() && sVal[OPT_TVOUT] > 0) {
+            gfx_scegu_tv_reconnect(); /* routes the output again (for example after unplugging and plugging the cable back in) */
+            play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
         }
         if (pressed & PSP_CTRL_CROSS) {
             const int row = rows[sSel];
@@ -1322,9 +1657,23 @@ int psp_options_pause_frame(int can_open) {
                 psp_opt_enter_page(PG_AUDIO, 0);
             } else if (row == ROW_CONTROLS) {
                 psp_opt_enter_page(PG_CTRL, 0);
+            } else if (row == ROW_TVPAGE) {
+                if (psp_opt_tv_access_now()) {
+                    sTvAcc = 1;
+                    psp_opt_enter_page(PG_TV, 0);
+                } else {
+                    play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs); /* no video cable (or no TV module): not entered */
+                }
             } else if (row == ROW_AUDRESET) {
                 psp_opt_reset_audio();
                 play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+            } else if (row == ROW_TVRESET) {
+                if (psp_opt_tv_row_off(row)) {
+                    play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs); /* with TV Output at Off it is useless */
+                } else {
+                    psp_opt_reset_tv();
+                    play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+                }
             } else if (row == OPT_RESET) {
                 psp_opt_reset();
                 play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
@@ -1343,6 +1692,18 @@ int psp_options_pause_frame(int can_open) {
 
     psp_opt_draw();
     return 1;
+}
+
+/* Sets "TV Output" to this value ONLY for this session (does not save the file): the game booted with the console already in its native TV mode. */
+void psp_options_tv_set(int mode) {
+    sVal[OPT_TVOUT] = mode;
+    psp_opt_apply();
+}
+
+void psp_options_tv_off(void) {
+    sVal[OPT_TVOUT] = 0;
+    psp_opt_apply();
+    psp_options_save_file(NULL);
 }
 
 #endif /* TARGET_PSP */

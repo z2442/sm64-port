@@ -43,7 +43,7 @@ OSMesgQueue gAudioDmaMesgQueue;
 OSMesg gAudioDmaMesg;
 OSIoMesg gAudioDmaIoMesg;
 
-/* 4 buffers de DMA por nota (3 de 1296 bytes + 1 de 1440): 0x60 bastaba para 24 notas, 32 notas necesitan 0x80 */
+/* 4 DMA buffers per note (3 of 1296 bytes + 1 of 1440): 0x60 was enough for 24 notes, 32 notes need 0x80 */
 struct SharedDma sSampleDmas[PSP_AUDIO_NOTES * 4 > 0x60 ? PSP_AUDIO_NOTES * 4 : 0x60];
 u32 gSampleDmaNumListItems;
 u32 sSampleDmaListSize1;

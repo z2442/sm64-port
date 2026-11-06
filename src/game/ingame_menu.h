@@ -151,6 +151,6 @@ s16 render_menus_and_dialogs(void);
 
 #if defined(VERSION_EU) && defined(TARGET_PSP)
 extern f32 gPspEuMenuX;
-#endif
+#endif // INGAME_MENU_H
 
 #endif // INGAME_MENU_H

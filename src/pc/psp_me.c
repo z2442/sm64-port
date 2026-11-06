@@ -14,8 +14,8 @@
 
 #define PSP_ME_READY_TIMEOUT_US 250000
 #define PSP_ME_POLL_US 100
-#define PSP_ME_JOB_TIMEOUT_US 100000   /* espera bloqueante maxima por un trabajo; despues el ME se da por "ocupado" y se sigue sin esperar */
-#define PSP_ME_STUCK_DEAD_US 3000000   /* si en 3 s no termina, se da por muerto y el audio pasa a la CPU para siempre */
+#define PSP_ME_JOB_TIMEOUT_US 100000   /* maximum blocking wait for a job; after that the ME is considered "busy" and it carries on without waiting */
+#define PSP_ME_STUCK_DEAD_US 3000000   /* if it does not finish within 3 s, it is considered dead and the audio moves to the CPU for good */
 #define PSP_ME_PROGRESS_ENTERED 0x10
 #define PSP_ME_PROGRESS_BOOT_RELEASED 0x20
 #define PSP_ME_PROGRESS_READY 0x100
@@ -35,7 +35,7 @@ enum PspMeSharedIndex {
     PSP_ME_SHARED_PROGRESS,
     PSP_ME_SHARED_AUDIO_OUTPUT,
     PSP_ME_SHARED_JOB_COUNT,
-    PSP_ME_SHARED_JOB_FRAMES, /* PSP_ME_JOB_MAX entradas */
+    PSP_ME_SHARED_JOB_FRAMES, /* PSP_ME_JOB_MAX entries */
     PSP_ME_SHARED_COUNT = PSP_ME_SHARED_JOB_FRAMES + PSP_ME_JOB_MAX,
 };
 
@@ -50,23 +50,23 @@ static volatile uint32_t sPspMeSharedStorage[PSP_ME_SHARED_COUNT]
 #define sPspMeJobCount sPspMeShared[PSP_ME_SHARED_JOB_COUNT]
 #define sPspMeJobFrames(i_) sPspMeShared[PSP_ME_SHARED_JOB_FRAMES + (i_)]
 
-unsigned int gPspMePolls, gPspMeUs, gPspMeBlocks, gPspMeWaits; /* diagnostico del log: sondeos, tiempo que el hilo principal espero al ME, bloques de audio mandados al ME y veces que hubo que esperar */
+unsigned int gPspMePolls, gPspMeUs, gPspMeBlocks, gPspMeWaits; /* log diagnostic: polls, time the main thread waited for the ME, audio blocks sent to the ME and times it had to wait */
 static bool sPspMeBootStarted;
 static int sPspMeBootResult = -1;
 static bool sPspMeInitialized;
-static volatile bool sPspMeSuspended; /* la consola se esta suspendiendo (o ya se suspendio): no se mandan mas trabajos al ME */
-static volatile bool sPspMeResumeArmed; /* el ME quedo detenido (HALTED) antes de dormir: al despertar se le puede hacer un reset de hardware y volver a arrancarlo */
-static volatile bool sPspMeResumed;      /* el ME volvio a estar listo tras reanudar: el audio puede volver a usarlo (lo recoge psp_me_take_resumed) */
-unsigned int gPspMeResumeOk, gPspMeResumeFail; /* diagnostico: reanudaciones del ME que salieron bien / mal */
-static volatile unsigned int sPspMeWakeCalls; /* diagnostico: veces que libme-core llamo a meLibOnWake */
-static unsigned int sPspMePwrFlags[6]; /* diagnostico: flags de los 6 ultimos avisos de energia (el mas reciente en [0]) */
-static unsigned int sPspMePwrN0, sPspMePwrN1; /* diagnostico: llamadas a psp_me_power_event(0) / (1) */
-static int sPspMeSuspState = -1;               /* diagnostico: estado del ME al terminar de pararlo antes de dormir (5 = HALTED) */
-static int sPspMeResumeState = -1, sPspMeResumeProg = -1; /* diagnostico: estado/progreso del ME cuando se rindio la reanudacion */
-static bool sPspMeStuck;           /* un trabajo supero PSP_ME_JOB_TIMEOUT_US y se espera sin bloquear */
+static volatile bool sPspMeSuspended; /* the console is suspending (or already suspended): no more jobs are sent to the ME */
+static volatile bool sPspMeResumeArmed; /* the ME was left halted (HALTED) before sleeping: on wake-up it can be hardware-reset and started again */
+static volatile bool sPspMeResumed;      /* the ME is ready again after resuming: audio can use it again (picked up by psp_me_take_resumed) */
+unsigned int gPspMeResumeOk, gPspMeResumeFail; /* diagnostic: ME resumes that went well / badly */
+static volatile unsigned int sPspMeWakeCalls; /* diagnostic: times libme-core called meLibOnWake */
+static unsigned int sPspMePwrFlags[6]; /* diagnostic: flags of the last 6 power notices (the most recent in [0]) */
+static unsigned int sPspMePwrN0, sPspMePwrN1; /* diagnostic: calls to psp_me_power_event(0) / (1) */
+static int sPspMeSuspState = -1;               /* diagnostic: ME state when it finished stopping before sleep (5 = HALTED) */
+static int sPspMeResumeState = -1, sPspMeResumeProg = -1; /* diagnostic: ME state/progress when the resume gave up */
+static bool sPspMeStuck;           /* a job exceeded PSP_ME_JOB_TIMEOUT_US and is being waited for without blocking */
 static uint32_t sPspMeStuckT0;
-unsigned int gPspMeTimeouts, gPspMeRecovered; /* diagnostico del log: trabajos que pasaron el timeout / terminaron tarde y se recuperaron */
-static int sPspMeBootTries; /* diagnostico: bit0 = primer intento, bit1 = reintento desde la carpeta de partidas */
+unsigned int gPspMeTimeouts, gPspMeRecovered; /* log diagnostic: jobs that passed the timeout / finished late and recovered */
+static int sPspMeBootTries; /* diagnostic: bit0 = first attempt, bit1 = retry from the savedata folder */
 
 __attribute__((noinline, aligned(4))) void meLibOnException(void) {
     sPspMeState = PSP_ME_STATE_FAULT;
@@ -80,8 +80,8 @@ __attribute__((noinline, aligned(4))) void meLibOnExternalInterrupt(void) {
     meLibHalt();
 }
 
-/* Ganchos de suspension de libme-core: su manejador de eventos del sistema los llama en modo kernel durante el sueno/despertar. Aqui NO se
- * toca el hardware (el reset del ME se hace mas tarde, ya con la consola despierta, en psp_me_power_event(0)): solo se cuenta la llamada. */
+/* libme-core suspend hooks: its system event handler calls them in kernel mode during sleep/wake. Here the hardware is NOT
+ * touched (the ME reset is done later, with the console awake, in psp_me_power_event(0)): the call is only counted. */
 __attribute__((noinline, aligned(4))) void meLibOnSleep(void) {
 }
 
@@ -89,8 +89,8 @@ __attribute__((noinline, aligned(4))) void meLibOnWake(void) {
     sPspMeWakeCalls++;
 }
 
-/* Se ejecuta en modo kernel (via kcall): vuelve a copiar el codigo de arranque del ME a su memoria y le hace el reset de hardware (meLibReset),
- * lo mismo que hizo meLibDefaultInit la primera vez. */
+/* Runs in kernel mode (via kcall): copies the ME boot code to its memory again and hardware-resets it (meLibReset),
+ * the same thing meLibDefaultInit did the first time. */
 static int psp_me_kreset(void) {
     meLibReset();
     return 0;
@@ -118,8 +118,8 @@ __attribute__((noinline, aligned(4))) void meLibOnProcess(void) {
             /* The SM64 audio engine still builds and executes its ABI work as
              * one unit. Keep its mutable globals coherent until the mixer is
              * split into the command-list model used by the OOT port.
-             * Un "trabajo" son 1..PSP_ME_JOB_MAX bloques seguidos: el hilo principal no toca el estado del audio mientras el ME
-             * trabaja (ver audio_psp_tick_begin / audio_psp_tick_end), asi que las cachas de las dos CPU no se pisan. */
+             * A "job" is 1..PSP_ME_JOB_MAX consecutive blocks: the main thread does not touch the audio state while the ME
+             * works (see audio_psp_tick_begin / audio_psp_tick_end), so the caches of the two CPUs do not overwrite each other. */
             meCoreDcacheWritebackInvalidateAll();
             if (count > PSP_ME_JOB_MAX) {
                 count = PSP_ME_JOB_MAX;
@@ -155,11 +155,11 @@ int psp_me_boot(void) {
     meLibSync();
 
     sPspMeBootStarted = true;
-    /* libme-core escribe "kcall.prx" en el DIRECTORIO ACTUAL del sistema de archivos de la PSP y lo carga desde ahi (-3 = no pudo
-     * escribirlo). Segun como se lance el juego (cargador de .prx, carpeta de solo lectura...) ese directorio puede no ser
-     * escribible; entonces el ME no arranca y todo el audio se sintetiza en la CPU principal (~20 % de CPU). Primero se intenta
-     * como siempre; si falla con -3 se repite desde la carpeta de partidas guardadas, que siempre es escribible. (sceIoChdir solo
-     * cambia el directorio del nucleo; las rutas relativas de la libc del juego no cambian.) */
+    /* libme-core writes "kcall.prx" in the CURRENT DIRECTORY of the PSP file system and loads it from there (-3 = it could not
+     * write it). Depending on how the game is launched (.prx loader, read-only folder...) that directory may not be
+     * writable; then the ME does not start and all the audio is synthesized on the main CPU (~20 % of CPU). First it is tried
+     * as usual; if it fails with -3 it is repeated from the saved games folder, which is always writable. (sceIoChdir only
+     * changes the kernel's directory; the game's libc relative paths do not change.) */
     sPspMeBootTries = 1;
     sPspMeBootResult = meLibDefaultInit();
     if (sPspMeBootResult == -3) {
@@ -202,7 +202,7 @@ bool psp_me_init(void) {
     return true;
 }
 
-/* diagnostico para el log: 0 = resultado de meLibDefaultInit (<0: fallo), 1 = inicializado, 2 = progreso del ME, 3 = estado */
+/* diagnostic for the log: 0 = meLibDefaultInit result (<0: failure), 1 = initialized, 2 = ME progress, 3 = state */
 int psp_me_debug(int which) {
     switch (which) {
         case 0: return sPspMeBootStarted ? sPspMeBootResult : -999;
@@ -227,8 +227,8 @@ bool psp_me_is_active(void) {
     return sPspMeInitialized;
 }
 
-/* Manda un trabajo al ME: "count" bloques seguidos de audio (frames[i] muestras cada uno) escritos uno tras otro en samples.
- * No espera: el hilo principal recoge el resultado con psp_me_job_wait(). Devuelve false si el ME no esta listo. */
+/* Sends a job to the ME: "count" consecutive audio blocks (frames[i] samples each) written one after another in samples.
+ * It does not wait: the main thread collects the result with psp_me_job_wait(). Returns false if the ME is not ready. */
 bool psp_me_job_start(int16_t *samples, const uint32_t *frames, int count) {
     int i;
 
@@ -251,12 +251,12 @@ bool psp_me_job_start(int16_t *samples, const uint32_t *frames, int count) {
     return true;
 }
 
-/* Espera a que el ME termine el trabajo y deja la cache del hilo principal al dia (descarta lineas viejas del estado del audio).
- * Normalmente el ME ya termino (trabaja mientras la CPU dibuja) y no se espera nada.
- * Antes, UN solo trabajo que tardara mas de 1 s (visto al entrar a un nivel) congelaba el juego 1 s y desactivaba el ME para toda la
- * sesion (todo el audio pasaba a la CPU principal: ~5 ms por frame). Ahora: tras PSP_ME_JOB_TIMEOUT_US se devuelve BUSY y los ticks
- * siguientes solo miran (sin bloquear); si el ME termina tarde se descarta ese trabajo y se sigue usando el ME. Mientras esta ocupado
- * la CPU NO sintetiza (tocaria el mismo estado que el ME); solo si pasan PSP_ME_STUCK_DEAD_US se da por muerto. */
+/* Waits for the ME to finish the job and brings the main thread's cache up to date (discards old lines of the audio state).
+ * Normally the ME has already finished (it works while the CPU draws) and nothing is waited for.
+ * Before, a SINGLE job that took longer than 1 s (seen when entering a level) froze the game for 1 s and disabled the ME for the whole
+ * session (all the audio moved to the main CPU: ~5 ms per frame). Now: after PSP_ME_JOB_TIMEOUT_US BUSY is returned and the following
+ * ticks only look (without blocking); if the ME finishes late that job is discarded and the ME keeps being used. While it is busy
+ * the CPU does NOT synthesize (it would touch the same state as the ME); only if PSP_ME_STUCK_DEAD_US passes is it considered dead. */
 int psp_me_job_wait(void) {
     uint32_t polls = 0;
     uint32_t t0;
@@ -298,7 +298,7 @@ int psp_me_job_wait(void) {
         return PSP_ME_WAIT_BUSY;
     }
     if (sPspMeState != PSP_ME_STATE_IDLE) {
-        sPspMeInitialized = false; /* FAULT / HALTED: el ME se detuvo, no hay vuelta atras */
+        sPspMeInitialized = false; /* FAULT / HALTED: the ME stopped, there is no way back */
         return PSP_ME_WAIT_DEAD;
     }
 
@@ -309,12 +309,12 @@ int psp_me_job_wait(void) {
 }
 
 
-/* Suspension de la consola. El ME ejecuta NUESTRO codigo en un bucle sin fin (sondeando el estado compartido); si la consola se duerme con el ME asi,
- * el sistema no consigue volver a encenderla al reanudar (el ME tiene que estar parado). Por eso, al suspender: se dejan de mandar trabajos, se
- * espera a que termine el que haya en curso (el ME solo mira la orden de parar entre trabajos: si se pidiera con un trabajo en marcha, al terminar
- * lo pisaria con IDLE y la orden se perderia), se le ordena parar y se espera a que quede detenido. Mientras tanto el audio pasa a la CPU.
- * Al reanudar (RESUME_COMPLETE) el gancho meLibOnWake ya le hizo el reset de hardware: aqui se le vuelve a dar la orden de arranque, se espera a que
- * este listo y se avisa al audio (psp_me_take_resumed). Si algo falla o tarda, el audio simplemente se queda en la CPU. */
+/* Console suspend. The ME runs OUR code in an endless loop (polling the shared state); if the console goes to sleep with the ME like that,
+ * the system cannot turn it back on at resume (the ME has to be stopped). That is why, on suspend: no more jobs are sent, it
+ * waits for the one in progress to finish (the ME only looks at the stop order between jobs: if it were requested with a job running, when it finished
+ * it would overwrite it with IDLE and the order would be lost), it is ordered to stop and it waits for it to be halted. Meanwhile the audio goes to the CPU.
+ * On resume (RESUME_COMPLETE) the meLibOnWake hook has already hardware-reset it: here it is given the start order again, it waits for it to be
+ * ready and the audio is notified (psp_me_take_resumed). If anything fails or takes too long, the audio simply stays on the CPU. */
 void psp_me_note_flags(int flags) {
     int i;
     for (i = 5; i > 0; i--) {
@@ -337,8 +337,8 @@ void psp_me_power_event(int suspending) {
         if (!sPspMeResumeArmed) {
             return;
         }
-        /* el ME esta apagado desde que se durmio la consola: se le hace el reset de arranque (en modo kernel) y se le suelta con IDLE
-         * (meLibOnProcess espera BOOTING); si no esta listo en 600 ms se repite el reset una vez */
+        /* the ME has been off since the console went to sleep: the boot reset is done (in kernel mode) and it is released with IDLE
+         * (meLibOnProcess waits for BOOTING); if it is not ready within 600 ms the reset is repeated once */
         int attempt;
         sPspMeResumeArmed = false;
         for (attempt = 0; attempt < 2; attempt++) {
@@ -366,7 +366,7 @@ void psp_me_power_event(int suspending) {
         } else {
             sPspMeResumeState = (int) sPspMeState;
             sPspMeResumeProg = (int) sPspMeProgress;
-            sPspMeState = PSP_ME_STATE_STOP; /* por si llegara a arrancar mas tarde, que se pare */
+            sPspMeState = PSP_ME_STATE_STOP; /* in case it ever starts later, it should stop */
             meLibSync();
             sPspMeSuspended = false;
             gPspMeResumeFail++;
@@ -374,14 +374,14 @@ void psp_me_power_event(int suspending) {
         return;
     }
     if (sPspMeSuspended) {
-        return; /* ya suspendido (aviso repetido): no se pierde el permiso de reanudar */
+        return; /* already suspended (repeated notice): the permission to resume is not lost */
     }
     sPspMeSuspended = true;
     sPspMeResumeArmed = false;
     if (!sPspMeBootStarted || (sPspMeBootResult < 0) || !sPspMeInitialized) {
         return;
     }
-    sceKernelDelayThread(3000); /* un psp_me_job_start que ya pasara la comprobacion termina de publicar su trabajo */
+    sceKernelDelayThread(3000); /* a psp_me_job_start that already passed the check finishes publishing its job */
     t0 = sceKernelGetSystemTimeLow();
     for (;;) {
         st = sPspMeState;
@@ -391,7 +391,7 @@ void psp_me_power_event(int suspending) {
             break;
         }
         if (st != PSP_ME_STATE_GENERATE_AUDIO) {
-            break; /* ya detenido / fallo / parando */
+            break; /* already halted / failure / stopping */
         }
         if ((sceKernelGetSystemTimeLow() - t0) >= 400000) {
             break;
@@ -405,17 +405,17 @@ void psp_me_power_event(int suspending) {
     }
     sPspMeSuspState = (int) sPspMeState;
     if (sPspMeState == PSP_ME_STATE_HALTED) {
-        /* detenido de verdad: se prepara el estado para el proximo arranque y se permite el reset al despertar */
+        /* really halted: the state is prepared for the next start and the reset on wake-up is allowed */
         sPspMeProgress = 0;
         sPspMeState = PSP_ME_STATE_BOOTING;
         meLibSync();
         sPspMeResumeArmed = true;
     }
-    sceKernelDcacheWritebackInvalidateAll(); /* lo ultimo que escribio el ME (estado del audio) tiene que leerse de memoria */
+    sceKernelDcacheWritebackInvalidateAll(); /* the last thing the ME wrote (audio state) must be read from memory */
     sPspMeInitialized = false;
 }
 
-/* true una sola vez cuando el ME volvio a estar listo tras reanudar (lo llama el hilo productor de audio entre dos sintesis en la CPU) */
+/* true only once when the ME is ready again after resuming (called by the audio producer thread between two syntheses on the CPU) */
 bool psp_me_take_resumed(void) {
     if (!sPspMeResumed) {
         return false;

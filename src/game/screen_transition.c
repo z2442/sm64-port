@@ -16,8 +16,8 @@
 u8 sTransitionColorFadeCount[4] = { 0 };
 u16 sTransitionTextureFadeCount[2] = { 0 };
 
-/* 60 fps: posiciones en la lista de dibujo donde se cargan los vertices del circulo/estrella; el primer cuadro usa los
- * interpolados y patch_screen_transition_interpolated() los cambia por los reales para el segundo. */
+/* 60 fps: positions in the draw list where the circle/star vertices are loaded; the first frame uses the
+ * interpolated ones and patch_screen_transition_interpolated() swaps them for the real ones for the second. */
 static Gfx *sScreenTransitionVerticesPos[2];
 static Vtx *sScreenTransitionVertices;
 
@@ -104,7 +104,7 @@ s32 render_fade_transition_into_color(s8 fadeTimer, u8 transTime, struct WarpTra
     return dl_transition_color(fadeTimer, transTime, transData, alpha);
 }
 
-/* interpolationFraction: 1.0 = estado real de este tick, 0.5 = punto medio entre el tick anterior y este */
+/* interpolationFraction: 1.0 = real state of this tick, 0.5 = midpoint between the previous tick and this one */
 s16 calc_tex_transition_radius(s8 fadeTimer, f32 interpolationFraction, s8 transTime, struct WarpTransitionData *transData) {
     f32 texRadius = transData->endTexRadius - transData->startTexRadius;
     f32 radiusTime = (sTransitionColorFadeCount[fadeTimer] == 0 ? 0 :
@@ -296,9 +296,9 @@ Gfx *render_cannon_circle_base(void) {
 
         gSPDisplayList(g++, dl_proj_mtx_fullscreen);
         //gDPSetCombineMode(g++, G_CC_MODULATEIDECALA, G_CC_MODULATEIDECALA);
-        /* El circulo del canon es negro (vertices negros en el original). Con MODULATEIA_PRIM el color sale de
-         * PRIM, que antes no se fijaba aqui y quedaba con el de la ultima transicion (blanco al inicio del juego).
-         * Ademas el combine se escribia en gDisplayListHead en vez de en esta lista. */
+        /* The cannon circle is black (black vertices in the original). With MODULATEIA_PRIM the color comes from
+         * PRIM, which used to not be set here and was left with the one from the last transition (white at the start of the game).
+         * Also the combine was being written to gDisplayListHead instead of to this list. */
         gDPSetPrimColor(g++, 0, 0, 0, 0, 0, 255);
         gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
         gDPSetTextureFilter(g++, G_TF_BILERP);

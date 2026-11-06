@@ -103,9 +103,9 @@ f32 gDialogBoxOpenTimer = DEFAULT_DIALOG_BOX_ANGLE;
 f32 gDialogBoxScale = DEFAULT_DIALOG_BOX_SCALE;
 
 #if defined(VERSION_EU) && defined(TARGET_PSP)
-/* PSP/EU: el layout de las pantallas 2D de la version europea esta pensado para la camara 3D con aspecto x1,1 (botones y cabezas mas juntos:
- * los textos se colocaron para ESO). Sin ese x1,1 (ver rendering_graph_node.c) el 3D queda mas ancho; mientras se dibuja el menu de archivos
- * (file_select.c) las X de inicio de los textos se alejan 1,1 veces del centro (160) para volver a quedar bajo cada boton. */
+/* PSP/EU: the layout of the European version's 2D screens is designed for the 3D camera with a x1.1 aspect (buttons and heads closer together:
+ * the texts were placed for THAT). Without that x1.1 (see rendering_graph_node.c) the 3D is wider; while the file menu is drawn
+ * (file_select.c) the starting X of the texts moves away from the center (160) by a factor of 1.1 so they sit under each button again. */
 f32 gPspEuMenuX = 1.0f;
 #define EU_MENU_X(x) ((s16)(160.0f + ((f32)(x) - 160.0f) * gPspEuMenuX))
 #else
@@ -134,10 +134,10 @@ static f32 sInterpolatedDialogRotation;
 static Gfx *sInterpolatedDialogZoomPos;
 
 #if defined(VERSION_EU) && defined(TARGET_PSP)
-/* PSP/EU: en la version europea el texto del dialogo NO usa matrices sino rectangulos con coordenadas calculadas con la escala y el scroll
- * (render_generic_dialog_char_at_pos). El cuadro negro si se interpola (matrices), el texto no: en el cuadro interpolado el texto iba medio
- * paso por delante del cuadro al abrir/cerrar, y el scroll de paginas avanzaba a saltos de 30 Hz. Se guarda la posicion de cada rectangulo en
- * la lista y las coordenadas del estado real; patch_interpolated_dialog() las reescribe igual que hace con las matrices. */
+/* PSP/EU: in the European version the dialog text does NOT use matrices but rectangles with coordinates computed from the scale and the scroll
+ * (render_generic_dialog_char_at_pos). The black box is interpolated (matrices), the text is not: in the interpolated box the text ran half a
+ * step ahead of the box when opening/closing, and the page scroll advanced in 30 Hz jumps. The position of each rectangle in the list and
+ * the coordinates of the real state are saved; patch_interpolated_dialog() rewrites them the same way it does with the matrices. */
 #define EU_DLG_RECT_MAX 640
 struct EuDlgRect {
     Gfx *pos;
@@ -295,7 +295,7 @@ void create_dl_ortho_matrix_menu_hack(void) {
 
     create_dl_identity_matrix();
 
-    guOrtho(matrix, 0.0f, SCREEN_WIDTH, 0.0f, SCREEN_HEIGHT, -10.0f, 10.0f, 1.0f); /* gfx_pc.c ya compensa 16:9 */
+    guOrtho(matrix, 0.0f, SCREEN_WIDTH, 0.0f, SCREEN_HEIGHT, -10.0f, 10.0f, 1.0f); /* gfx_pc.c already compensates for 16:9 */
 
     // Should produce G_RDPHALF_1 in Fast3D
     gSPPerspNormalize(gDisplayListHead++, 0xFFFF);
@@ -306,9 +306,9 @@ void create_dl_ortho_matrix_menu_hack(void) {
 }
 
 #if defined(VERSION_JP) || defined(VERSION_SH)
-/* PSP (little-endian): el original leia los glifos de 1 bit como u16 y los bytes de cada par salian al reves (caracteres japoneses rotos).
- * Aqui se leen byte a byte (MSB primero, igual que en la N64). Ademas cada glifo se convierte UNA vez y se reutiliza: antes se reservaba
- * memoria de la lista de dibujo y se reconvertia en cada caracter y cada cuadro. Solo se usa en las versiones JP/SH. */
+/* PSP (little-endian): the original read the 1-bit glyphs as u16 and the bytes of each pair came out reversed (broken Japanese characters).
+ * Here they are read byte by byte (MSB first, same as on the N64). Also each glyph is converted ONCE and reused: before, display list
+ * memory was reserved and reconverted for every character and every frame. Only used in the JP/SH versions. */
 #define JP_GLYPH_W 8
 #define JP_GLYPH_H 16
 static u8 sJpGlyphCache[256][JP_GLYPH_W * JP_GLYPH_H] __attribute__((aligned(16)));
@@ -389,9 +389,9 @@ u8 *alloc_ia4_tex_from_i1(u8 *in, s16 width, s16 height) {
 }
 
 #ifdef TARGET_PSP
-/* PSP: el renderizador guarda las texturas ya convertidas por direccion. alloc_ia4_tex_from_i1() las crea en la memoria temporal de la lista
- * de dibujo (misma direccion en cada cuadro, contenido distinto), asi que las letras salian cambiadas. Aqui cada caracter se desempaqueta una
- * sola vez a un bufer fijo (misma direccion y mismo contenido siempre) y de paso se evita repetir el trabajo por letra y por cuadro. */
+/* PSP: the renderer stores already converted textures by address. alloc_ia4_tex_from_i1() creates them in the display list's temporary memory
+ * (same address every frame, different content), so the letters came out swapped. Here each character is unpacked only
+ * once into a fixed buffer (same address and same content always) and in passing the work repeated per letter and per frame is avoided. */
 static u8 sEuGlyphCache[256][64] __attribute__((aligned(16)));
 static u8 sEuGlyphReady[256];
 
@@ -846,7 +846,7 @@ void handle_menu_scrolling(s8 scrollDirection, s8 *currentIndex, s8 minIndex, s8
     u8 index = 0;
 
 #ifdef TARGET_PSP
-    /* La cruceta de la PSP llega como los botones C (controller_psp.c): tambien mueve el cursor de los menus, igual que el stick. */
+    /* The PSP D-pad arrives as the C buttons (controller_psp.c): it also moves the menu cursor, same as the stick. */
     const s32 padUp = gPlayer3Controller->buttonDown & U_CBUTTONS;
     const s32 padDown = gPlayer3Controller->buttonDown & D_CBUTTONS;
     const s32 padLeft = gPlayer3Controller->buttonDown & L_CBUTTONS;
@@ -915,8 +915,8 @@ s16 get_str_x_pos_from_center(s16 centerPos, u8 *str, UNUSED f32 scale) {
     // return the x position of where the string starts as half the string's
     // length from the position of the provided center.
 #if defined(VERSION_EU) && defined(TARGET_PSP)
-    /* Menu de archivos EU: print_* separa luego la X de inicio 1,1 veces del centro (EU_MENU_X), asi que la mitad del ancho se divide entre 1,1
-     * para que el CENTRO del texto (no su inicio) quede donde corresponde; si no, los textos largos salian corridos a la izquierda. */
+    /* EU file menu: print_* later moves the starting X away from the center by 1.1 (EU_MENU_X), so half the width is divided by 1.1
+     * so that the CENTER of the text (not its start) ends up where it should; otherwise long texts came out shifted to the left. */
     return (s16)(centerPos - (s16)(spacesWidth / 2.0 / gPspEuMenuX));
 #else
     return (s16)(centerPos - (s16)(spacesWidth / 2.0));
@@ -1101,11 +1101,11 @@ void render_dialog_box_type(struct DialogEntry *dialog, s8 linesPerBox) {
             if (gDialogBoxState == DIALOG_STATE_OPENING || gDialogBoxState == DIALOG_STATE_CLOSING) {
                 sInterpolatedDialogRotationPos = gDisplayListHead;
                 if (gDialogBoxState == DIALOG_STATE_OPENING) {
-                    sInterpolatedDialogScale = gDialogBoxScale - 1.5f / 2; /* abriendo: escala -1.5 y giro -7.5 por tick */
+                    sInterpolatedDialogScale = gDialogBoxScale - 1.5f / 2; /* opening: scale -1.5 and rotation -7.5 per tick */
                     sInterpolatedDialogRotation = gDialogBoxOpenTimer - 7.5f / 2;
                 } else {
                     sInterpolatedDialogScale = gDialogBoxScale + 2 / 2;
-                    sInterpolatedDialogRotation = gDialogBoxOpenTimer + 10.0f / 2; /* cerrando: escala +2 y giro +10 por tick */
+                    sInterpolatedDialogRotation = gDialogBoxOpenTimer + 10.0f / 2; /* closing: scale +2 and rotation +10 per tick */
                 }
                 create_dl_scale_matrix(MENU_MTX_NOPUSH, 1.0 / gDialogBoxScale, 1.0 / gDialogBoxScale, 1.0f);
                 // convert the speed into angle
@@ -1163,16 +1163,16 @@ void change_and_flash_dialog_text_color_lines(s8 colorMode, s8 lineNum) {
 
 #ifdef VERSION_EU
 #ifdef TARGET_PSP
-/* Rectangulo (en pixeles N64) de una letra del dialogo para una escala y un desplazamiento y dados. Si el ancho o el alto salen <= 0 (cuadro
- * apenas abierto: el original manda un rectangulo invertido que la RDP no dibuja) devuelve un rectangulo de 1x1 fuera de pantalla. */
+/* Rectangle (in N64 pixels) of a dialog letter for a given scale and offset. If the width or height come out <= 0 (box
+ * barely open: the original sends an inverted rectangle that the RDP does not draw) it returns a 1x1 rectangle off screen. */
 static void eu_dialog_char_rect(struct DialogEntry *dialog, f32 scale, s16 x, s16 y, s16 *ulx, s16 *uly, s16 *lrx, s16 *lry) {
     s16 width = (8.0 - (scale * 0.8));
     s16 height = (16.0 - (scale * 0.8));
     s16 tmpX, tmpY, xCoord, yCoord;
 
-    /* PSP: con el cuadro ya abierto (escala ~1) el original recorta el rectangulo a 7x15 y dibuja solo parte del glifo; con nuestro
-     * dibujado de rectangulos con flip ese recorte rompe los trazos finos (letras ilegibles en carteles y dialogos). Se dibuja el glifo entero
-     * (8x16): la columna y la fila que se recortaban casi siempre estan vacias. */
+    /* PSP: with the box already open (scale ~1) the original clips the rectangle to 7x15 and draws only part of the glyph; with our
+     * drawing of flipped rectangles that clipping breaks thin strokes (illegible letters on signs and dialogs). The whole glyph is drawn
+     * (8x16): the column and the row that were clipped are almost always empty. */
     if (scale < 2.0f) {
         width = 8;
         height = 16;
@@ -1213,7 +1213,7 @@ void render_generic_dialog_char_at_pos(struct DialogEntry *dialog, s16 x, s16 y,
     rectPos = gDisplayListHead;
     gSPTextureRectangleFlip(gDisplayListHead++, ulx << 2, uly << 2, lrx << 2, lry << 2, G_TX_RENDERTILE, 8 << 6, 4 << 6, 1 << 10, 1 << 10);
 
-    /* Estado "real" (medio paso por delante del de la lista, igual que el cuadro: ver render_dialog_box_type) */
+    /* "Real" state (half a step ahead of the list's, same as the box: see render_dialog_box_type) */
     if ((gDialogBoxState == DIALOG_STATE_OPENING || gDialogBoxState == DIALOG_STATE_CLOSING || gDialogBoxState == DIALOG_STATE_HORIZONTAL)
         && sEuDlgRectCount < EU_DLG_RECT_MAX) {
         f32 scaleB = gDialogBoxScale;
@@ -1225,7 +1225,7 @@ void render_generic_dialog_char_at_pos(struct DialogEntry *dialog, s16 x, s16 y,
         } else if (gDialogBoxState == DIALOG_STATE_CLOSING) {
             scaleB += 1.0f;
         } else {
-            yB -= dialog->linesPerBox; /* scroll de pagina: gDialogY ya lleva restado el desplazamiento; medio paso mas = linesPerBox */
+            yB -= dialog->linesPerBox; /* page scroll: gDialogY already has the offset subtracted; half a step more = linesPerBox */
         }
         eu_dialog_char_rect(dialog, scaleB, x, yB, &r->ulx, &r->uly, &r->lrx, &r->lry);
         r->pos = rectPos;
@@ -2701,7 +2701,7 @@ void print_hud_pause_colorful_str(void) {
     gSPDisplayList(gDisplayListHead++, dl_rgba16_text_end);
 
 #ifdef TARGET_PSP
-    psp_options_sound_info(); /* "SOUND: CPU/ME", solo si la opcion del menu esta activada */
+    psp_options_sound_info(); /* "SOUND: CPU/ME", only if the menu option is on */
 #endif
 }
 
@@ -2845,7 +2845,7 @@ s16 render_pause_courses_and_castle(void) {
     s16 num;
 
 #ifdef TARGET_PSP
-    /* R en la pausa abre el menu de opciones graficas (psp_options.c); mientras esta abierto no se procesa la pausa normal */
+    /* R on the pause opens the graphics options menu (psp_options.c); while it is open the normal pause is not processed */
     if (psp_options_pause_frame(gDialogBoxState != DIALOG_STATE_OPENING)) {
         return 0;
     }
@@ -2879,7 +2879,7 @@ s16 render_pause_courses_and_castle(void) {
             render_pause_my_score_coins();
             render_pause_red_coins();
 #ifdef TARGET_PSP
-            psp_options_sound_info(); /* tambien en la pausa de los niveles */
+            psp_options_sound_info(); /* also on the levels' pause */
 #endif
 
             if (gMarioStates[0].action & ACT_FLAG_PAUSE_EXIT) {
@@ -2908,7 +2908,7 @@ s16 render_pause_courses_and_castle(void) {
             }
 #ifdef TARGET_PSP
             else if (gPlayer3Controller->buttonPressed & B_BUTTON) {
-                /* B sale de la pausa y sigue jugando (igual que "Continue"), sin importar que opcion este marcada */
+                /* B leaves the pause and keeps playing (same as "Continue"), regardless of which option is highlighted */
                 level_set_transition(0, 0);
                 play_sound(SOUND_MENU_PAUSE_2, gDefaultSoundArgs);
                 gDialogBoxState = DIALOG_STATE_OPENING;
@@ -2938,7 +2938,7 @@ s16 render_pause_courses_and_castle(void) {
                 return 1;
             }
 #ifdef TARGET_PSP
-            else if (gPlayer3Controller->buttonPressed & B_BUTTON) { /* B tambien sale de la pausa del castillo */
+            else if (gPlayer3Controller->buttonPressed & B_BUTTON) { /* B also leaves the castle pause */
                 level_set_transition(0, 0);
                 play_sound(SOUND_MENU_PAUSE_2, gDefaultSoundArgs);
                 gMenuMode = -1;

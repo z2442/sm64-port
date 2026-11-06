@@ -314,7 +314,7 @@ struct GraphNodeObject *init_graph_node_object(struct AllocOnlyPool *pool,
         vec3s_copy(graphNode->angle, angle);
         graphNode->sharedChild = sharedChild;
         graphNode->throwMatrix = NULL;
-        graphNode->prevTimestamp = 0; /* 60 fps: sin historial de interpolacion */
+        graphNode->prevTimestamp = 0; /* 60 fps: no interpolation history */
         graphNode->prevScaleTimestamp = 0;
         graphNode->prevThrowMatrixTimestamp = 0;
         graphNode->prevShadowPosTimestamp = 0;
@@ -704,7 +704,7 @@ void geo_obj_init(struct GraphNodeObject *graphNode, void *sharedChild, Vec3f po
     graphNode->unk4C = 0;
     graphNode->throwMatrix = NULL;
     graphNode->unk38.curAnim = NULL;
-    graphNode->prevTimestamp = 0; /* 60 fps: sin historial de interpolacion */
+    graphNode->prevTimestamp = 0; /* 60 fps: no interpolation history */
     graphNode->prevScaleTimestamp = 0;
     graphNode->prevThrowMatrixTimestamp = 0;
     graphNode->prevShadowPosTimestamp = 0;
@@ -733,7 +733,7 @@ void geo_obj_init_spawninfo(struct GraphNodeObject *graphNode, struct SpawnInfo 
     graphNode->unk4C = spawn;
     graphNode->throwMatrix = NULL;
     graphNode->unk38.curAnim = 0;
-    graphNode->prevTimestamp = 0; /* 60 fps: sin historial de interpolacion */
+    graphNode->prevTimestamp = 0; /* 60 fps: no interpolation history */
     graphNode->prevScaleTimestamp = 0;
     graphNode->prevThrowMatrixTimestamp = 0;
     graphNode->prevShadowPosTimestamp = 0;

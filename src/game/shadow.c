@@ -51,7 +51,7 @@ struct Shadow {
     /* Initial solidity of the shadow, from 0 to 255 (just an alpha value). */
     u8 solidity;
 #ifdef TARGET_PSP
-    /* PSP: cuanto se sube la sombra sobre el plano del piso (unidades del juego), segun la distancia a la camara. */
+    /* PSP: how much the shadow is raised above the floor plane (game units), depending on the distance to the camera. */
     f32 lift;
 #endif
 };
@@ -254,10 +254,10 @@ s8 init_shadow(struct Shadow *s, f32 xPos, f32 yPos, f32 zPos, s16 shadowScale, 
     s->floorDownwardAngle = atan2_deg(s->floorNormalZ, s->floorNormalX);
 
 #ifdef TARGET_PSP
-    /* El z-buffer de la PSP es de 16 bits y no tiene el modo decal de la RDP: una sombra metida en el plano del piso parpadea (z-fighting)
-     * sobre todo si el objeto se mueve (el 1-up, por ejemplo). Aqui la sombra se sube sobre el plano EXACTO del piso una distancia
-     * proporcional a la distancia a la camara (~1 pixel de pantalla), con un minimo y un maximo. Misma idea que las sombras sobre agua / lava
-     * (calculate_vertex_xyz). Ajustable: PSP_FSHADOW_K / PSP_FSHADOW_MIN / PSP_FSHADOW_MAX. */
+    /* The PSP's z-buffer is 16-bit and has no RDP decal mode: a shadow placed in the floor plane flickers (z-fighting)
+     * especially if the object moves (the 1-up, for example). Here the shadow is raised above the EXACT floor plane by a distance
+     * proportional to the distance to the camera (~1 screen pixel), with a minimum and a maximum. Same idea as the shadows over water / lava
+     * (calculate_vertex_xyz). Adjustable: PSP_FSHADOW_K / PSP_FSHADOW_MIN / PSP_FSHADOW_MAX. */
 #ifndef PSP_FSHADOW_K
 #define PSP_FSHADOW_K 0.0035f
 #define PSP_FSHADOW_MIN 0.3f
@@ -293,8 +293,8 @@ s8 init_shadow(struct Shadow *s, f32 xPos, f32 yPos, f32 zPos, s16 shadowScale, 
  *      6 = (-15, 15)        7 = (0, 15)          8 = (15, 15)
  */
 void get_texture_coords_9_vertices(s8 vertexNum, s16 *textureX, s16 *textureY) {
-    /* PSP: +-16 en vez de +-15 de la N64. Con +-15 la textura espejo termina en un texel que
-     * aun tiene alpha (borde cortado de un lado); con +-16 ambos bordes caen en alpha 0. */
+    /* PSP: +-16 instead of the N64's +-15. With +-15 the mirror texture ends on a texel that
+     * still has alpha (edge cut on one side); with +-16 both edges land on alpha 0. */
     *textureX = vertexNum % 3 * 16 - 16;
     *textureY = vertexNum / 3 * 16 - 16;
 }
@@ -322,8 +322,8 @@ void get_texture_coords_4_vertices(s8 vertexNum, s16 *textureX, s16 *textureY) {
 void make_shadow_vertex_at_xyz(Vtx *vertices, s8 index, f32 relX, f32 relY, f32 relZ, u8 alpha,
                                s8 shadowVertexType) {
 #ifdef TARGET_PSP
-    /* PSP: los vertices son float (GBI_FLOATS), asi que se usa la posicion EXACTA. La N64 los redondea a enteros de 16 bits, lo que mueve la
-     * sombra hasta +-0.5 unidades respecto del piso de un cuadro a otro: la RDP lo tapa con el modo decal, el z-buffer de la PSP no. */
+    /* PSP: the vertices are float (GBI_FLOATS), so the EXACT position is used. The N64 rounds them to 16-bit integers, which moves the
+     * shadow up to +-0.5 units relative to the floor from one frame to the next: the RDP hides it with decal mode, the PSP's z-buffer does not. */
     f32 vtxX = relX;
     f32 vtxY = relY;
     f32 vtxZ = relZ;
@@ -417,9 +417,9 @@ void calculate_vertex_xyz(s8 index, struct Shadow s, f32 *xPosVtx, f32 *yPosVtx,
 
     if (gShadowAboveWaterOrLava) {
 #ifdef TARGET_PSP
-        /* La sombra queda exactamente en el plano del agua/lava y el z-buffer de 16 bits de la PSP no distingue los dos: se
-         * sube ~2,3 pixeles de pantalla (proporcional a la distancia a la camara; 1 pixel ~ 0,003 * distancia con este FOV).
-         * Ajustable: PSP_WSHADOW_K (factor por distancia), PSP_WSHADOW_MIN / PSP_WSHADOW_MAX (limites en unidades del juego). */
+        /* The shadow sits exactly on the water/lava plane and the PSP's 16-bit z-buffer cannot tell the two apart: it is
+         * raised ~2.3 screen pixels (proportional to the distance to the camera; 1 pixel ~ 0.003 * distance with this FOV).
+         * Adjustable: PSP_WSHADOW_K (factor per distance), PSP_WSHADOW_MIN / PSP_WSHADOW_MAX (limits in game units). */
 #ifndef PSP_WSHADOW_K
 #define PSP_WSHADOW_K 0.007f
 #define PSP_WSHADOW_MIN 3.0f
@@ -517,7 +517,7 @@ void make_shadow_vertex(Vtx *vertices, s8 index, struct Shadow s, s8 shadowVerte
     relY = yPosVtx - s.parentY;
     relZ = zPosVtx - s.parentZ;
 #ifdef TARGET_PSP
-    if (!gShadowAboveWaterOrLava) { /* sobre agua / lava ya se sube en calculate_vertex_xyz */
+    if (!gShadowAboveWaterOrLava) { /* over water / lava it is already raised in calculate_vertex_xyz */
         relY += s.lift;
     }
 #endif
@@ -847,10 +847,10 @@ s32 get_shadow_height_solidity(f32 xPos, f32 yPos, f32 zPos, f32 *shadowHeight, 
 }
 
 #ifdef TARGET_PSP
-/* Las sombras cuadradas / rectangulares (postes de DDD, cajas, Thwomp, Whomp, Bullet Bill...) no pasan por make_shadow_vertex ni por calculate_vertex_xyz,
- * que son los que levantan la sombra del plano del piso / agua: nunca tuvieron el levantamiento anti z-fighting y parpadeaban contra el agua y el
- * suelo. Se calcula igual que en las redondas (misma formula y mismas constantes): proporcional a la distancia a la camara, con minimo y maximo, y
- * mas alto sobre agua / lava que sobre el piso. `shadowHeight` es la altura del plano (piso o agua) donde cae la sombra. */
+/* Square / rectangular shadows (DDD poles, boxes, Thwomp, Whomp, Bullet Bill...) do not go through make_shadow_vertex or calculate_vertex_xyz,
+ * which are what lift the shadow off the floor / water plane: they never had the anti z-fighting lift and flickered against the water and the
+ * floor. It is computed the same as on the round ones (same formula and same constants): proportional to the distance to the camera, with minimum and maximum, and
+ * higher over water / lava than over the floor. `shadowHeight` is the height of the plane (floor or water) where the shadow falls. */
 static f32 psp_square_shadow_lift(f32 xPos, f32 shadowHeight, f32 zPos) {
     const f32 dx = xPos - gLakituState.pos[0];
     const f32 dy = shadowHeight - gLakituState.pos[1];

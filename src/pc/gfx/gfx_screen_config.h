@@ -4,66 +4,66 @@
 #define DESIRED_SCREEN_WIDTH 640
 #define DESIRED_SCREEN_HEIGHT 480
 
-/* PSP: 1 = el ultimo cuadro de cada tick de 60 fps se presenta (sync del GE + vblank + cambio de buffers) en un hilo, y la CPU ya
- * ejecuta la logica del tick siguiente mientras el GE termina. 0 = comportamiento anterior (todo sincrono). */
-/* Perfil de GPU (Triangulo+L): 0 = no se compila (los hooks de la ruta caliente desaparecen). Poner 1 solo para medir. */
+/* PSP: 1 = the last frame of each 60 fps tick is presented (GE sync + vblank + buffer swap) in a thread, and the CPU already
+ * runs the next tick's logic while the GE finishes. 0 = previous behavior (all synchronous). */
+/* GPU profile (Triangle+L): 0 = not compiled (the hot path hooks disappear). Set to 1 only for measuring. */
 #ifndef PSP_GPU_PROF
 #define PSP_GPU_PROF 0
 #endif
-/* Interruptores para aislar un fallo: 0 = desactiva esa pieza.
- * PSP_F2_SKIP: omitir el 2o cuadro de un tick de 60 fps si el 1o se paso de un vblank (pc_main.c).
- * PSP_ME_FASTPOLL: dormir ~3/4 del tiempo del bloque anterior antes de sondear al ME (psp_me.c). */
+/* Switches to isolate a failure: 0 = disables that piece.
+ * PSP_F2_SKIP: skip the 2nd frame of a 60 fps tick if the 1st missed a vblank (pc_main.c).
+ * PSP_ME_FASTPOLL: sleep ~3/4 of the previous block's time before polling the ME (psp_me.c). */
 #ifndef PSP_F2_SKIP
-#define PSP_F2_SKIP 0 /* 0 = siempre se dibujan los 2 cuadros del tick (60 fps fijos; si no caben, el juego va mas lento). 1 = en zonas pesadas baja a 30 fps a velocidad normal */
+#define PSP_F2_SKIP 0 /* 0 = both frames of the tick are always drawn (fixed 60 fps; if they do not fit, the game runs slower). 1 = in heavy areas it drops to 30 fps at normal speed */
 #endif
-/* PSP_F2_REPLAY (opcion 3, etapa 1): en un tick de 60 fps el 2o cuadro NO vuelve a recorrer la lista del juego ni a generar triangulos;
- * llama (sceGuCallList) a la escena que el 1er cuadro ya dejo escrita en la lista del GE. Etapa 1: la repite SIN cambiar nada (el 2o cuadro
- * sale igual al 1o; es una prueba del mecanismo y de cuanta CPU se ahorra). Si algo no cuadra (lista reiniciada, texturas borradas...),
- * ese cuadro se dibuja como siempre. 0 = desactivado del todo. */
+/* PSP_F2_REPLAY (option 3, stage 1): in a 60 fps tick the 2nd frame does NOT walk the game's list again nor generate triangles;
+ * it calls (sceGuCallList) the scene that the 1st frame already left written in the GE list. Stage 1: it repeats it WITHOUT changing anything (the 2nd frame
+ * comes out equal to the 1st; it is a test of the mechanism and of how much CPU is saved). If anything does not match (list restarted, textures erased...),
+ * that frame is drawn as usual. 0 = fully disabled. */
 #ifndef PSP_F2_REPLAY
-#define PSP_F2_REPLAY 0 /* APAGADO por defecto: el 2o cuadro vuelve a emitir la escena completa con el estado real (estable). 1 = repetir la lista del 1o */
+#define PSP_F2_REPLAY 0 /* OFF by default: the 2nd frame emits the full scene again with the real state (stable). 1 = replay the 1st one's list */
 #endif
-/* PSP_F2_REPLAY_MTX (opcion 3, etapa 2): el 2o cuadro, ademas de repetir la escena, reescribe en la lista del GE las matrices de
- * cada objeto con las del estado real (el 1o las lleva interpoladas), asi se mueve de verdad en 60 fps. Si hay algun otro parche
- * pendiente (HUD, dialogos, transiciones, nieve, burbujas, cuadros, cambio de fov...) o un objeto se movio demasiado, ese cuadro se
- * dibuja entero como siempre. 0 = comportamiento de la etapa 1 (repetir sin cambiar nada). */
+/* PSP_F2_REPLAY_MTX (option 3, stage 2): the 2nd frame, besides replaying the scene, rewrites in the GE list the matrices of
+ * each object with the ones of the real state (the 1st carries them interpolated), so it really moves at 60 fps. If there is any other patch
+ * pending (HUD, dialogs, transitions, snow, bubbles, frames, fov change...) or an object moved too much, that frame is
+ * drawn in full as usual. 0 = stage 1 behavior (replay without changing anything). */
 #ifndef PSP_F2_REPLAY_MTX
 #define PSP_F2_REPLAY_MTX 1
 #endif
-/* PSP_F2_SKY: el cielo (matriz ortografica propia dentro de su lista) tambien se reescribe en el 2o cuadro con la del estado real:
- * el cuadro 1 lo lleva interpolado, asi que sin esto el cielo se actualizaba a 30 fps. Solo se parchea si las dos versiones dibujan
- * los mismos tiles (si no, se queda como antes). Necesita PSP_F2_REPLAY_MTX. 0 = desactivado. */
+/* PSP_F2_SKY: the sky (own orthographic matrix inside its list) is also rewritten in the 2nd frame with the real state's:
+ * frame 1 carries it interpolated, so without this the sky updated at 30 fps. It is only patched if both versions draw
+ * the same tiles (if not, it stays as before). Needs PSP_F2_REPLAY_MTX. 0 = disabled. */
 #ifndef PSP_F2_SKY
 #define PSP_F2_SKY 1
 #endif
-/* Triangulos en modo "decal" (ZMODE_DEC: sombras, manchas, sombras incrustadas en el piso del mapa...). La N64 los compara con el z-buffer
- * con una tolerancia que depende de la INCLINACION del piso en pantalla (dz del pixel). El GE de la PSP solo tiene un desplazamiento
- * fijo y el z-buffer es de 16 bits.
- * PSP_DECAL_ADAPTIVE 1: el desplazamiento se calcula por triangulo con la formula EXACTA de la N64 (ver gfx_pc.c, gfx_decal_bias).
- * 0 = valor fijo PSP_DECAL_OFFSET. */
+/* Triangles in "decal" mode (ZMODE_DEC: shadows, stains, shadows embedded in the map floor...). The N64 compares them with the z-buffer
+ * with a tolerance that depends on the SLOPE of the floor on screen (the pixel's dz). The PSP's GE only has a fixed offset
+ * and the z-buffer is 16-bit.
+ * PSP_DECAL_ADAPTIVE 1: the offset is computed per triangle with the EXACT N64 formula (see gfx_pc.c, gfx_decal_bias).
+ * 0 = fixed value PSP_DECAL_OFFSET. */
 #ifndef PSP_DECAL_ADAPTIVE
 #define PSP_DECAL_ADAPTIVE 1
 #endif
-/* Margen que se suma a la tolerancia de la N64 para el error de interpolacion de z del GE (unidades del z-buffer de 16 bits).
- * Si alguna sombra se corta o parpadea (sobre todo lejos), subirlo (16, 24...); si cubre lo que esta pegado al piso, bajarlo. */
+/* Margin added to the N64 tolerance for the GE's z interpolation error (units of the 16-bit z-buffer).
+ * If a shadow gets cut or flickers (especially far away), raise it (16, 24...); if it covers what is flush with the floor, lower it. */
 #ifndef PSP_DECAL_OFFSET
 #define PSP_DECAL_OFFSET 1
 #endif
-/* Escala de la tolerancia de la N64 (1.0 = la formula tal cual). El GE no necesita tanto como la N64 (su error de z es menor que el de la
- * N64 a 320x240) y una tolerancia grande hace que la sombra tape lo que esta pegado al piso (pies, bases de objetos). 0.25 = un cuarto. */
+/* Scale of the N64 tolerance (1.0 = the formula as is). The GE does not need as much as the N64 (its z error is smaller than the
+ * N64's at 320x240) and a large tolerance makes the shadow cover what is flush with the floor (feet, object bases). 0.25 = a quarter. */
 #ifndef PSP_DECAL_SCALE
 #define PSP_DECAL_SCALE 0.25f
 #endif
 #ifndef PSP_DECAL_MAX
-#define PSP_DECAL_MAX 1024      /* tope de seguridad */
+#define PSP_DECAL_MAX 1024      /* safety cap */
 #endif
 #ifndef PSP_DECAL_FALLBACK
-#define PSP_DECAL_FALLBACK 128  /* triangulos que tocan el plano near: no se pueden medir */
+#define PSP_DECAL_FALLBACK 128  /* triangles that touch the near plane: cannot be measured */
 #endif
-/* PSP_SAFE_WARP: durante un cambio de nivel/area o una transicion de warp el juego se dibuja en modo normal (1 cuadro por tick, sin
- * interpolar ni repetir listas). 0 = desactivado. */
+/* PSP_SAFE_WARP: during a level/area change or a warp transition the game is drawn in normal mode (1 frame per tick, without
+ * interpolating or replaying lists). 0 = disabled. */
 #ifndef PSP_SAFE_WARP
-#define PSP_SAFE_WARP 0 /* con 60 fps fijos no se baja a 30 en las transiciones; poner 1 si algo falla al cambiar de nivel */
+#define PSP_SAFE_WARP 0 /* with fixed 60 fps it does not drop to 30 in transitions; set to 1 if something fails when changing levels */
 #endif
 #ifndef PSP_ME_FASTPOLL
 #define PSP_ME_FASTPOLL 1

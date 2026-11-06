@@ -7,8 +7,8 @@
 #include "controller_api.h"
 #include "../configfile.h"
 
-/* Estado fisico de la PSP del ultimo muestreo (lo lee el menu de opciones para navegar y para asignar botones sin depender del mapeo).
- * Stick: -128..127, arriba y derecha positivos. */
+/* PSP physical state from the last sampling (read by the options menu to navigate and to assign buttons without depending on the mapping).
+ * Stick: -128..127, up and right positive. */
 unsigned int gPspRawButtons;
 int gPspRawStickX;
 int gPspRawStickY;

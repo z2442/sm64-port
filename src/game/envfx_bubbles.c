@@ -562,7 +562,7 @@ Gfx *envfx_update_bubble_particles(s32 mode, UNUSED Vec3s marioPos, Vec3s camFro
         interpolate_vectors_s16(interpolatedVertices[1], prevVertex2, vertex2);
         interpolate_vectors_s16(interpolatedVertices[2], prevVertex3, vertex3);
     } else {
-        /* sin tick anterior consecutivo: el array quedaba SIN inicializar (basura de pila -> burbujas enormes) */
+        /* no consecutive previous tick: the array was left UNINITIALIZED (stack garbage -> huge bubbles) */
         vec3s_copy(interpolatedVertices[0], vertex1);
         vec3s_copy(interpolatedVertices[1], vertex2);
         vec3s_copy(interpolatedVertices[2], vertex3);

@@ -867,8 +867,8 @@ void note_release_and_take_ownership(struct Note *note, struct SequenceChannelLa
     note->adsr.action |= ADSR_ACTION_RELEASE;
 }
 
-/* Diagnostico (log del PSP): notas robadas a otras en uso, capas que se quedaron sin nota, y cuantas notas hay en uso.
- * Los escribe el sintetizador (ME); el hilo principal solo los lee. */
+/* Diagnostic (PSP log): notes stolen from others in use, layers left without a note, and how many notes are in use.
+ * They are written by the synthesizer (ME); the main thread only reads them. */
 unsigned int gPspNoteSteal, gPspNoteDrop;
 
 int psp_audio_active_notes(void) {

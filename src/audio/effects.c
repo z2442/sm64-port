@@ -69,9 +69,9 @@ static void sequence_channel_process_sound(struct SequenceChannel *seqChannel) {
     }
 
 #ifdef TARGET_PSP
-    /* Volumenes del menu de opciones (Audio): el reproductor 2 son los efectos de sonido; los reproductores 0 y 1 son la musica (nivel y musica
-     * secundaria / fanfarrias). 1.0 = el volumen original del juego. Las variables las escribe la CPU y el ME las lee (el trabajo de audio se manda
-     * con la cache escrita a memoria). */
+    /* Options menu (Audio) volumes: player 2 is the sound effects; players 0 and 1 are the music (level music and
+     * secondary music / fanfares). 1.0 = the game's original volume. The variables are written by the CPU and read by the ME (the audio job is sent
+     * with the cache written back to memory). */
     channelVolume *= (seqChannel->seqPlayer == &gSequencePlayers[2]) ? gPspVolSfx : gPspVolMusic;
 #endif
 

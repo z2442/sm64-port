@@ -77,8 +77,8 @@ static const struct ConfigOption options[] = {
 
 #if defined(TARGET_PSP)
 
-/* En la PSP todos los ajustes (graficos, audio y controles) viven en un solo archivo de texto que lee y escribe psp_options.c;
- * las variables configKey* de arriba las usa controller_psp.c. */
+/* On the PSP all settings (graphics, audio and controls) live in a single text file read and written by psp_options.c;
+ * the configKey* variables above are used by controller_psp.c. */
 void configfile_load(const char *filename) {
     psp_options_load_file(filename);
 }

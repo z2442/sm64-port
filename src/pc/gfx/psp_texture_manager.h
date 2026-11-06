@@ -11,7 +11,7 @@
 #pragma once
 #define TEX_ALIGNMENT (16)
 
-/* 928 KB: la VRAM (2 MB) ahora tiene 3 buffers de color + z (1,088 KB), y esto deja 32 KB libres */
+/* 928 KB: VRAM (2 MB) now has 3 color buffers + z (1,088 KB), and this leaves 32 KB free */
 #define TEXMAN_BUFFER_SIZE (928 * 1024)
 
 struct PSP_Texture {

@@ -24,8 +24,8 @@
 #include "gfx_screen_config.h"
 #include "macros.h"
 #ifndef PSP_DEVBENCH
-#define PSP_TRI_CHAIN 0 /* parche 107 lo probo en la PSP real: sin mejora medible (+0,1..0,3 ms), asi que queda apagado */
-#define PSP_DEVBENCH 0 /* PARCHE DE DIAGNOSTICO: mide la CPU en la PSP real a los ~7 s de arrancar y cierra el juego (ver psp_devbench). 0 = juego normal */
+#define PSP_TRI_CHAIN 0 /* patch 107 was tested on the real PSP: no measurable improvement (+0.1..0.3 ms), so it stays off */
+#define PSP_DEVBENCH 0 /* DIAGNOSTIC PATCH: measures the CPU on the real PSP ~7 s after boot and closes the game (see psp_devbench). 0 = normal game */
 #endif
 
 #define STRINGIFY(x) #x
@@ -141,8 +141,8 @@ struct ColorCombiner {
     struct ShaderProgram *prg;
     uint8_t used_textures[2];
     uint8_t vertex_color_source[2];
-    uint8_t env_alpha; /* el canal alpha sale del color de entorno (SHADEFADEA / BLENDRGBFADEA) */
-    uint8_t enva_tex;  /* BLENDRGBFADEA con textura */
+    uint8_t env_alpha; /* the alpha channel comes from the environment color (SHADEFADEA / BLENDRGBFADEA) */
+    uint8_t enva_tex;  /* BLENDRGBFADEA with texture */
 } __attribute__((packed, aligned(4)));
 
 static struct ColorCombiner color_combiner_pool[64];
@@ -155,7 +155,7 @@ struct TriPipelineState {
     bool use_texture;
     float tex_u_scale, tex_v_scale;
     float tex_u_bias, tex_v_bias;
-    uint32_t shader_id; /* id del shader activo y su modo de niebla (scegu_fog_mode es una funcion pura del id): se calculan una vez al preparar el estado */
+    uint32_t shader_id; /* id of the active shader and its fog mode (scegu_fog_mode is a pure function of the id): computed once when preparing the state */
     int fog_mode;
 } __attribute__((packed, aligned(4)));
 
@@ -171,7 +171,7 @@ struct RSP {
     float current_lookat_coeffs[2][3]; // lookat_x, lookat_y
     uint8_t current_num_lights; // includes ambient light
     bool lights_changed;
-    bool lookat_stale; // current_lookat_coeffs hay que recalcularlos (solo hacen falta con texgen)
+    bool lookat_stale; // current_lookat_coeffs must be recomputed (only needed with texgen)
     
     uint32_t geometry_mode;
     int16_t fog_mul, fog_offset;
@@ -186,10 +186,10 @@ struct RSP {
 } __attribute__((aligned(16)));
 static struct RSP rsp_bss __attribute__((aligned(16), unused));
 
-/* PSP_SCRATCH: el estado del "RSP" (matrices, luces y sobre todo los 64 vertices cargados, ~4.3 KB) y los vertices temporales del recorte viven en
- * el scratchpad de la PSP (16 KB en 0x00010000, memoria rapida fuera de la cache de datos de 16 KB). Asi no compiten con la lista de
- * comandos del juego ni con los vertices que se van leyendo de la ROM, que son lo que mas ensucia la cache. Compilar con -DPSP_SCRATCH=0 para
- * volver a la memoria normal. */
+/* PSP_SCRATCH: the "RSP" state (matrices, lights and above all the 64 loaded vertices, ~4.3 KB) and the temporary clip vertices live in
+ * the PSP scratchpad (16 KB at 0x00010000, fast memory outside the 16 KB data cache). This way they do not compete with the game's command list
+ * nor with the vertices being read from the ROM, which are what dirties the cache the most. Compile with -DPSP_SCRATCH=0 to
+ * go back to normal memory. */
 #if defined(TARGET_PSP) && !defined(PSP_SCRATCH)
 #define PSP_SCRATCH 1
 #endif
@@ -230,7 +230,7 @@ static struct RDP {
     bool viewport_or_scissor_changed;
     int32_t sc_ulx, sc_uly, sc_lrx, sc_lry; /* scissor N64 crudo (U10.2) */
     bool sc_valid;
-    float vp_l, vp_t, vp_w, vp_h; /* viewport en pixeles N64 (desde arriba) */
+    float vp_l, vp_t, vp_w, vp_h; /* viewport in N64 pixels (from the top) */
     void *z_buf_address;
     void *color_image_address;
 } rdp  __attribute__((aligned(4)));
@@ -262,13 +262,13 @@ typedef struct psp_fast_t {
   struct RGBA color;
   float x,y,z;
 } psp_fast_t;
-/* Factor de niebla EXACTO de la N64 (0..255) por vertice del buffer; lo usa gfx_scegu.c para la 2da pasada. */
+/* EXACT N64 fog factor (0..255) per vertex of the buffer; used by gfx_scegu.c for the 2nd pass. */
 unsigned char scegu_fog_alpha[MAX_BUFFERED * 3];
-/* PSP_EYE_SPACE: los vertices se transforman en la CPU a ESPACIO DE VISTA (modelo*vista) y el GE solo aplica la proyeccion; las
- * matrices de modelo y de vista del GE quedan en identidad. Antes cada G_MTX de modelo vaciaba el lote (una llamada de dibujo por
- * objeto/parte) porque el GE necesitaba su matriz de modelo; ahora objetos distintos con el mismo estado (monedas, enemigos iguales,
- * partes de un mismo modelo) comparten llamada. El resultado es el mismo producto de matrices. Solo con PSP_F2_REPLAY 0 (la
- * repeticion de lista parchea las matrices del GE). PSP_EYE_SPACE 0 vuelve al camino anterior. */
+/* PSP_EYE_SPACE: vertices are transformed on the CPU to EYE SPACE (model*view) and the GE only applies the projection; the GE's
+ * model and view matrices stay at identity. Before, each model G_MTX flushed the batch (one draw call per
+ * object/part) because the GE needed its model matrix; now different objects with the same state (coins, identical enemies,
+ * parts of the same model) share a call. The result is the same matrix product. Only with PSP_F2_REPLAY 0 (list
+ * replay patches the GE's matrices). PSP_EYE_SPACE 0 goes back to the previous path. */
 #ifndef PSP_EYE_SPACE
 #define PSP_EYE_SPACE (!PSP_F2_REPLAY)
 #endif
@@ -279,7 +279,7 @@ float scegu_mtx_proj[16] __attribute__((aligned(16))),
 #else
 float scegu_mtx_proj[16] __attribute__((aligned(16))), scegu_mtx_view[16] __attribute__((aligned(16))), scegu_mtx_model[16] __attribute__((aligned(16)));
 #endif
-uint32_t scegu_mt_tex[2]; /* texture_id de las texturas de tile 0 y 1 del draw actual */
+uint32_t scegu_mt_tex[2]; /* texture_id of the tile 0 and 1 textures of the current draw */
 extern int scegu_fog_mode(uint32_t shader_id); /* gfx_scegu.c */
 static psp_fast_t buf_vbo[MAX_BUFFERED  * 3] __attribute__ ((aligned (32))); // 3 vertices in a triangle and 26 floats per vtx
 #else
@@ -400,34 +400,34 @@ static unsigned long get_time(void) {
 
 // Test all but Z_NEG (for No Near Plane microcodes)
 #define CLIP_TEST_FLAGS ( X_POS | X_NEG | Y_POS | Y_NEG | Z_POS | Z_NEG)
-#define SC_IN (0x100) /* bit extra de clip_rej: el vertice esta SEGURO por dentro de todos los planos del scissor (ver gfx_vtx_post); 0 = no se sabe */
+#define SC_IN (0x100) /* extra bit of clip_rej: the vertex is SURELY inside all the scissor planes (see gfx_vtx_post); 0 = not known */
 //#define CLIP_TEST_FLAGS ( Z_POS | Z_NEG ) /* Faster but worse */
 
-/* Recorte en X/Y por el GE: la PSP no recorta lados, pero su "guard band" acepta primitivas con vertices hasta ~2048 px del
- * centro del viewport y el scissor ya recorta el raster. Un triangulo que solo cruza un borde lateral/superior/inferior de la
- * pantalla, con todos sus vertices delante de la camara (w > 0) y a menos de PSP_GE_XY_GUARD veces w del centro (NDC), se
- * manda tal cual (recortar en 3D no cambia como se interpolan los atributos). Lo que toque near/far o se salga de la guarda
- * sigue recortandose en la CPU. PSP_GE_XY_CLIP 0 vuelve a recortar todo en la CPU. (Idea de ghurone/Sonic-R-PSP.) */
+/* X/Y clipping by the GE: the PSP does not clip sides, but its "guard band" accepts primitives with vertices up to ~2048 px from the
+ * viewport center and the scissor already clips the raster. A triangle that only crosses a side/top/bottom edge of the
+ * screen, with all its vertices in front of the camera (w > 0) and within PSP_GE_XY_GUARD times w of the center (NDC), is
+ * sent as is (clipping in 3D does not change how attributes are interpolated). Whatever touches near/far or leaves the guard
+ * is still clipped on the CPU. PSP_GE_XY_CLIP 0 goes back to clipping everything on the CPU. (Idea from ghurone/Sonic-R-PSP.) */
 #ifndef PSP_GE_XY_CLIP
 #define PSP_GE_XY_CLIP 1
 #endif
 #define PSP_GE_XY_GUARD 3.0f
 
-/* PSP_F2_REPLAY_MTX: durante la grabacion de un cuadro 1 el rechazo trivial y el recorte lateral/vertical dejan pasar hasta este
- * multiplo de w (1.0 = pantalla exacta). El 2o cuadro mueve los objetos medio tick sin volver a recortar: lo que quedaba justo fuera
- * de pantalla en el 1o puede entrar en el 2o, y lo recorta el GE (guard band + scissor). */
+/* PSP_F2_REPLAY_MTX: while recording a frame 1 the trivial reject and the side/vertical clip let through up to this
+ * multiple of w (1.0 = exact screen). The 2nd frame moves the objects half a tick without clipping again: what was just outside the
+ * screen in the 1st may enter in the 2nd, and the GE clips it (guard band + scissor). */
 #define PSP_REC_XY_MARGIN 1.25f
 static float sRejXY = 1.0f;
-/* Al grabar, un triangulo que NO se descarta se descarta igual si es claramente de espalda; los de canto (seno del angulo entre sus dos
- * aristas en pantalla menor que esto, ~7 grados) se dejan pasar, porque con la camara del 2o cuadro pueden pasar a ser de frente. */
+/* When recording, a triangle that is NOT discarded is discarded anyway if it is clearly back-facing; edge-on ones (sine of the angle between their two
+ * edges on screen smaller than this, ~7 degrees) are let through, because with the 2nd frame's camera they may become front-facing. */
 #define PSP_REC_CULL_SIN2 0.0150f
-/* PSP_F2_REPLAY_MTX: objeto (entrada de gMtxTbl) cuyas matrices se estan interpretando y banda cercana al plano near (ver mas abajo) */
+/* PSP_F2_REPLAY_MTX: object (gMtxTbl entry) whose matrices are being interpreted and band near the near plane (see below) */
 static int sRecCur = -1;
 static float sRecNearBand;
 static unsigned char sRecNear[1024];
 
-/* PSP_F2_SKY: el cielo lleva su matriz ortografica en su propia lista (G_MTX_PROJECTION | G_MTX_MUL), que el GE recibe como un bloque
- * GU_VIEW. Al grabar (cuadro 1) se anota donde quedo ese bloque; en el cuadro 2 se reescribe con la ortografica del estado real. */
+/* PSP_F2_SKY: the sky carries its orthographic matrix in its own list (G_MTX_PROJECTION | G_MTX_MUL), which the GE receives as a
+ * GU_VIEW block. When recording (frame 1) it is noted where that block ended up; in frame 2 it is rewritten with the orthographic of the real state. */
 #if PSP_F2_REPLAY && PSP_F2_REPLAY_MTX && PSP_F2_SKY && defined(GBI_FLOATS)
 #define PSP_SKY_PATCH 1
 extern const float *psp_sky_interp_ortho(void);
@@ -435,11 +435,11 @@ extern const float *psp_sky_real_ortho(void);
 extern int gfx_scegu_view_block_ok(unsigned int off, const float *m);
 extern void gfx_scegu_write_view(unsigned int off, const float *m);
 extern unsigned int gfx_scegu_list_pos(void);
-static int sRecMtxOn;                                       /* 1 mientras se graba (se define mas abajo) */
-static const float *sSkyInterpPtr;                          /* ortografica del cielo interpolado (la que lleva el cuadro 1) */
-static unsigned int sRecSkyOff;                             /* desplazamiento del bloque GU_VIEW del cielo en la lista A */
-static int sRecSkyOk;                                       /* ese bloque esta anotado y verificado */
-static float sRecSkyPre[16] __attribute__((aligned(16)));   /* GU_VIEW acumulada ANTES de multiplicar la ortografica del cielo */
+static int sRecMtxOn;                                       /* 1 while recording (defined below) */
+static const float *sSkyInterpPtr;                          /* interpolated sky orthographic (the one frame 1 carries) */
+static unsigned int sRecSkyOff;                             /* offset of the sky's GU_VIEW block in list A */
+static int sRecSkyOk;                                       /* that block is noted and verified */
+static float sRecSkyPre[16] __attribute__((aligned(16)));   /* GU_VIEW accumulated BEFORE multiplying the sky orthographic */
 #else
 #define PSP_SKY_PATCH 0
 #endif
@@ -572,7 +572,7 @@ static uint32_t clipToHyperPlane( struct LoadedVertex *dest, const struct Loaded
 #endif
 }
 
-/* Igual que NDCPlane pero con los lados a PSP_REC_XY_MARGIN (solo mientras se graba un cuadro 1, ver sRejXY) */
+/* Same as NDCPlane but with the sides at PSP_REC_XY_MARGIN (only while recording a frame 1, see sRejXY) */
 static const float NDCPlaneWide[6][4] __attribute__((aligned(16))) =
 {
 	{  0.f,  0.f,  1.f, -1.f },	// near
@@ -583,7 +583,7 @@ static const float NDCPlaneWide[6][4] __attribute__((aligned(16))) =
 	{  0.f,  0.f, -1.f, -1.f }	// far
 };
 
-/* Version de siempre (las 6 pasadas, en este orden; cada una deja el poligono girado una posicion). Solo se usa para comprobar la nueva (PSP_CLIPCHECK). */
+/* The usual version (the 6 passes, in this order; each one leaves the polygon rotated one position). Only used to check the new one (PSP_CLIPCHECK). */
 #ifdef PSP_CLIPCHECK
 uint32_t clip_to_frustum_ref( struct LoadedVertex * v0, struct LoadedVertex * v1, uint32_t vIn )
 {
@@ -600,11 +600,11 @@ uint32_t clip_to_frustum_ref( struct LoadedVertex * v0, struct LoadedVertex * v1
 }
 #endif
 
-/* Recorte contra el frustum. Antes: siempre las 6 pasadas (cada una recorre todos los vertices con la VFPU), aunque casi todos los triangulos solo
- * cruzan 1 plano (el near). Ahora: solo las pasadas de los planos por los que algun vertice esta fuera (bits de clip_rej en "need"). Una pasada
- * sobre un poligono entero por dentro devuelve los mismos vertices, SIN modificarlos, empezando por el 2o (= girado una posicion), asi que
- * saltarla equivale a girar el poligono una posicion: se lleva la cuenta (rot) y se aplica al hacer la siguiente pasada real o al final.
- * El resultado es el mismo, vertice a vertice y en el mismo orden, que el de las 6 pasadas. *res = buffer donde queda (v0 o v1). */
+/* Clipping against the frustum. Before: always the 6 passes (each one walks all the vertices with the VFPU), although almost all triangles only
+ * cross 1 plane (the near). Now: only the passes of the planes for which some vertex is outside (clip_rej bits in "need"). A pass
+ * over a polygon entirely inside returns the same vertices, UNMODIFIED, starting from the 2nd (= rotated one position), so
+ * skipping it is equivalent to rotating the polygon one position: the count (rot) is kept and applied on the next real pass or at the end.
+ * The result is the same, vertex by vertex and in the same order, as with the 6 passes. *res = buffer where it ends up (v0 or v1). */
 uint32_t clip_to_frustum( struct LoadedVertex * v0, struct LoadedVertex * v1, uint32_t vIn, uint32_t need, struct LoadedVertex **res )
 {
 	static const unsigned char step_pl[6]  = { 2, 1, 4, 3, 0, 5 };
@@ -622,7 +622,7 @@ uint32_t clip_to_frustum( struct LoadedVertex * v0, struct LoadedVertex * v1, ui
 		}
 		const uint32_t r = n ? (rot % n) : 0;
 		if (r) {
-			/* poligono girado r posiciones en el otro buffer, y la pasada vuelve a escribir en este */
+			/* polygon rotated r positions in the other buffer, and the pass writes to this one again */
 			struct LoadedVertex *src = buf[ci];
 			struct LoadedVertex *tmp = buf[ci ^ 1];
 			for (uint32_t j = 0; j < n; j++) {
@@ -655,15 +655,15 @@ uint32_t clip_to_frustum( struct LoadedVertex * v0, struct LoadedVertex * v1, ui
 static struct LoadedVertex temp_a[20];
 static struct LoadedVertex temp_b[20];
 
-/* Planos de recorte del scissor del RDP (espacio de recorte ajustado, igual que _x/_y/_z/_w).
- * Cada plano: a*x + b*y + c*z + d*w <= 0 es "dentro". Solo se generan los bordes que NO estan
- * pegados al borde de pantalla (margen de 4 px), asi el scissor normal del juego no cambia nada. */
+/* RDP scissor clip planes (adjusted clip space, same as _x/_y/_z/_w).
+ * Each plane: a*x + b*y + c*z + d*w <= 0 is "inside". Only the edges that are NOT
+ * against the screen edge (4 px margin) are generated, so the game's normal scissor changes nothing. */
 static float gfx_adjust_x_for_aspect_ratio(float x);
 static float sc_planes[4][4] __attribute__((aligned(16)));
 static unsigned char sc_ptype[4]; /* 0 = plano en x (a*x + d*w), 1 = plano en y (b*y + d*w) */
 
-/* Factor (4/3)/aspecto: solo cambia cuando cambian las dimensiones, asi que se calcula una vez (antes eran 2 divisiones
- * por vertice y por triangulo). */
+/* (4/3)/aspect factor: it only changes when the dimensions change, so it is computed once (before it was 2 divisions
+ * per vertex and per triangle). */
 static float sAspectK = 1.0f;
 static int sAspectW = -1, sAspectH = -1;
 static inline float gfx_aspect_k(void) {
@@ -672,23 +672,24 @@ static inline float gfx_aspect_k(void) {
         sAspectW = w;
         sAspectH = h;
         sAspectK = (4.0f / 3.0f) / ((float)w / (float)h);
+        if (sAspectK > 0.995f && sAspectK < 1.005f) sAspectK = 1.0f; /* 4:3 view (362x272): this is the original N64 projection, with no adjustment */
     }
     return sAspectK;
 }
 
-static int sProjCompensate = 0; /* 1 si el GE dibuja con la matriz compensada a 16:9 (x * k) */
+static int sProjCompensate = 0; /* 1 if the GE draws with the matrix compensated to 16:9 (x * k) */
 
-static float sScGX = 1.0e30f, sScGY = 1.0e30f; /* cotas del pre-test de scissor por vertice (ver mas abajo) */
+static float sScGX = 1.0e30f, sScGY = 1.0e30f; /* bounds of the per-vertex scissor pre-test (see below) */
 static int gfx_scissor_planes_compute(void) {
     if (!rdp.sc_valid || rdp.vp_w <= 1.0f || rdp.vp_h <= 1.0f) {
         sScGX = sScGY = 1.0e30f;
         return 0;
     }
-    /* El scissor del RDP esta en pixeles N64 de la pantalla; el recorte se hace en el espacio de recorte de la CPU
-     * (_x = k * x_proyectado siempre; el GE dibuja con x*k solo si la proyeccion esta compensada).
-     *  - Borde del scissor casi pegado al borde del viewport (ventanas de los creditos, margen de 1-2 px):
-     *    el borde es una fraccion del viewport; con proyeccion compensada ya lo recorta el frustum de la CPU.
-     *  - Borde interior (cajas de dialogo): coordenadas N64 exactas, comprimidas por k como el resto del 2D. */
+    /* The RDP scissor is in N64 pixels of the screen; clipping is done in the CPU's clip space
+     * (_x = k * projected_x always; the GE draws with x*k only if the projection is compensated).
+     * - Scissor edge almost against the viewport edge (credits windows, 1-2 px margin):
+     * the edge is a fraction of the viewport; with a compensated projection the CPU frustum already clips it.
+     * - Interior edge (dialog boxes): exact N64 coordinates, compressed by k like the rest of the 2D. */
     const float k = gfx_aspect_k();
     const float sl = rdp.sc_ulx / 4.0f, sr = rdp.sc_lrx / 4.0f;
     const float st = rdp.sc_uly / 4.0f, sb = rdp.sc_lry / 4.0f;
@@ -697,9 +698,9 @@ static int gfx_scissor_planes_compute(void) {
     const float it = st - rdp.vp_t;
     const float ib = (rdp.vp_t + rdp.vp_h) - sb;
     const float near_edge = 2.5f;
-    /* Mientras se graba un cuadro 1 (sRejXY > 1) los bordes del scissor que estan a pocos pixeles del borde de la pantalla no se
-     * recortan en la CPU: lo hace el scissor del GE (la lista lo lleva) y asi el 2o cuadro, con la camara movida, tiene geometria
-     * por fuera del borde para mostrar (si no, aparecia una franja con el fondo en los laterales). */
+    /* While a frame 1 is being recorded (sRejXY > 1) the scissor edges that are a few pixels from the screen edge are not
+     * clipped on the CPU: the GE's scissor does it (the list carries it) and so the 2nd frame, with the camera moved, has geometry
+     * outside the edge to show (otherwise a strip with the background appeared on the sides). */
     const bool rec = (sRejXY > 1.0f);
     const float rec_edge = 12.0f;
     int n = 0;
@@ -740,13 +741,13 @@ static int gfx_scissor_planes_compute(void) {
     return n;
 }
 
-/* Se llama una vez por triangulo, pero el resultado solo depende del scissor, el viewport, el factor de aspecto y la
- * compensacion de proyeccion: se guarda y solo se recalcula si alguno cambia (resultado identico, sin las ~6 divisiones). */
+/* Called once per triangle, but the result only depends on the scissor, the viewport, the aspect factor and the
+ * projection compensation: it is cached and only recomputed if any of them changes (identical result, without the ~6 divisions). */
 static int sScDirty = 1, sScNp = 0;
-/* Cotas para el pre-test de scissor por vertice (gfx_vtx_post): |x| <= sScGX * w y |y| <= sScGY * w => el vertice no esta fuera de ningun plano
- * del scissor (los planos son de eje y estan a distancia m = -dw del centro; se usa m con un margen del 0,1 % que cubre de sobra los redondeos).
- * Sin planos en un eje, la cota es enorme (siempre cumple). */
-/* Cambio de scissor / viewport / proyeccion / margen: hay que recalcular los planos y los vertices ya cargados pierden su marca SC_IN. */
+/* Bounds for the per-vertex scissor pre-test (gfx_vtx_post): |x| <= sScGX * w and |y| <= sScGY * w => the vertex is not outside any scissor
+ * plane (the planes are axis-aligned and at distance m = -dw from the center; m is used with a 0.1 % margin that amply covers rounding).
+ * Without planes on an axis, the bound is huge (always satisfied). */
+/* Scissor / viewport / projection / margin change: the planes must be recomputed and the already loaded vertices lose their SC_IN mark. */
 static inline void gfx_sc_touch(void) {
     sScDirty = 1;
     for (int i = 0; i < MAX_VERTICES; i++) {
@@ -775,7 +776,7 @@ static int gfx_scissor_planes_slow(void) {
     return c_n;
 }
 
-/* Cada triangulo solo mira una bandera: quien cambia scissor/viewport/proyeccion/margen/dimensiones pone sScDirty. */
+/* Each triangle only looks at one flag: whoever changes scissor/viewport/projection/margin/dimensions sets sScDirty. */
 static inline int gfx_scissor_planes(void) {
     if (__builtin_expect(sScDirty, 0)) {
         sScNp = gfx_scissor_planes_slow();
@@ -798,7 +799,7 @@ void gfx_clip_single_vert( struct LoadedVertex *p_p_vertices, size_t *p_num_vert
     temp_a[ 2 ] = *v_arr[ 2 ];
 
     uint32_t out = 3;
-    struct LoadedVertex *cur = temp_a; /* buffer donde esta el poligono */
+    struct LoadedVertex *cur = temp_a; /* buffer where the polygon is */
     if( do_frustum ) {
 #ifdef PSP_CLIPCHECK
         static struct LoadedVertex chk_a[20], chk_b[20];
@@ -819,7 +820,7 @@ void gfx_clip_single_vert( struct LoadedVertex *p_p_vertices, size_t *p_num_vert
         }
     }
 
-    /* Recorte contra el scissor del RDP (planos del scissor) */
+    /* Clipping against the RDP scissor (scissor planes) */
     if( sc_np > 0 ) {
         struct LoadedVertex *src = cur;
         struct LoadedVertex *dst = (cur == temp_a) ? temp_b : temp_a;
@@ -852,34 +853,34 @@ void gfx_clip_single_vert( struct LoadedVertex *p_p_vertices, size_t *p_num_vert
 //******************* End Clipping things
 
 
-/* Profile Sweep (menu de opciones, solo para medir): cada 6 ventanas del registro (~6 s) se apaga una etapa mas del dibujo, con la camara quieta,
- * y el registro anota el modo en OSWP. La diferencia de EUS entre dos modos seguidos es lo que cuesta esa etapa en la PSP real.
- *   0 normal | 1 el GE dibuja pero con scissor de 1 pixel (sin rellenar pantalla) | 2 + sin enviar nada al GE | 3 + sin copiar triangulos
- *   4 + sin preparar estado ni recortar | 5 + sin descartar triangulos | 6 + vertices solo transformados (sin color / recorte)
- *   7 + sin vertices | 8 + sin recorrer la lista del juego */
+/* Profile Sweep (options menu, only for measuring): every 6 log windows (~6 s) one more drawing stage is turned off, with the camera still,
+ * and the log notes the mode in OSWP. The EUS difference between two consecutive modes is what that stage costs on the real PSP.
+ * 0 normal | 1 the GE draws but with a 1-pixel scissor (no screen fill) | 2 + nothing sent to the GE | 3 + no triangle copying
+ * 4 + no state preparation or clipping | 5 + no triangle culling | 6 + vertices only transformed (no color / clip)
+ * 7 + no vertices | 8 + no walking the game's list */
 int gPspSweep = 0;
 static int sSweepMode = 0;
 static int sSweepWin = 0;
 
-/* Contadores de perfil (se imprimen en ms0:/sm64_profile.txt). Contar es gratis; los cronometros solo corren mientras
- * el registro esta activo (Triangulo + R), asi no cuestan nada en el juego normal. */
-extern int sProfLogOn; /* se define mas abajo */
-extern int gPspGpuProf; /* perfil de GPU, se define mas abajo */
+/* Profile counters (printed to ms0:/sm64_profile.txt). Counting is free; the timers only run while
+ * the log is active (Triangle + R), so they cost nothing in the normal game. */
+extern int sProfLogOn; /* defined below */
+extern int gPspGpuProf; /* GPU profile, defined below */
 extern float gPcAreaAcc;
 extern unsigned int gPspArenaMax; /* gfx_scegu.c */
 static unsigned int sPcTri, sPcVtx, sPcDraw, sPcMtx, sPcClip, sPcTexMiss, sPcTexClr, sPcDrawUs, sPcTexUs;
-static unsigned int sPcTexEv, sPcTexSame; /* cambios de textura pedidos por el juego (tile 0) / de ellos, los que ya era la textura enlazada (sin cortar el lote) */
+static unsigned int sPcTexEv, sPcTexSame; /* texture changes requested by the game (tile 0) / of those, the ones that were already the bound texture (without breaking the batch) */
 static unsigned int sPcClipSkip;
-extern short gMenuMode;           /* ingame_menu.c: -1 = sin menu de pausa */
-static unsigned int sPcMtxUs, sPcPrepUs, sPcPrepN; /* tiempo en gfx_sp_matrix, tiempo (sin dibujo ni texturas) y numero de veces que se rehizo el estado del pipeline de triangulos */
-static unsigned int sPcVtxUs, sPcTriSub, sPcTriUs, sPcTriSmp, sTriSampleCtr; /* tiempo en gfx_sp_vertex, triangulos recibidos, muestreo de gfx_sp_tri1 */
-/* desglose del tiempo por triangulo (solo con el registro activo): clase 0 = descartado pronto (cara trasera / fuera de pantalla),
- * 1 = dibujado sin recorte por CPU, 2 = pasa por el recorte de la CPU. Tiempo y numero de muestras (1 de cada 8) por clase. */
+extern short gMenuMode;           /* ingame_menu.c: -1 = no pause menu */
+static unsigned int sPcMtxUs, sPcPrepUs, sPcPrepN; /* time in gfx_sp_matrix, time (without drawing or textures) and number of times the triangle pipeline state was rebuilt */
+static unsigned int sPcVtxUs, sPcTriSub, sPcTriUs, sPcTriSmp, sTriSampleCtr; /* time in gfx_sp_vertex, triangles received, sampling of gfx_sp_tri1 */
+/* time breakdown per triangle (only with the log active): class 0 = discarded early (back face / off screen),
+ * 1 = drawn without CPU clipping, 2 = goes through CPU clipping. Time and number of samples (1 in 8) per class. */
 static unsigned int sTriClass, sTriClassUs[3], sTriClassN[3], sPcClipUs;
-unsigned int gPcFogAll, gPcFogKeep; /* triangulos con niebla (todos / los que necesitan 2a pasada), los incrementa gfx_scegu.c */
+unsigned int gPcFogAll, gPcFogKeep; /* triangles with fog (all / the ones that need a 2nd pass), incremented by gfx_scegu.c */
 
 #if PSP_DEVBENCH == 5
-/* Diagnostico 5: se repite un cuadro real con un contador de ciclos exacto (CP0 Count, solo en modo kernel) y se desglosa cada etapa. */
+/* Diagnostic 5: a real frame is replayed with an exact cycle counter (CP0 Count, kernel mode only) and each stage is broken down. */
 static int sB5On, sB5Cull, sB5Abl, sB5Cap, sB5Hash, sB5PrepOn;
 static unsigned int sB5HashV, sB5PAcc[6], sB5PN, sB5CapSeen[16];
 static void b5_micro_capture(struct LoadedVertex *t1, struct LoadedVertex *t2, struct LoadedVertex *t3);
@@ -888,7 +889,7 @@ static unsigned int sB5H[12], sB5NCmd;
 #define B5H(i_, c_) do { sB5H[i_] += (c_) ? 1u : 0u; } while (0)
 static unsigned int sB5Acc[16], sB5Cnt[16], sB5Mark[4];
 #ifdef PSP_B5_TIMER
-#define B5C() (sceKernelGetSystemTimeLow() * 333u) /* solo para probar la logica en el emulador (no hay CP0 de usuario) */
+#define B5C() (sceKernelGetSystemTimeLow() * 333u) /* only to test the logic in the emulator (there is no user CP0) */
 #else
 #define B5C() ({ unsigned int c_; __asm__ volatile("mfc0 %0, $9" : "=r"(c_)); c_; })
 #endif
@@ -898,8 +899,8 @@ static unsigned int sB5Acc[16], sB5Cnt[16], sB5Mark[4];
 #define B5ABL(b_) 0
 #define B5H(i_, c_) do { } while (0)
 #endif
-/* Variante de las matrices (bits): 1 = el producto modelo*proyeccion (rsp.MP_matrix) se calcula al cargar vertices y no en cada G_MTX / G_POPMTX,
- * 2 = gfx_update_mv multiplica directamente sobre sus matrices, sin copias intermedias. */
+/* Matrix variant (bits): 1 = the model*projection product (rsp.MP_matrix) is computed when loading vertices and not on every G_MTX / G_POPMTX,
+ * 2 = gfx_update_mv multiplies directly on its matrices, without intermediate copies. */
 #ifndef PSP_MTX_VAR
 #define PSP_MTX_VAR 0
 #endif
@@ -939,9 +940,9 @@ static void gfx_flush(void) {
         //unsigned long t0 = get_time();
         sPcDraw++;
         if (__builtin_expect(sSweepMode >= 2, 0)) {
-            /* Profile Sweep: no se manda nada al GE */
+            /* Profile Sweep: nothing is sent to the GE */
         } else if (__builtin_expect(sSweepMode == 1, 0)) {
-            /* Profile Sweep: el GE transforma y prepara todo pero casi no rellena pixeles (scissor de 1x1) */
+            /* Profile Sweep: the GE transforms and prepares everything but barely fills pixels (1x1 scissor) */
             gfx_rapi->set_scissor(0, 0, 1, 1);
             gfx_rapi->draw_triangles((float *)buf_vbo, buf_vbo_len, buf_vbo_num_tris);
             gfx_rapi->set_scissor(rendering_state.scissor.x, rendering_state.scissor.y, rendering_state.scissor.width, rendering_state.scissor.height);
@@ -1020,7 +1021,7 @@ static void gfx_generate_cc(struct ColorCombiner *comb, uint32_t cc_id) {
     }
     gfx_cc_get_features(shader_id, &cc_features);
     /* BLENDRGBFADEA (alpha = ENV: gorra/Mario/Boo desvaneciendose) y BLENDRGBA (alpha = SHADE: explosiones, humo)
-     * comparten el id de shader 0x38D pero necesitan modos de textura distintos en el GE; se separa con un bit propio. */
+     * they share shader id 0x38D but need different texture modes on the GE; they are separated with a bit of their own. */
     if ((shader_id & 0xFFFu) == 0x38Du && cc_features.num_inputs != 0 &&
         shader_input_mapping[1][cc_features.num_inputs - 1] == CC_ENV) {
         shader_id |= (1u << 28); /* SHADER_OPT_ENVA */
@@ -1037,21 +1038,21 @@ static void gfx_generate_cc(struct ColorCombiner *comb, uint32_t cc_id) {
 
 static inline struct RGBA gfx_vertex_color_from(uint8_t source, const struct RGBA *shade_color, float lod_w, bool allow_lod);
 
-/* Parches con textura BLENDRGBFADEA (ojos/boca del Boo): el modelo los dibuja ANTES con SHADEFADEA (mismo array de vertices).
- * Con DECAL (que da lerp(shade, textura, alpha_tex) con alpha = ENV en TODO el parche) la cara se acumulaba como una 3a capa translucida
- * y se veia mas opaca. Si el parche ya se dibujo en la pasada de color, la pasada de textura se hace con MODULATE y color de vertice
- * blanco: solo se dibujan los texels con alpha, con el color de la textura. Los parches que NO tienen pasada previa (parte superior del
- * sombrero suelto, Mario) siguen con DECAL. */
-int scegu_enva_modulate = 0; /* leido por gfx_scegu.c al dibujar */
+/* BLENDRGBFADEA textured patches (Boo's eyes/mouth): the model draws them BEFORE with SHADEFADEA (same vertex array).
+ * With DECAL (which gives lerp(shade, texture, alpha_tex) with alpha = ENV over the WHOLE patch) the face accumulated as a 3rd translucent layer
+ * and looked more opaque. If the patch was already drawn in the color pass, the texture pass is done with MODULATE and white
+ * vertex color: only the texels with alpha are drawn, with the texture's color. Patches that have NO previous pass (top of the
+ * loose hat, Mario) still use DECAL. */
+int scegu_enva_modulate = 0; /* read by gfx_scegu.c when drawing */
 static const void *sLastVtxSrc = NULL;
 static const void *sEnvaVtxRing[8];
 static int sEnvaVtxRingPos = 0;
 static bool sEnvaWhite = false;
 
-/* El GE solo tiene UN color por vertice. Antes, con alpha (objetos que se desvanecen: toads, Bowser, estrellas azules)
- * se devolvia entero el color de la fuente de ALPHA (p.ej. env = 255,255,255,a), perdiendo la iluminacion (shade)
- * del RGB y dejando el objeto plano y muy claro. Ahora el RGB viene de la fuente del canal de color y solo el
- * alpha viene de la fuente del canal alpha, como hace el combinador de la N64. */
+/* The GE only has ONE color per vertex. Before, with alpha (fading objects: toads, Bowser, blue stars)
+ * the whole color of the ALPHA source was returned (e.g. env = 255,255,255,a), losing the lighting (shade)
+ * of the RGB and leaving the object flat and very light. Now the RGB comes from the color channel source and only the
+ * alpha comes from the alpha channel source, as the N64 combiner does. */
 static inline struct RGBA gfx_get_vertex_color(const struct ColorCombiner *comb, bool use_alpha, const struct RGBA *shade_color, float lod_w, bool allow_lod) {
     struct RGBA c = gfx_vertex_color_from(comb->vertex_color_source[0], shade_color, lod_w, allow_lod);
     if (sEnvaWhite) {
@@ -1061,8 +1062,8 @@ static inline struct RGBA gfx_get_vertex_color(const struct ColorCombiner *comb,
         const struct RGBA a = gfx_vertex_color_from(comb->vertex_color_source[1], shade_color, lod_w, allow_lod);
         c.a = a.a;
     }
-    /* Mezcla de 2 texturas por LOD (cuadro Peach/Bowser): el canal de alpha del combinador es solo TEXEL0A, asi que
-     * sin esto el alpha salia 255 y se perdia el factor LOD que el backend usa para mezclar la 2da pasada. */
+    /* 2-texture blend by LOD (Peach/Bowser frame): the combiner's alpha channel is just TEXEL0A, so
+     * without this the alpha came out 255 and the LOD factor the backend uses to blend the 2nd pass was lost. */
     if (allow_lod && comb->vertex_color_source[0] == CC_LOD) {
         c.a = c.r;
     }
@@ -1079,8 +1080,8 @@ static inline struct RGBA gfx_vertex_color_from(uint8_t source, const struct RGB
             return rdp.env_color;
         case CC_LOD:
             if (allow_lod) {
-                /* lod_w = relacion texels/pixel (N64) de este vertice. Con 2 niveles (max level 1):
-                 * <=1 -> nivel 0, frac 0 ; 1..2 -> frac = ratio-1 ; >=2 -> satura en el nivel 1 (frac 1) */
+                /* lod_w = texels/pixel ratio (N64) of this vertex. With 2 levels (max level 1):
+                 * <=1 -> level 0, frac 0 ; 1..2 -> frac = ratio-1 ; >=2 -> saturates at level 1 (frac 1) */
                 float distance_frac = lod_w - 1.0f;
                 if (distance_frac < 0.0f) distance_frac = 0.0f;
                 if (distance_frac > 1.0f) distance_frac = 1.0f;
@@ -1112,10 +1113,10 @@ static struct ColorCombiner *gfx_lookup_or_create_color_combiner(uint32_t cc_id)
 extern int gfx_vram_space_available(void);
 extern void texman_clear(void);
 extern unsigned int texman_get_bound(void);
-extern void gfx_scegu_sync_all(void); /* gfx_scegu.c: espera a que el GE termine todo lo enviado */
+extern void gfx_scegu_sync_all(void); /* gfx_scegu.c: waits for the GE to finish everything sent */
 
 #if defined(TARGET_PSP)
-/* Igual que la busqueda de gfx_texture_cache_lookup pero SIN efectos (no enlaza ni cambia el muestreador del GE): devuelve el nodo o NULL. */
+/* Same as the gfx_texture_cache_lookup search but WITHOUT side effects (it neither binds nor changes the GE sampler): returns the node or NULL. */
 static struct TextureHashmapNode *gfx_texture_cache_peek(const uint8_t *orig_addr, uint32_t fmt, uint32_t siz) {
     size_t hash = (uintptr_t)orig_addr;
     hash = (hash >> 5) & 0x3ff;
@@ -1155,7 +1156,7 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, co
         node = &(*node)->next;
     }
     if(!gfx_vram_space_available()) {
-        gfx_scegu_sync_all(); /* el GE podria seguir leyendo texturas que las nuevas van a pisar */
+        gfx_scegu_sync_all(); /* the GE might still be reading textures that the new ones are going to overwrite */
         texman_clear();
         sPcTexClr++;
 
@@ -1427,19 +1428,19 @@ static inline void gfx_mark_tri_pipeline_dirty(void) {
 
 
 #if defined(TARGET_PSP) && PSP_DECAL_ADAPTIVE
-/* ---- Modo decal EXACTO de la N64 (ZMODE_DEC) ----
- * Formula tomada de un emulador de RDP exacto (ParaLLEl-RDP, depth_test.h / rdp_renderer.cpp): el decal pasa si |z - z_memoria| <= (combined_dz << 3)
- * en z de 18 bits (z18 = 8 * z15, z15 = 0..0x7FFF), donde
- *   dzpix       = |dz/dx| + |dz/dy| del triangulo en pixeles de la N64 (z15 por pixel), redondeado hacia ARRIBA a potencia de 2 (normalize_dzpix)
- *   memory_dz   = el del pixel ya dibujado (aqui: el mismo plano, el piso); si z < 0.875 del rango (exponente de z comprimido < 3):
- *                 max(memory_dz << 1, 16 >> exponente)
- *   combined_dz = mayor potencia de 2 <= (dzpix | memory_dz)
- * El GE solo puede desplazar la profundidad (z de 16 bits = 2 * z15) hacia la camara, asi que la tolerancia de la N64 se aplica como
- * desplazamiento = 2 * combined_dz (en z15 = combined_dz) + un margen chico para el error de interpolacion del GE (PSP_DECAL_OFFSET).
- * Sale en escalones de potencias de 2: los triangulos de un mismo plano caen en el mismo y casi nunca cortan el lote de dibujo.
- * Las pendientes se miden en pixeles de la N64 (240 de alto, cuadrados), igual que el calculo del LOD. */
+/* ---- EXACT N64 decal mode (ZMODE_DEC) ----
+ * Formula taken from an exact RDP emulator (ParaLLEl-RDP, depth_test.h / rdp_renderer.cpp): the decal passes if |z - z_memory| <= (combined_dz << 3)
+ * in 18-bit z (z18 = 8 * z15, z15 = 0..0x7FFF), where
+ * dzpix       = |dz/dx| + |dz/dy| of the triangle in N64 pixels (z15 per pixel), rounded UP to a power of 2 (normalize_dzpix)
+ * memory_dz   = that of the already drawn pixel (here: the same plane, the floor); if z < 0.875 of the range (compressed z exponent < 3):
+ * max(memory_dz << 1, 16 >> exponent)
+ * combined_dz = largest power of 2 <= (dzpix | memory_dz)
+ * The GE can only shift the depth (16-bit z = 2 * z15) towards the camera, so the N64 tolerance is applied as
+ * offset = 2 * combined_dz (in z15 = combined_dz) + a small margin for the GE's interpolation error (PSP_DECAL_OFFSET).
+ * It comes out in power-of-2 steps: triangles of the same plane fall into the same one and almost never break the draw batch.
+ * Slopes are measured in N64 pixels (240 high, square), same as the LOD calculation. */
 extern void gfx_scegu_set_decal_bias(int bias);
-static int sDecalBias = PSP_DECAL_OFFSET; /* el que tiene puesto el GE (solo vale dentro del modo decal) */
+static int sDecalBias = PSP_DECAL_OFFSET; /* the one the GE has set (only valid inside decal mode) */
 static inline int gfx_msb_u32(unsigned int v) { return 31 - __builtin_clz(v); }
 static int gfx_decal_bias(const struct LoadedVertex *a, const struct LoadedVertex *b, const struct LoadedVertex *c) {
     const float wa = a->_w, wb = b->_w, wc = c->_w;
@@ -1458,7 +1459,7 @@ static int gfx_decal_bias(const struct LoadedVertex *a, const struct LoadedVerte
         float dzdx, dzdy, zm;
         int ix, iy, s, dz, mem, comb, e, z18, inv, tol;
         if (fabsf(det) < 1e-4f) {
-            return sDecalBias; /* de canto: no se ve, se deja el desplazamiento que haya */
+            return sDecalBias; /* edge-on: not visible, the current offset is left as is */
         }
         dzdx = fabsf((z1 * y2 - z2 * y1) / det);
         dzdy = fabsf((x1 * z2 - x2 * z1) / det);
@@ -1485,7 +1486,7 @@ static int gfx_decal_bias(const struct LoadedVertex *a, const struct LoadedVerte
         }
         comb = dz | mem;
         comb = 1 << gfx_msb_u32((unsigned int) comb); /* combine_dz */
-        tol = (int) ((float) (comb * 2) * PSP_DECAL_SCALE) + PSP_DECAL_OFFSET; /* z15 -> z16 del GE (x2), por la escala, mas el margen */
+        tol = (int) ((float) (comb * 2) * PSP_DECAL_SCALE) + PSP_DECAL_OFFSET; /* z15 -> GE z16 (x2), times the scale, plus the margin */
         if (tol > PSP_DECAL_MAX) tol = PSP_DECAL_MAX;
         return tol;
     }
@@ -1518,7 +1519,7 @@ static void gfx_prepare_tri_pipeline_state(void) {
 #define B5P(i_) do { } while (0)
 #endif
 
-    const unsigned int pp0 = sProfLogOn ? sceKernelGetSystemTimeLow() : 0U; /* cronometro del perfil: ver PREPMS */
+    const unsigned int pp0 = sProfLogOn ? sceKernelGetSystemTimeLow() : 0U; /* profile timer: see PREPMS */
     const unsigned int pd0 = sPcDrawUs + sPcTexUs;
 
     bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
@@ -1541,7 +1542,7 @@ static void gfx_prepare_tri_pipeline_state(void) {
         gfx_rapi->set_zmode_decal(zmode_decal);
         rendering_state.decal_mode = zmode_decal;
 #if defined(TARGET_PSP) && PSP_DECAL_ADAPTIVE
-        sDecalBias = PSP_DECAL_OFFSET; /* set_zmode_decal(true) del backend lo deja en PSP_DECAL_OFFSET */
+        sDecalBias = PSP_DECAL_OFFSET; /* the backend's set_zmode_decal(true) leaves it at PSP_DECAL_OFFSET */
 #endif
     }
 
@@ -1552,7 +1553,7 @@ static void gfx_prepare_tri_pipeline_state(void) {
             gfx_flush();
             gfx_rapi->set_viewport(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width, rdp.viewport.height);
             rendering_state.viewport = rdp.viewport;
-            vp_changed = true; /* en PSP set_viewport pisa el scissor: hay que reaplicarlo */
+            vp_changed = true; /* on PSP set_viewport overwrites the scissor: it must be reapplied */
         }
         if (backend_state_dirty || vp_changed ||
             memcmp(&rdp.scissor, &rendering_state.scissor, sizeof(rdp.scissor)) != 0) {
@@ -1575,7 +1576,7 @@ static void gfx_prepare_tri_pipeline_state(void) {
         use_alpha = true;
     }
     if (use_noise) {
-        use_alpha = true; /* el desvanecimiento por ruido siempre necesita alpha */
+        use_alpha = true; /* noise fade-out always needs alpha */
     }
 
     if (use_alpha) cc_id |= SHADER_OPT_ALPHA;
@@ -1615,10 +1616,10 @@ static void gfx_prepare_tri_pipeline_state(void) {
         if (used_textures[i]) {
 #if defined(TARGET_PSP)
             if (i == 0 && rdp.textures_changed[0]) {
-                /* El juego repite la carga de la MISMA textura (cada instancia de un objeto, cada trozo de un nivel con el mismo material) y antes
-                 * eso cortaba el lote aunque el GE no tuviera nada que cambiar: un draw de ~6 triangulos por vez. Si la textura que se pide es
-                 * justo la que ya esta enlazada (mismo nodo de la cache, mismos espejos) no hay nada que enviar: sigue el mismo lote. Los
-                 * parametros del muestreador se comparan mas abajo, como siempre, y si difieren si se corta. */
+                /* The game repeats loading the SAME texture (every instance of an object, every piece of a level with the same material) and before
+                 * that broke the batch even though the GE had nothing to change: a draw of ~6 triangles at a time. If the requested texture is
+                 * exactly the one already bound (same cache node, same mirrors) there is nothing to send: the same batch continues. The
+                 * sampler parameters are compared further below, as usual, and if they differ it does break. */
                 sPcTexEv++;
                 struct TextureHashmapNode *pk = gfx_texture_cache_peek(rdp.loaded_texture[0].addr, rdp.texture_tile.fmt, rdp.texture_tile.siz);
                 if (!backend_state_dirty && pk != NULL && pk == rendering_state.textures[0] && texman_get_bound() == pk->texture_id) {
@@ -1638,7 +1639,7 @@ static void gfx_prepare_tri_pipeline_state(void) {
                 }
                 rdp.textures_changed[i] = false;
             }
-            scegu_mt_tex[i] = rendering_state.textures[i]->texture_id; /* ids para el mezclado de 2 texturas (cuadro Peach/Bowser) */
+            scegu_mt_tex[i] = rendering_state.textures[i]->texture_id; /* ids for the 2-texture blend (Peach/Bowser frame) */
             if (backend_state_dirty ||
                 linear_filter != rendering_state.textures[i]->linear_filter ||
                 rdp.texture_tile.cms != rendering_state.textures[i]->cms ||
@@ -1675,10 +1676,10 @@ static void gfx_prepare_tri_pipeline_state(void) {
             const uint32_t tile_width = (rdp.texture_tile.lrs - rdp.texture_tile.uls + 4) / 4;
             const uint32_t tile_height = (rdp.texture_tile.lrt - rdp.texture_tile.ult + 4) / 4;
 
-            /* La textura espejo se sube duplicada ([reflejo | original]) y se muestrea con REPEAT.
-             * El espejo exacto de la N64 sobre esa textura es u' = u / (2 * ancho) + 0.5, o sea
-             * escala * 0.5 y sesgo * 0.5 + 0.5. Antes solo se hacia para tiles de 32x64; los demas
-             * (p.ej. sombras 16x16) salian al doble de frecuencia y sin desfase. Se aplica por eje. */
+            /* The mirror texture is uploaded duplicated ([reflection | original]) and sampled with REPEAT.
+             * The exact N64 mirror over that texture is u' = u / (2 * width) + 0.5, that is
+             * scale * 0.5 and bias * 0.5 + 0.5. Before this was only done for 32x64 tiles; the others
+             * (e.g. 16x16 shadows) came out at double frequency and with no offset. It is applied per axis. */
             (void)tile_width;
             (void)tile_height;
             if (texture_node != NULL) {
@@ -1735,7 +1736,7 @@ static void gfx_transposed_matrix_mul(float res[3], const float a[3], const floa
     res[2] = a[0] * b[2][0] + a[1] * b[2][1] + a[2] * b[2][2];
 }
 
-/* dir / 127.0f para cada valor posible de un signed char (mismo resultado, bit a bit, que dividir: 3 divisiones menos por cada luz que se recalcula). */
+/* dir / 127.0f for each possible value of a signed char (same result, bit for bit, as dividing: 3 fewer divisions for each light that is recomputed). */
 static float sDir127[256];
 static int sDir127Init = 0;
 static void calculate_normal_dir(const Light_t *light, float coeffs[3]) {
@@ -1793,26 +1794,26 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
 }
 #endif
 
-/* ---- Niebla PSP ----
- * N64: factor = (z/w) * fog_mul + fog_offset (0..255), con z/w en [-1,1] (depende del near/far de la camara).
- * El GE de la PSP usa distancias de vista (sceGuFog(near, far)). Se convierte con los coeficientes A=m[2][2], B=m[3][2]
- * de la perspectiva cargada: z/w = -A + B/d  =>  d = B / (z/w + A). */
+/* ---- PSP fog ----
+ * N64: factor = (z/w) * fog_mul + fog_offset (0..255), with z/w in [-1,1] (depends on the camera's near/far).
+ * The PSP GE uses view distances (sceGuFog(near, far)). It is converted with the coefficients A=m[2][2], B=m[3][2]
+ * of the loaded perspective: z/w = -A + B/d  =>  d = B / (z/w + A). */
 extern float scegu_fog_near, scegu_fog_far; /* definidos en gfx_scegu.c */
 static float sFogA = 0.0f, sFogB = 0.0f;
-/* La niebla de la N64 depende de z/w de la proyeccion ORIGINAL del juego. "Far Distance" alarga el plano lejano de la camara y con eso el mismo
- * punto del mundo tiene otro z/w: la niebla se estiraba (empezaba mas lejos y llegaba al 100 % en el plano nuevo). Con PSP_FOG_FAR_INDEPENDENT la
- * niebla se calcula con A0/B0 de la proyeccion con el far original: ndc0(d) = -A0 + B0/d, donde d = w (distancia a la camara). Si la escala es 1
- * (lo normal) no se toca nada y la cuenta es la de siempre (z/w). sFogDA/sFogDB son los coeficientes con los que se pasa de ndc a distancia. */
+/* The N64 fog depends on z/w of the game's ORIGINAL projection. "Far Distance" lengthens the camera's far plane and with that the same
+ * world point has another z/w: the fog stretched (it started farther and reached 100 % at the new plane). With PSP_FOG_FAR_INDEPENDENT the
+ * fog is computed with A0/B0 of the projection with the original far: ndc0(d) = -A0 + B0/d, where d = w (distance to the camera). If the scale is 1
+ * (the normal case) nothing is touched and the calculation is the usual one (z/w). sFogDA/sFogDB are the coefficients used to go from ndc to distance. */
 #ifndef PSP_FOG_FAR_INDEPENDENT
 #define PSP_FOG_FAR_INDEPENDENT 1
 #endif
 extern float gPspPerspFarScaleUsed; /* game/rendering_graph_node.c */
-static int sFogScaled = 0;               /* 1 = la proyeccion cargada lleva el far alargado y la niebla usa la original */
-static float sFogEffNA = 0.0f, sFogEffB = 0.0f; /* -A0 y B0 de la proyeccion original (solo si sFogScaled) */
-static float sFogDA = 0.0f, sFogDB = 0.0f;      /* A y B para convertir ndc -> distancia (los de la original si sFogScaled) */
+static int sFogScaled = 0;               /* 1 = the loaded projection carries the lengthened far and the fog uses the original */
+static float sFogEffNA = 0.0f, sFogEffB = 0.0f; /* -A0 and B0 of the original projection (only if sFogScaled) */
+static float sFogDA = 0.0f, sFogDB = 0.0f;      /* A and B to convert ndc -> distance (the original's if sFogScaled) */
 
-/* Se llama al cargar una proyeccion de perspectiva. Con el far alargado k veces, de A = (n+f)/(n-f) y B = 2nf/(n-f) salen n = B/(A-1) y f = B/(A+1);
- * el far original es f/k y con el se rehacen A0 y B0. */
+/* Called when a perspective projection is loaded. With the far lengthened k times, from A = (n+f)/(n-f) and B = 2nf/(n-f) we get n = B/(A-1) and f = B/(A+1);
+ * the original far is f/k and A0 and B0 are rebuilt with it. */
 static void gfx_fog_set_projection(float A, float B) {
     sFogA = A; sFogB = B;
     sFogDA = A; sFogDB = B;
@@ -1849,9 +1850,9 @@ static void gfx_update_fog_range(void) {
     float n = 3600.0f, f = 32000.0f;
     if (sFogB != 0.0f && rsp.fog_mul != 0) {
         float mul = (float)rsp.fog_mul, off = (float)rsp.fog_offset;
-        /* La niebla N64 es hiperbolica en la distancia (se acumula pronto) y la del GE es lineal.
-         * Se mantiene el inicio exacto y se elige el final para que ambas coincidan cuando la niebla
-         * N64 llega a PSP_FOG_MATCH (0..1). Mas bajo = niebla mas densa/cercana. */
+        /* N64 fog is hyperbolic in distance (it builds up early) and the GE's is linear.
+         * The exact start is kept and the end is chosen so that both coincide when the
+         * N64 fog reaches PSP_FOG_MATCH (0..1). Lower = denser/closer fog. */
         const float PSP_FOG_MATCH = 0.5f;
         n = gfx_fog_ndc_to_dist((0.0f - off) / mul);
         float dm = gfx_fog_ndc_to_dist((255.0f * PSP_FOG_MATCH - off) / mul);
@@ -1860,13 +1861,13 @@ static void gfx_update_fog_range(void) {
         if (f < n + 1.0f) f = n + 1.0f;
     }
     if (n != scegu_fog_near || f != scegu_fog_far) {
-        gfx_flush(); /* lo acumulado se dibuja con el rango anterior */
+        gfx_flush(); /* what has accumulated is drawn with the previous range */
         scegu_fog_near = n;
         scegu_fog_far = f;
     }
 }
 
-/* Proyeccion base (ultima cargada con LOAD) y vista (producto de los MUL posteriores), ver gfx_sp_matrix. */
+/* Base projection (last one loaded with LOAD) and view (product of the later MULs), see gfx_sp_matrix. */
 static float sPBase[4][4] __attribute__((aligned(16)));
 static float sPView[4][4] __attribute__((aligned(16)));
 static int sPInit = 0;
@@ -1879,12 +1880,12 @@ static inline void gfx_pview_init(void) {
 }
 
 #if PSP_EYE_SPACE
-/* sXfm[0..15] = modelo*vista*proyeccion (recorte, = rsp.MP_matrix), sXfm[16..31] = modelo*vista (espacio de vista, lo que recibe el GE). */
+/* sXfm[0..15] = model*view*projection (clip, = rsp.MP_matrix), sXfm[16..31] = model*view (eye space, what the GE receives). */
 static float sXfm[32] __attribute__((aligned(16)));
-static int sXfmMpDirty = 1; /* 1 = rsp.MP_matrix cambio desde la ultima copia a sXfm[0..15] */
-static int sMVDirty = 1; /* 1 = hay que recalcular modelo*vista (cambio la matriz de modelo, un pop o la vista) */
-/* 1 mientras la proyeccion cargada es en perspectiva (el mundo 3D). Con proyecciones ortograficas o de pantalla completa (menus, HUD,
- * transiciones, cielo) se usa el camino de siempre (el GE aplica modelo y vista): ahi hay pocas llamadas y no merece el cambio. */
+static int sXfmMpDirty = 1; /* 1 = rsp.MP_matrix changed since the last copy to sXfm[0..15] */
+static int sMVDirty = 1; /* 1 = model*view must be recomputed (the model matrix changed, a pop, or the view) */
+/* 1 while the loaded projection is a perspective one (the 3D world). With orthographic or full-screen projections (menus, HUD,
+ * transitions, sky) the usual path is used (the GE applies model and view): there are few calls there and the change is not worth it. */
 static int sEyeOn = 0;
 static void gfx_update_mv(void) {
     if (MTXVAR & 2) {
@@ -1917,8 +1918,8 @@ static void gfx_update_mv(void) {
 }
 #endif
 
-/* MTXVAR & 1: rsp.MP_matrix = pila[tope] * P_matrix se deja pendiente y se calcula solo si alguien lo va a usar (cargar vertices) o antes de que
- * el estado del que depende cambie sin recalcularlo (gfx_sp_reset, pop que deja la pila vacia). Mismo valor que el calculo en cada G_MTX. */
+/* MTXVAR & 1: rsp.MP_matrix = stack[top] * P_matrix is left pending and only computed if someone is going to use it (load vertices) or before
+ * the state it depends on changes without recomputing it (gfx_sp_reset, pop that leaves the stack empty). Same value as computing it on every G_MTX. */
 static int sMPPend = 0;
 static inline void gfx_mp_flush(void) {
     if (sMPPend) {
@@ -1951,10 +1952,10 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
         } else {
             gfx_matrix_mul(rsp.P_matrix, matrix, rsp.P_matrix);
         }
-        /* El GE calcula la niebla con la z de VISTA (matriz GU_VIEW). El juego mete la camara (lookat) dentro de la
-         * proyeccion con G_MTX_MUL, y con GU_VIEW=identidad la niebla se calculaba con coordenadas de mundo.
-         * Se separa: base = lo ultimo cargado con LOAD (perspectiva/ortho) -> GU_PROJECTION;
-         * view = producto de todos los MUL posteriores (lookat, etc.) -> GU_VIEW. El resultado es el mismo producto. */
+        /* The GE computes fog with the VIEW z (GU_VIEW matrix). The game puts the camera (lookat) inside the
+         * projection with G_MTX_MUL, and with GU_VIEW=identity the fog was computed with world coordinates.
+         * They are separated: base = last thing loaded with LOAD (perspective/ortho) -> GU_PROJECTION;
+         * view = product of all later MULs (lookat, etc.) -> GU_VIEW. The result is the same product. */
         gfx_pview_init();
 #if PSP_SKY_PATCH
         const int skyHit = sRecMtxOn && !(parameters & G_MTX_LOAD) && sSkyInterpPtr != NULL && (const void *) addr == (const void *) sSkyInterpPtr;
@@ -1967,28 +1968,28 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
             memset(sPView, 0, sizeof(sPView));
             for (int i = 0; i < 4; i++) sPView[i][i] = 1.0f;
         } else {
-            /* El asm VFPU de gfx_matrix_mul no admite simbolos estaticos como operandos: se usan copias locales. */
+            /* The VFPU asm of gfx_matrix_mul does not accept static symbols as operands: local copies are used. */
             float tmpA[4][4] __attribute__((aligned(16)));
             float tmpB[4][4] __attribute__((aligned(16)));
             memcpy(tmpA, sPView, sizeof(tmpA));
             gfx_matrix_mul(tmpB, matrix, tmpA);
             memcpy(sPView, tmpB, sizeof(tmpB));
         }
-        /* sceGuSetMatrix copia los valores como comandos dentro de la lista, no guarda el puntero: basta un buffer local.
-         * (Antes se pedia memoria a la lista con sceGuGetMemory, que ademas de ocupar lista hace una llamada al sistema
-         * para avisar al GE en cada matriz.) */
+        /* sceGuSetMatrix copies the values as commands into the list, it does not keep the pointer: a local buffer is enough.
+         * (Before, memory was requested from the list with sceGuGetMemory, which besides taking up list space makes a system call
+         * to notify the GE on every matrix.) */
         float proj_buf[16] __attribute__((aligned(16)));
         float view_buf[16] __attribute__((aligned(16)));
         void *matrix_inline = proj_buf;
         void *view_inline = view_buf;
         memcpy(matrix_inline, sPBase, sizeof(rsp.P_matrix));
         memcpy(view_inline, sPView, sizeof(rsp.P_matrix));
-        /* 16:9: el GE dibuja con esta matriz, asi que la correccion de aspecto se hace aqui.
-         * Se decide SOLO al cargar la proyeccion (G_MTX_LOAD) y se conserva al multiplicar
-         * (G_MTX_MUL, p.ej. camara/lookat), porque tras un MUL el [3][3] ya no sirve de prueba.
+        /* 16:9: the GE draws with this matrix, so the aspect correction is done here.
+         * It is decided ONLY when the projection is loaded (G_MTX_LOAD) and kept when multiplying
+         * (G_MTX_MUL, e.g. camera/lookat), because after a MUL the [3][3] no longer works as a test.
          *  - Ortografica (m[3][3]==1): menus, textos, power meter, transiciones -> se compensa.
-         *  - Perspectiva con aspecto ~4:3 (cabeza de Mario de goddard) -> se compensa.
-         *  - Perspectiva con aspecto 16:9 (mundo del juego) -> no se toca. */
+         * - Perspective with ~4:3 aspect (Mario's goddard head) -> compensated.
+         * - Perspective with 16:9 aspect (the game world) -> not touched. */
 #if PSP_EYE_SPACE
         if (parameters & G_MTX_LOAD) {
             sEyeOn = (matrix[2][3] < -0.5f) ? 1 : 0;
@@ -2009,7 +2010,7 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
         if (sProjCompensate) {
             float *m = (float *)matrix_inline;
             const float k = gfx_aspect_k();
-            m[0] *= k; m[4] *= k; m[8] *= k; m[12] *= k; /* columna X */
+            m[0] *= k; m[4] *= k; m[8] *= k; m[12] *= k; /* X column */
         }
         sceGuSetMatrix(GU_PROJECTION, (const ScePspFMatrix4 *)matrix_inline);
 #if PSP_SKY_PATCH
@@ -2017,9 +2018,9 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
 #endif
 #if PSP_EYE_SPACE
         if (sEyeOn) {
-            /* la vista ya va dentro de los vertices (espacio de vista): el GE usa vista = identidad (la niebla del GE sigue midiendo z de vista) */
+            /* the view is already inside the vertices (eye space): the GE uses view = identity (the GE's fog still measures view z) */
             sceGuSetMatrix(GU_VIEW, (const ScePspFMatrix4 *)identity_matrix);
-            sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)identity_matrix); /* (por si algun otro codigo la dejo distinta) */
+            sceGuSetMatrix(GU_MODEL, (const ScePspFMatrix4 *)identity_matrix); /* (in case some other code left it different) */
             sMVDirty = 1;
         } else {
             sceGuSetMatrix(GU_VIEW, (const ScePspFMatrix4 *)view_inline);
@@ -2033,7 +2034,7 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
             sRecSkyOk = 1;
         }
 #endif
-        memcpy(scegu_mtx_proj, matrix_inline, 64); /* copias para la mascara de ruido (gfx_scegu.c) */
+        memcpy(scegu_mtx_proj, matrix_inline, 64); /* copies for the noise mask (gfx_scegu.c) */
 #if PSP_EYE_SPACE
         if (sEyeOn) {
             memcpy(scegu_mtx_view, identity_matrix, 64);
@@ -2054,12 +2055,12 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
         } else {
             gfx_matrix_mul(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1]);
         }
-        /* Buffer local: sceGuSetMatrix copia los valores a la lista (ver arriba) */
+        /* Local buffer: sceGuSetMatrix copies the values into the list (see above) */
         float model_buf[16] __attribute__((aligned(16)));
         void *matrix_inline = model_buf;
 #if PSP_EYE_SPACE
         if (sEyeOn) {
-            sMVDirty = 1; /* el modelo va dentro de los vertices: el GE conserva modelo = identidad (no hace falta la copia) */
+            sMVDirty = 1; /* the model is inside the vertices: the GE keeps model = identity (the copy is not needed) */
         } else
 #endif
         {
@@ -2081,7 +2082,7 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
 
 static void gfx_sp_pop_matrix(uint32_t count) {
     if ((MTXVAR & 1) && rsp.modelview_matrix_stack_size <= count) {
-        gfx_mp_flush(); /* la pila queda vacia: el calculo de MP del estado actual no se repetiria */
+        gfx_mp_flush(); /* the stack is left empty: the MP calculation of the current state would not be repeated */
     }
     while (count--) {
         if (rsp.modelview_matrix_stack_size > 0) {
@@ -2105,8 +2106,8 @@ static float gfx_adjust_x_for_aspect_ratio(float x) {
     return x * gfx_aspect_k();
 }
 
-/* Segunda parte de gfx_sp_vertex_impl (color/luces/texgen/rechazo trivial por vertice). "lighting" y "texgen" llegan como constantes en cada
- * llamada (always_inline), asi el compilador genera tres bucles sin las comparaciones por vertice (antes se evaluaban en cada uno). */
+/* Second part of gfx_sp_vertex_impl (color/lights/texgen/per-vertex trivial reject). "lighting" and "texgen" arrive as constants in each
+ * call (always_inline), so the compiler generates three loops without the per-vertex comparisons (before they were evaluated on each one). */
 static inline __attribute__((always_inline)) void gfx_vtx_post(const bool lighting, const bool texgen, const bool one_light, size_t n_vertices,
     size_t dest_index, const Vtx *vertices, const float aspk, const int tsf_s, const int tsf_t, const int nlights,
     const int amb_r, const int amb_g, const int amb_b, const float lc[][3], const int lcol[][3], const float *lk0,
@@ -2163,7 +2164,7 @@ static inline __attribute__((always_inline)) void gfx_vtx_post(const bool lighti
             int b = amb_b;
 
             if (one_light) {
-                /* caso de casi todos los objetos del juego: una sola luz direccional (+ ambiente), sin bucle */
+                /* case of almost all objects in the game: a single directional light (+ ambient), no loop */
                 const float intensity = n0 * lc[0][0] + n1 * lc[0][1] + n2 * lc[0][2];
                 if (intensity > 0.0f) {
                     r += (int)(intensity * lcol[0][0]);
@@ -2204,11 +2205,11 @@ static inline __attribute__((always_inline)) void gfx_vtx_post(const bool lighti
         // trivial clip rejection
         uint32_t rej = 0;
         const float wxy = w * sRejXY;
-        /* Vertice claramente dentro (lo mas comun entre los que se dibujan): 3 comparaciones en vez de 6. Es equivalente: dentro de
-         * los tres rangos <=> ningun bit; con w negativo o NaN esta prueba falla y se hace la cuenta completa de siempre. */
-        /* La prueba "dentro" se hace con enteros sobre los bits del float (|x| <= wxy <=> bits sin signo <= bits de wxy cuando wxy no es
-         * negativo): 1 sola rama y sin comparaciones de coma flotante (cada c.cond.s + bc1 lleva 2 nops y una rama). Si dice "dentro" lo
-         * es de verdad (w negativo => wxy negativo => no cumple y se cae a la cuenta completa; con NaN la cuenta completa da 0 igual). */
+        /* Vertex clearly inside (the most common among the ones that are drawn): 3 comparisons instead of 6. It is equivalent: inside
+         * the three ranges <=> no bit; with negative or NaN w this test fails and the usual full calculation is done. */
+        /* The "inside" test is done with integers on the float's bits (|x| <= wxy <=> unsigned bits <= wxy's bits when wxy is not
+         * negative): 1 single branch and no floating-point comparisons (each c.cond.s + bc1 carries 2 nops and a branch). If it says "inside" it
+         * really is (negative w => negative wxy => fails and falls back to the full calculation; with NaN the full calculation gives 0 anyway). */
         int32_t ixb, iyb, izb, iwb, iwxyb;
         __builtin_memcpy(&ixb, &x, 4);
         __builtin_memcpy(&iyb, &y, 4);
@@ -2226,7 +2227,7 @@ static inline __attribute__((always_inline)) void gfx_vtx_post(const bool lighti
             if (z < -w) rej |= Z_POS;
             if (z > w) rej |= Z_NEG;
         }
-        /* Pre-test del scissor: SC_IN = seguro por dentro de todos los planos (gfx_tri_core se salta entonces la cuenta de los planos). */
+        /* Scissor pre-test: SC_IN = surely inside all the planes (gfx_tri_core then skips the plane calculation). */
         {
             const float wgx = w * scgx, wgy = w * scgy;
             int32_t igx, igy;
@@ -2254,10 +2255,10 @@ static inline __attribute__((always_inline)) void gfx_vtx_post(const bool lighti
 
 
 #if PSP_EYE2_VFPU
-/* Kernel VFPU de 2 vertices por vuelta (gfx_transform_vfpu.s): 1 = comprobado en este arranque (mismo resultado, bit a bit, que el de siempre
- * para 1, 2, 3, 6 y 7 vertices, sin tocar nada mas), 0 = se usa el kernel de siempre, -1 = todavia sin probar. */
+/* 2-vertices-per-turn VFPU kernel (gfx_transform_vfpu.s): 1 = checked at this boot (same result, bit for bit, as the usual one
+ * for 1, 2, 3, 6 and 7 vertices, without touching anything else), 0 = the usual kernel is used, -1 = not tested yet. */
 static int sEye2 = -1;
-int gPspEye2Ok = -1; /* lo lee el log */
+int gPspEye2Ok = -1; /* read by the log */
 static __attribute__((noinline)) int gfx_eye2_selftest(void) {
     static struct LoadedVertex ra[8], rb[8];
     static Vtx tv[8];
@@ -2280,7 +2281,7 @@ static __attribute__((noinline)) int gfx_eye2_selftest(void) {
         if (memcmp(ra, rb, sizeof(ra)) != 0) {
             ok = 0;
         }
-        /* y que de verdad escribio algo distinto del relleno */
+        /* and that it really wrote something different from the filler */
         if (ok && memcmp(&ra[0], &rb[0], sizeof(ra[0])) == 0 && ((const unsigned char *)&ra[0])[0] == 0xA5 &&
             ((const unsigned char *)&ra[0])[1] == 0xA5) {
             ok = 0;
@@ -2297,9 +2298,9 @@ __attribute__((noinline)) static void gfx_sp_vertex_impl(size_t n_vertices, size
     if (__builtin_expect(sSweepMode >= 7, 0)) {
         return; /* Profile Sweep */
     }
-    /* Todo lo que no cambia entre vertices se saca del bucle: como se escribe por d->..., el compilador no puede
-     * asegurar que rsp.* no se modifica y lo releia (y recalculaba las divisiones) en cada vertice. */
-    (void)gfx_scissor_planes(); /* deja al dia las cotas sScGX/sScGY que usa el pre-test de scissor de gfx_vtx_post */
+    /* Everything that does not change between vertices is taken out of the loop: since it is written through d->..., the compiler cannot
+     * be sure that rsp.* is not modified and it re-read it (and recomputed the divisions) on every vertex. */
+    (void)gfx_scissor_planes(); /* brings the sScGX/sScGY bounds used by gfx_vtx_post's scissor pre-test up to date */
     const float aspk = gfx_aspect_k();
     const uint32_t gmode = rsp.geometry_mode;
     const bool lighting = (gmode & G_LIGHTING) != 0;
@@ -2308,7 +2309,7 @@ __attribute__((noinline)) static void gfx_sp_vertex_impl(size_t n_vertices, size
     const int tsf_t = rsp.texture_scaling_factor.t;
     int nlights = 0;
     int amb_r = 0, amb_g = 0, amb_b = 0;
-    float lc[MAX_LIGHTS][3]; /* direccion de cada luz ya dividida entre 127 (antes se dividia el producto por vertice) */
+    float lc[MAX_LIGHTS][3]; /* direction of each light already divided by 127 (before the product was divided per vertex) */
     int lcol[MAX_LIGHTS][3];
     float lk0[3] = {0.0f, 0.0f, 0.0f}, lk1[3] = {0.0f, 0.0f, 0.0f}; /* lookat_x / lookat_y */
 
@@ -2319,8 +2320,8 @@ __attribute__((noinline)) static void gfx_sp_vertex_impl(size_t n_vertices, size
                 calculate_normal_dir(&rsp.current_lights[li], rsp.current_lights_coeffs[li]);
             }
             B5S1(b5s_lt, 1);
-            /* lookat_x / lookat_y solo los usa el texgen (reflejos): se calculan la primera vez que hace falta (cada uno son 3 divisiones y
-             * una raiz, y la mayoria de los lotes iluminados no los necesitan). */
+            /* lookat_x / lookat_y are only used by texgen (reflections): they are computed the first time they are needed (each one is 3 divisions and
+             * a root, and most lit batches do not need them). */
             rsp.lookat_stale = true;
             rsp.lights_changed = false;
         }
@@ -2392,7 +2393,7 @@ __attribute__((noinline)) static void gfx_sp_vertex_impl(size_t n_vertices, size
     }
 #endif
     if (__builtin_expect(sSweepMode >= 6, 0)) {
-        return; /* Profile Sweep: solo la transformacion */
+        return; /* Profile Sweep: transformation only */
     }
     if (!lighting) {
         gfx_vtx_post(false, false, false, n_vertices, dest_index, vertices, aspk, tsf_s, tsf_t, nlights, amb_r, amb_g, amb_b, lc, lcol, lk0, lk1);
@@ -2431,21 +2432,21 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
     }
 }
 
-/* Subdivision para el LOD por pixel (cuadro Peach/Bowser): el GE interpola el color/alpha en espacio de
- * pantalla (sin correccion de perspectiva), pero el LOD de la N64 es por pixel (~ w perspectiva-correcta).
- * Subdividiendo el triangulo y calculando el LOD exacto en cada vertice nuevo el error queda por debajo
+/* Subdivision for per-pixel LOD (Peach/Bowser frame): the GE interpolates color/alpha in screen
+ * space (without perspective correction), but the N64's LOD is per pixel (~ perspective-correct w).
+ * By subdividing the triangle and computing the exact LOD at each new vertex the error stays below
  * de un pixel. */
 #define LOD_SUBDIV 8
 
 static void gfx_tri_core(struct LoadedVertex *v1, struct LoadedVertex *v2, struct LoadedVertex *v3, int sub, float sub_lodk);
 
-/* ---- Partes poco frecuentes de gfx_tri_core, sacadas a funciones aparte (noinline) ----
- * gfx_tri_core ocupaba ~11.8 KB de codigo (la cache de instrucciones de la PSP es de 16 KB) y el camino normal (triangulo que se
- * dibuja sin recorte, sin LOD ni niebla en 2 pasadas) pasaba por todo ese codigo intercalado con el recorte, la subdivision para el
- * LOD de Peach/Bowser y el estado de las gorras/Boo. Mismo calculo, solo cambia donde esta el codigo. */
+/* ---- Infrequent parts of gfx_tri_core, pulled out into separate functions (noinline) ----
+ * gfx_tri_core took ~11.8 KB of code (the PSP's instruction cache is 16 KB) and the normal path (a triangle that is
+ * drawn without clipping, without LOD or 2-pass fog) went through all that code interleaved with clipping, the subdivision for
+ * Peach/Bowser's LOD and the caps/Boo state. Same calculation, only the place of the code changes. */
 
-/* Recorte por CPU: los vertices recortados van a estas tablas (estaticas: una llamada recursiva de gfx_tri_core solo ocurre despues
- * de que la llamada padre ya termino de usarlas, ver la subdivision del LOD). */
+/* CPU clipping: the clipped vertices go to these tables (static: a recursive call of gfx_tri_core only happens after
+ * the parent call has finished using them, see the LOD subdivision). */
 #if defined(TARGET_PSP) && PSP_SCRATCH
 #define sTriClipVerts ((struct LoadedVertex *) (PSP_SCRATCH_BASE + PSP_SCRATCH_CLIP_OFF))
 #else
@@ -2471,11 +2472,11 @@ static __attribute__((noinline)) size_t gfx_tri_clip_cold(struct LoadedVertex *v
     return n;
 }
 
-/* PSP_F2_REPLAY_MTX: ¿este objeto tiene triangulos dibujados muy cerca del plano near? (ver gfx_psp_replay_prepare) */
+/* PSP_F2_REPLAY_MTX: does this object have triangles drawn very close to the near plane? (see gfx_psp_replay_prepare) */
 static __attribute__((noinline)) void gfx_tri_note_near(const struct LoadedVertex *v1, const struct LoadedVertex *v2,
                                                         const struct LoadedVertex *v3) {
-    /* Solo cuenta si el vertice cercano al near cae ademas dentro (con margen) de la pantalla: un suelo cortado por el near tiene
-     * esos vertices muy por debajo de la camara, fuera de la vista, y no deja huecos ni triangulos sin recortar al moverse. */
+    /* It only counts if the vertex near the near plane also falls inside (with margin) the screen: a floor cut by the near plane has
+     * those vertices well below the camera, out of view, and it leaves no gaps or unclipped triangles when moving. */
     const struct LoadedVertex *tv[3] = { v1, v2, v3 };
     int q;
     for (q = 0; q < 3; q++) {
@@ -2488,11 +2489,11 @@ static __attribute__((noinline)) void gfx_tri_note_near(const struct LoadedVerte
     }
 }
 
-/* Parches con alpha = ENV (gorras, Mario, Boo que se desvanecen): devuelve enva_white (ver gfx_get_vertex_color) */
+/* Patches with alpha = ENV (caps, Mario, Boo fading out): returns enva_white (see gfx_get_vertex_color) */
 static __attribute__((noinline)) bool gfx_tri_enva_cold(const struct ColorCombiner *comb, bool use_alpha, bool use_texture) {
     bool enva_white = false;
     if (use_alpha && comb->env_alpha && !use_texture) {
-        /* pasada de color (SHADEFADEA): recordar el array de vertices */
+        /* color pass (SHADEFADEA): remember the vertex array */
         bool known = false;
         for (int r = 0; r < 8; r++) {
             if (sEnvaVtxRing[r] == sLastVtxSrc) {
@@ -2511,25 +2512,25 @@ static __attribute__((noinline)) bool gfx_tri_enva_cold(const struct ColorCombin
             }
         }
         if (buf_vbo_len == 0) {
-            scegu_enva_modulate = enva_white ? 1 : 0; /* decision por buffer (un buffer = una pasada de un parche) */
+            scegu_enva_modulate = enva_white ? 1 : 0; /* decision per buffer (one buffer = one pass of a patch) */
         }
         enva_white = scegu_enva_modulate != 0;
     }
     return enva_white;
 }
 
-/* LOD exacto de la N64 (cuadro Peach/Bowser): relacion texels/pixel a partir de las derivadas de textura en pantalla
- * (en pixeles N64: 120 px por unidad NDC en Y, y mismo tamano de pixel cuadrado en X).
- * Se calcula una vez por triangulo y se escala por w en cada vertice (en un plano, ratio ~ w).
- * Devuelve true si el triangulo se subdividio y dibujo aqui (gfx_tri_core debe terminar); si no, *lod_out queda para el caso normal. */
+/* Exact N64 LOD (Peach/Bowser frame): texels/pixel ratio from the on-screen texture derivatives
+ * (in N64 pixels: 120 px per NDC unit in Y, and the same square pixel size in X).
+ * It is computed once per triangle and scaled by w at each vertex (on a plane, ratio ~ w).
+ * Returns true if the triangle was subdivided and drawn here (gfx_tri_core must finish); if not, *lod_out is left for the normal case. */
 static __attribute__((noinline)) bool gfx_tri_lod_cold(struct LoadedVertex *v1, struct LoadedVertex *v2, struct LoadedVertex *v3,
                                                         float *lod_out) {
     float lod_k = *lod_out;
     const float w1 = v1->_w, w2 = v2->_w, w3 = v3->_w;
     if (w1 > 0.01f && w2 > 0.01f && w3 > 0.01f) {
-        /* _x ya viene multiplicado por gfx_adjust_x_for_aspect_ratio (= (4/3)/aspect), pero el GE dibuja con la
-         * proyeccion SIN ese ajuste (ya es 16:9 por guPerspective). Pixeles N64 por unidad de _x/_w:
-         * 120 * aspect (pixel cuadrado a escala vertical N64) dividido entre ese factor = 90 * aspect^2. */
+        /* _x already comes multiplied by gfx_adjust_x_for_aspect_ratio (= (4/3)/aspect), but the GE draws with the
+         * projection WITHOUT that adjustment (it is already 16:9 through guPerspective). N64 pixels per unit of _x/_w:
+         * 120 * aspect (square pixel at N64 vertical scale) divided by that factor = 90 * aspect^2. */
         const float aspect = (float)gfx_current_dimensions.width / (float)gfx_current_dimensions.height;
         const float px = 90.0f * aspect * aspect;
         const float py = 120.0f;
@@ -2550,7 +2551,7 @@ static __attribute__((noinline)) bool gfx_tri_lod_cold(struct LoadedVertex *v1, 
         }
     }
     if (lod_k > 0.0f) {
-        /* Subdividir en LOD_SUBDIV^2 triangulos con LOD exacto por vertice */
+        /* Subdivide into LOD_SUBDIV^2 triangles with exact LOD per vertex */
         struct LoadedVertex sv[(LOD_SUBDIV + 1) * (LOD_SUBDIV + 2) / 2];
         int base[LOD_SUBDIV + 1];
         int cnt = 0;
@@ -2592,8 +2593,8 @@ static __attribute__((noinline)) bool gfx_tri_lod_cold(struct LoadedVertex *v1, 
     return false;
 }
 
-/* Descarte previo de un triangulo (todo fuera de pantalla o de espalda). Es la 1a parte de gfx_tri_core, sacada a una funcion en linea:
- * asi el ~70 % de los triangulos que se descartan no pagan la llamada a gfx_tri_core (pila grande, muchos registros guardados). */
+/* Early discard of a triangle (all off screen or back-facing). It is the 1st part of gfx_tri_core, pulled out into an inline function:
+ * this way the ~70 % of triangles that are discarded do not pay for the gfx_tri_core call (big stack, many saved registers). */
 static inline __attribute__((always_inline)) bool gfx_tri_culled(const struct LoadedVertex *v1, const struct LoadedVertex *v2,
                                                                   const struct LoadedVertex *v3) {
     if (v1->clip_rej & v2->clip_rej & v3->clip_rej & CLIP_TEST_FLAGS) {
@@ -2602,10 +2603,10 @@ static inline __attribute__((always_inline)) bool gfx_tri_culled(const struct Lo
     }
     const uint32_t cull_mode = rsp.geometry_mode & G_CULL_BOTH;
     if (cull_mode != 0) {
-        /* Signo del area en pantalla SIN dividir por w. Con dx1 = x1/w1 - x2/w2 etc.:
-         *   cross = (a*b - c*d) / (w1*w3*w2^2), y como w2^2 > 0 el signo es el de (a*b - c*d) por el de w1*w3.
-         * El original ademas invierte el signo si hay un numero impar de w negativas; juntando ambas inversiones
-         * queda solo "invertir si w2 < 0". */
+        /* Sign of the on-screen area WITHOUT dividing by w. With dx1 = x1/w1 - x2/w2 etc.:
+         * cross = (a*b - c*d) / (w1*w3*w2^2), and since w2^2 > 0 the sign is that of (a*b - c*d) times that of w1*w3.
+         * The original also inverts the sign if there is an odd number of negative w; combining both inversions
+         * leaves only "invert if w2 < 0". */
         const float w1 = v1->_w, w2 = v2->_w, w3 = v3->_w;
         const float a = v1->_x * w2 - v2->_x * w1;
         const float b = v3->_y * w2 - v2->_y * w3;
@@ -2615,7 +2616,7 @@ static inline __attribute__((always_inline)) bool gfx_tri_culled(const struct Lo
         if (w2 < 0.0f) {
             cross = -cross;
         }
-        /* Grabando (rejXY > 1): solo se descarta lo claramente de espalda. sin(angulo)^2 = cross^2 / (|e1|^2 |e2|^2); los w se simplifican. */
+        /* Recording (rejXY > 1): only what is clearly back-facing is discarded. sin(angle)^2 = cross^2 / (|e1|^2 |e2|^2); the w's cancel out. */
         const bool keep_edge_on = (sRejXY > 1.0f) && cross != 0.0f &&
                                   (cross * cross <= PSP_REC_CULL_SIN2 * ((a * a + c * c) * (b * b + d * d)));
 
@@ -2634,7 +2635,7 @@ static inline __attribute__((always_inline)) bool gfx_tri_culled(const struct Lo
     return false;
 }
 
-static int sTriPrechecked; /* 1 = gfx_sp_tri1 ya aplico gfx_tri_culled a la proxima llamada de gfx_tri_core */
+static int sTriPrechecked; /* 1 = gfx_sp_tri1 already applied gfx_tri_culled to the next gfx_tri_core call */
 
 
 
@@ -2644,7 +2645,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
         return; /* Profile Sweep */
     }
     if (sProfLogOn && ((++sTriSampleCtr) & 7u) == 0u) {
-        /* muestreo: 1 de cada 8 triangulos se cronometra (sin contar dibujo ni texturas, que ya se miden aparte) */
+        /* sampling: 1 in every 8 triangles is timed (not counting drawing or textures, which are already measured separately) */
         const unsigned int ta = sceKernelGetSystemTimeLow(), d0 = sPcDrawUs, x0 = sPcTexUs;
         gfx_tri_core(&rsp.loaded_vertices[vtx1_idx], &rsp.loaded_vertices[vtx2_idx], &rsp.loaded_vertices[vtx3_idx], 0, 0.0f);
         {
@@ -2669,20 +2670,20 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
             }
             {
                 const unsigned int b5b = B5C();
-                sB5Acc[3] += b5b - b5a; /* descarte de los que se dibujan */
+                sB5Acc[3] += b5b - b5a; /* discard of the ones that are drawn */
                 sTriPrechecked = 1;
                 sB5Mark[1] = sB5Mark[2] = sB5Mark[3] = 0;
                 gfx_tri_core(t1, t2, t3, 0, 0.0f);
                 {
                     const unsigned int b5e = B5C();
                     if (sB5Mark[3]) {
-                        sB5Acc[4] += sB5Mark[1] - b5b;         /* preludio: scissor / recorte */
+                        sB5Acc[4] += sB5Mark[1] - b5b;         /* prelude: scissor / clipping */
                         sB5Acc[5] += sB5Mark[2] - sB5Mark[1];  /* prepare_tri_pipeline_state + enva + lod */
-                        sB5Acc[6] += sB5Mark[3] - sB5Mark[2];  /* bucle de salida (vertices al buffer) */
-                        sB5Acc[7] += b5e - sB5Mark[3];         /* cola (contadores, posible flush) */
+                        sB5Acc[6] += sB5Mark[3] - sB5Mark[2];  /* output loop (vertices to the buffer) */
+                        sB5Acc[7] += b5e - sB5Mark[3];         /* tail (counters, possible flush) */
                         sB5Cnt[3]++;
                     } else {
-                        sB5Acc[8] += b5e - b5b;                /* salida temprana dentro de gfx_tri_core */
+                        sB5Acc[8] += b5e - b5b;                /* early exit inside gfx_tri_core */
                         sB5Cnt[4]++;
                     }
                 }
@@ -2697,24 +2698,24 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
         if (sB5Cull) { sB5Cnt[3]++; return; }
         if (sB5Cap) b5_micro_capture(t1, t2, t3);
 #endif
-        sTriPrechecked = 1; /* gfx_tri_core no repite el descarte (el calculo del area con signo se hacia dos veces por triangulo dibujado) */
+        sTriPrechecked = 1; /* gfx_tri_core does not repeat the discard (the signed area calculation used to be done twice per drawn triangle) */
         gfx_tri_core(t1, t2, t3, 0, 0.0f);
     }
 }
 
-/* Variante de la salida de gfx_tri_core (bits): 1 = modo de niebla / id del shader ya calculados al preparar el estado, 2 = bucle de salida nuevo
- * (carga todo del vertice antes de escribir, un bucle por caso, niebla con enteros), 4 = niebla de los 3 vertices a la vez (con 2). */
+/* Variant of gfx_tri_core's output (bits): 1 = fog mode / shader id already computed when preparing the state, 2 = new output loop
+ * (loads everything from the vertex before writing, one loop per case, fog with integers), 4 = fog of the 3 vertices at once (with 2). */
 #ifndef PSP_TRI_VAR
-#define PSP_TRI_VAR 3 /* medido en la PSP real: ~0,9 ms menos por cuadro en la escena de los jardines; 0 = salida de siempre */
+#define PSP_TRI_VAR 3 /* measured on the real PSP: ~0.9 ms less per frame in the gardens scene; 0 = the usual output */
 #endif
 
-/* Division exacta por 255 de un entero 0..65025 (el resultado de c*inv): (p + 1 + (p >> 8)) >> 8 == p / 255 para todo p en 0..65534. */
+/* Exact division by 255 of an integer 0..65025 (the result of c*inv): (p + 1 + (p >> 8)) >> 8 == p / 255 for all p in 0..65534. */
 static inline __attribute__((always_inline)) unsigned int gfx_div255(unsigned int p) {
     return (p + 1u + (p >> 8)) >> 8;
 }
 
-/* Factor de niebla de un vertice: igual que antes (z/w * mul + offset, limitado a 0..255), pero el limite se hace con enteros. Solo si |f| < 2^29
- * (siempre, salvo vertices con w casi 0): fuera de ese rango la conversion a entero no esta definida y se usa el limite de siempre. */
+/* Fog factor of a vertex: same as before (z/w * mul + offset, limited to 0..255), but the limit is done with integers. Only if |f| < 2^29
+ * (always, except vertices with w almost 0): outside that range the conversion to integer is not defined and the usual limit is used. */
 static inline __attribute__((always_inline)) unsigned int gfx_fog_clamp(float f) {
     int32_t fb;
     __builtin_memcpy(&fb, &f, 4);
@@ -2730,7 +2731,7 @@ static inline __attribute__((always_inline)) unsigned int gfx_fog_clamp(float f)
 static inline __attribute__((always_inline)) unsigned int gfx_fog_fa(float z, float w, float fm, float fo) {
     if (fabsf(w) < 0.001f) w = 0.001f;
     if (__builtin_expect(sFogScaled, 0)) {
-        return gfx_fog_clamp((sFogEffNA + sFogEffB / w) * fm + fo); /* z/w de la proyeccion original (ver sFogScaled) */
+        return gfx_fog_clamp((sFogEffNA + sFogEffB / w) * fm + fo); /* z/w of the original projection (see sFogScaled) */
     }
     return gfx_fog_clamp(z / w * fm + fo);
 }
@@ -2743,8 +2744,8 @@ static inline __attribute__((always_inline)) unsigned int gfx_fog_scale_color(un
     return (col & 0xff000000u) | r | (g << 8) | (b << 16);
 }
 
-/* Salida nueva de los n vertices (n multiplo de 3) del triangulo al buffer: cada vertice se lee entero antes de escribir (las escrituras al buffer
- * no se pueden distinguir de los campos del vertice para el compilador y obligaban a releer), y un bucle por caso. */
+/* New output of the n vertices (n multiple of 3) of the triangle to the buffer: each vertex is read whole before writing (the writes to the buffer
+ * cannot be told apart from the vertex fields by the compiler and forced re-reads), and one loop per case. */
 static inline __attribute__((always_inline)) void gfx_tri_emit_fast(struct LoadedVertex **cv, const size_t n, const bool use_texture,
         const bool shade_only, const int fog_mode, const int var, const struct ColorCombiner *comb, const bool use_alpha, const float lod_k,
         const float su, const float sv, const float bu, const float bv) {
@@ -2783,7 +2784,7 @@ static inline __attribute__((always_inline)) void gfx_tri_emit_fast(struct Loade
                 tu = vx->u * su + bu;
                 tv = vx->v * sv + bv;
             }
-            const struct RGBA c = gfx_get_vertex_color(comb, use_alpha, &vx->color, lod_k * vx->_w, true); /* LOD por vertice */
+            const struct RGBA c = gfx_get_vertex_color(comb, use_alpha, &vx->color, lod_k * vx->_w, true); /* per-vertex LOD */
             out[i].x = x; out[i].y = y; out[i].z = z;
             out[i].u = tu;
             out[i].v = tv;
@@ -2860,14 +2861,14 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
     struct LoadedVertex **clipped_vertices = v_arr;
     size_t clipped_vertices_num = 3;
 
-    /* Scissor del RDP: si el triangulo cruza un borde "interior" del scissor hay que recortarlo */
+    /* RDP scissor: if the triangle crosses an "interior" scissor edge it must be clipped */
     const int sc_np = B5ABL(4) ? 0 : gfx_scissor_planes();
     B5H(6, sc_np > 0);
     bool need_sc = false;
     if (sc_np > 0 && !(v1->clip_rej & v2->clip_rej & v3->clip_rej & SC_IN)) {
         for (int p = 0; p < sc_np && !need_sc; p++) {
-            /* Los planos del scissor son de eje (a*x + d*w  o  b*y + d*w): se calcula solo lo que no es cero. Mismo valor que
-             * vec4_dot con los otros terminos en 0, pero 2 productos por vertice en vez de 4. */
+            /* The scissor planes are axis-aligned (a*x + d*w  or  b*y + d*w): only what is not zero is computed. Same value as
+             * vec4_dot with the other terms at 0, but 2 products per vertex instead of 4. */
             int outside;
             const float *pl = sc_planes[p];
             const float dw = pl[3];
@@ -2879,7 +2880,7 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
                 outside = (b * v1->_y + dw * v1->_w > 0.0f) + (b * v2->_y + dw * v2->_w > 0.0f) + (b * v3->_y + dw * v3->_w > 0.0f);
             }
             if (outside == 3) {
-                return; /* completamente fuera del scissor */
+                return; /* completely outside the scissor */
             }
             if (outside > 0) {
                 need_sc = true;
@@ -2913,7 +2914,7 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
     }
 
     if (PSP_GPU_PROF && gPspGpuProf && !sub) {
-        /* area aproximada en pantalla (solo perfil de GPU): NDC recortado a [-1,1], 480x272 pixeles */
+        /* approximate on-screen area (GPU profile only): NDC clamped to [-1,1], 480x272 pixels */
         const float aw1 = v1->_w, aw2 = v2->_w, aw3 = v3->_w;
         if (aw1 > 0.01f && aw2 > 0.01f && aw3 > 0.01f) {
             const float kx = 1.0f / gfx_aspect_k();
@@ -2941,7 +2942,7 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
     if (rendering_state.decal_mode && !sub) {
         const int bias = gfx_decal_bias(v1, v2, v3);
         if (bias != sDecalBias) {
-            gfx_flush(); /* lo acumulado se dibuja con el desplazamiento anterior */
+            gfx_flush(); /* what has accumulated is drawn with the previous offset */
             gfx_scegu_set_decal_bias(bias);
             sDecalBias = bias;
         }
@@ -2973,8 +2974,8 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
         }
     }
 
-    /* Caso mas comun (geometria del nivel, la mayoria de objetos): el color de salida es el de shade tal cual, y no hace falta
-     * pasar por el switch de gfx_get_vertex_color por cada vertice. */
+    /* Most common case (level geometry, most objects): the output color is the shade color as is, and there is no need to
+     * go through gfx_get_vertex_color's switch for each vertex. */
     const bool shade_only = !sEnvaWhite && comb->vertex_color_source[0] == CC_SHADE &&
                             (!use_alpha || comb->vertex_color_source[1] == CC_SHADE);
     if (__builtin_expect(sSweepMode >= 3, 0)) {
@@ -3019,18 +3020,18 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
         } else if (shade_only) {
             out->color = vertex->color;
         } else {
-            out->color = gfx_get_vertex_color(comb, use_alpha, &vertex->color, lod_k * vertex->_w, true); /* LOD por vertice */
+            out->color = gfx_get_vertex_color(comb, use_alpha, &vertex->color, lod_k * vertex->_w, true); /* per-vertex LOD */
         }
 
         if (fog_mode && !B5ABL(0)) {
-            /* Igual que la N64 / sm64ex: factor = (z/w) * fog_mul + fog_offset, limitado a 0..255. */
+            /* Same as the N64 / sm64ex: factor = (z/w) * fog_mul + fog_offset, limited to 0..255. */
             float fw = vertex->_w;
             if (fabsf(fw) < 0.001f) fw = 0.001f;
             float fz = (sFogScaled ? (sFogEffNA + sFogEffB / fw) : (vertex->_z / fw)) * (float)rsp.fog_mul + (float)rsp.fog_offset;
             unsigned char fa = (fz <= 0.0f) ? 0 : ((fz >= 255.0f) ? 255 : (unsigned char)fz);
             scegu_fog_alpha[buf_num_vert] = fa;
             if (fog_mode == 3) {
-                /* translucido: el color sale como C*(1-F); la niebla se suma luego en la 2da pasada */
+                /* translucent: the color comes out as C*(1-F); the fog is added later in the 2nd pass */
                 const unsigned int inv = 255u - fa;
                 out->color.r = (unsigned char)((out->color.r * inv) / 255u);
                 out->color.g = (unsigned char)((out->color.g * inv) / 255u);
@@ -3038,9 +3039,9 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
             }
         }
 
-        /* (Antes aqui habia un parche "Blue Star color" que copiaba el color del 1er vertice a todos y ponia el alpha de env:
-         * dejaba planos a las estrellas azules y al Boo (shader SHADEFADEA). Ya no hace falta: gfx_get_vertex_color
-         * toma RGB de shade y alpha de env por separado.) */
+        /* (Before there was a "Blue Star color" patch here that copied the color of the 1st vertex to all of them and set the env alpha:
+         * it left the blue stars and the Boo (SHADEFADEA shader) flat. It is no longer needed: gfx_get_vertex_color
+         * takes RGB from shade and alpha from env separately.) */
         if (shader_program_id == 0x01A00045) {
             /* Matches the old code, which only updated the temporary pointer after the copy. */
         }
@@ -3057,7 +3058,7 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
 }
 
 #if PSP_DEVBENCH == 5
-/* Diagnostico: una copia de gfx_tri_core por variante, se elige en tiempo de ejecucion (la medida compara la misma lista con cada una). */
+/* Diagnostic: one copy of gfx_tri_core per variant, chosen at run time (the measurement compares the same list with each one). */
 static int sTriVarSel;
 static __attribute__((noinline)) void gfx_tri_core_v0(struct LoadedVertex *a, struct LoadedVertex *b, struct LoadedVertex *c, int sub, float k) { gfx_tri_core_body(a, b, c, sub, k, 0); }
 static __attribute__((noinline)) void gfx_tri_core_v1(struct LoadedVertex *a, struct LoadedVertex *b, struct LoadedVertex *c, int sub, float k) { gfx_tri_core_body(a, b, c, sub, k, 1); }
@@ -3131,9 +3132,9 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, UNUSED uint8_t vt
     gfx_scegu_draw_triangles_2d((float*)&tri_buf[0],0,1);
 }
 
-/* Rectangulo de textura con G_TEXRECTFLIP (la fuente de la version EU lo usa en cada letra): en la RDP las coordenadas de textura van
- * transpuestas (s avanza con y, t con x). Un "sprite" de la PSP no puede transponer, asi que se dibuja como tira de 4 vertices:
- * 0=arriba-izq (s0,t0) 1=arriba-der (s0,t1) 2=abajo-izq (s1,t0) 3=abajo-der (s1,t1). Solo lo usa EU; las demas versiones no pasan por aqui. */
+/* Texture rectangle with G_TEXRECTFLIP (the EU version's font uses it on every letter): on the RDP the texture coordinates are
+ * transposed (s advances with y, t with x). A PSP "sprite" cannot transpose, so it is drawn as a 4-vertex strip:
+ * 0=top-left (s0,t0) 1=top-right (s0,t1) 2=bottom-left (s1,t0) 3=bottom-right (s1,t1). Only EU uses it; the other versions do not go through here. */
 static void gfx_sp_quad_flip_2d(void) {
     struct VertexColor *ul = &rsp.loaded_vertices_2D[0];
     struct VertexColor *lr = &rsp.loaded_vertices_2D[1];
@@ -3267,10 +3268,10 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     float height = (lry - uly) / 4.0f * RATIO_Y;
 #if defined(TARGET_PSP)
     {
-        /* Los campos del scissor son enteros: truncar "y" y "height" por separado movia el borde superior
-         * hasta ~2 px N64 (se comia la parte de arriba de la 1a linea de los cuadros de dialogo). Se redondea
-         * cada borde hacia afuera (izq/arriba hacia abajo, der/abajo hacia arriba); el recorte exacto de
-         * triangulos y rectangulos ya lo hace el software. */
+        /* The scissor fields are integers: truncating "y" and "height" separately moved the top edge
+         * by up to ~2 N64 px (the top of the 1st line of dialog boxes got eaten). Each edge is rounded
+         * outwards (left/top down, right/bottom up); the exact clipping of
+         * triangles and rectangles is already done by the software. */
         const float cur_w = (float) gfx_current_dimensions.width;
         const float cur_h = (float) gfx_current_dimensions.height;
         float fl = ulx / 4.0f * RATIO_X, fr = lrx / 4.0f * RATIO_X;
@@ -3480,10 +3481,10 @@ static void gfx_dp_set_fog_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     rdp.fog_color.b = b;
     rdp.fog_color.a = a;
 
-    /* La niebla la dibuja el GE de la PSP (sceGuFog): hay que pasarle el color en ABGR. */
+    /* The fog is drawn by the PSP's GE (sceGuFog): the color must be passed in ABGR. */
     const unsigned int new_fog = 0xFF000000u | ((unsigned int)b << 16) | ((unsigned int)g << 8) | (unsigned int)r;
     if (new_fog != scegu_fog_color) {
-        gfx_flush(); /* lo ya acumulado se dibuja con el color anterior */
+        gfx_flush(); /* what has already accumulated is drawn with the previous color */
         scegu_fog_color = new_fog;
     }
 }
@@ -3509,10 +3510,10 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
         gfx_mark_tri_pipeline_dirty();
     }
     
-    /* Recorte exacto contra el scissor del RDP en unidades N64 (U10.2). Se aplica a
-       los rectangulos (texto de dialogos, etc.) porque en PSP el scissor por hardware
-       no los recorta. Los bordes del scissor que estan a <=4 px del borde de pantalla
-       se ignoran (scissor de pantalla completa / margen de 2 px del juego). */
+    /* Exact clipping against the RDP scissor in N64 units (U10.2). It is applied to
+        rectangles (dialog text, etc.) because on the PSP the hardware scissor
+        does not clip them. Scissor edges that are <=4 px from the screen edge
+        are ignored (full-screen scissor / the game's 2 px margin). */
     if (rdp.sc_valid && lrx > ulx && lry > uly) {
         const int32_t m = 16; /* 4 px */
         int32_t cx0 = ulx, cy0 = uly, cx1 = lrx, cy1 = lry;
@@ -3526,7 +3527,7 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
                     rdp.other_mode_h = saved_other_mode_h;
                     gfx_mark_tri_pipeline_dirty();
                 }
-                return; /* completamente fuera del scissor */
+                return; /* completely outside the scissor */
             }
             struct VertexColor *cul = &rsp.loaded_vertices_2D[0];
             struct VertexColor *clr = &rsp.loaded_vertices_2D[1];
@@ -3538,7 +3539,7 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
                 clr->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cx1 - ulx) / w));
                 cul->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cy0 - uly) / h));
                 clr->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cy1 - uly) / h));
-            } else { /* transpuesto: s avanza con y, t con x */
+            } else { /* transposed: s advances with y, t with x */
                 cul->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cy0 - uly) / h));
                 clr->u = (unsigned short)(short)(u0 + (u1 - u0) * ((float)(cy1 - uly) / h));
                 cul->v = (unsigned short)(short)(v0 + (v1 - v0) * ((float)(cx0 - ulx) / w));
@@ -3562,8 +3563,11 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     ulxf = gfx_adjust_x_for_aspect_ratio(ulxf);
     lrxf = gfx_adjust_x_for_aspect_ratio(lrxf);
 
-    ulxf = (ulxf*240)+240;
-    lrxf = (lrxf*240)+240;
+    { /* half of the REAL width of the frame (480 normal; 362 with the TV's 4:3 view): x = NDC * W/2 + W/2 */
+        const float halfw = (float)gfx_current_dimensions.width * 0.5f;
+        ulxf = (ulxf*halfw)+halfw;
+        lrxf = (lrxf*halfw)+halfw;
+    }
 
     ulyf = (ulyf*136)+136;
     lryf = (lryf*136)+136;
@@ -3710,17 +3714,17 @@ static inline void *seg_addr(uintptr_t w1) {
     return (void *) w1;
 }
 
-/* ---- PSP_F2_REPLAY_MTX (etapa 2): anotar donde quedo la matriz de cada objeto en la lista del GE ----
- * El juego deja en gMtxTbl una entrada por objeto: la posicion del comando G_MTX en la lista de dibujo (que lleva la matriz INTERPOLADA)
- * y la matriz real. Al interpretar ese G_MTX (cuadro 1, solo cuando se graba) se anota en que desplazamiento de la lista del GE
- * quedaron las 13 palabras de sceGuSetMatrix(GU_MODEL) y la traslacion de la matriz interpolada. El 2o cuadro (gfx_psp_replay_prepare)
- * reescribe esas 12 palabras con la matriz real. */
+/* ---- PSP_F2_REPLAY_MTX (stage 2): note where each object's matrix ended up in the GE list ----
+ * The game leaves in gMtxTbl one entry per object: the position of the G_MTX command in the draw list (which carries the INTERPOLATED matrix)
+ * and the real matrix. When interpreting that G_MTX (frame 1, only when recording) it notes at which offset of the GE list the
+ * 13 words of sceGuSetMatrix(GU_MODEL) ended up and the translation of the interpolated matrix. The 2nd frame (gfx_psp_replay_prepare)
+ * rewrites those 12 words with the real matrix. */
 #if !defined(GBI_FLOATS)
 #undef PSP_F2_REPLAY_MTX
 #define PSP_F2_REPLAY_MTX 0
 #endif
 #if PSP_F2_REPLAY && PSP_F2_REPLAY_MTX
-#define REC_MTX_MAX 1024 /* mas objetos que esto en un cuadro (gMtxTbl[] admite 6400) -> ese tick no se repite */
+#define REC_MTX_MAX 1024 /* more objects than this in a frame (gMtxTbl[] allows 6400) -> that tick is not replayed */
 extern int psp_mtx_tbl_count(void);
 extern Gfx *psp_mtx_tbl_pos(int i);
 extern const float *psp_mtx_tbl_mtx(int i);
@@ -3728,18 +3732,18 @@ extern float psp_persp_near(void);
 extern unsigned int gfx_scegu_list_pos(void);
 extern int gfx_scegu_mtx_block_ok(unsigned int off, int full, const float *m);
 extern void gfx_scegu_write_model(unsigned int off, const float *m);
-static Gfx *sRecPos[REC_MTX_MAX];          /* comando G_MTX de cada entrada (copia de gMtxTbl[i].pos) */
-static unsigned int sRecOff[REC_MTX_MAX];  /* desplazamiento en la lista del GE del bloque de matriz (0 = no se emitio) */
-typedef char sRecNearSizeCheck[(REC_MTX_MAX == 1024) ? 1 : -1]; /* sRecNear[] mide 1024 (declarado antes, junto a sRejXY) */
-static float sRecM[REC_MTX_MAX][12];       /* 3x3 y traslacion de la matriz que llevo el cuadro 1: m[0..2], m[4..6], m[8..10], m[12..14] */
-static int sRecCount;                      /* entradas de la tabla al grabar */
+static Gfx *sRecPos[REC_MTX_MAX];          /* G_MTX command of each entry (copy of gMtxTbl[i].pos) */
+static unsigned int sRecOff[REC_MTX_MAX];  /* offset in the GE list of the matrix block (0 = not emitted) */
+typedef char sRecNearSizeCheck[(REC_MTX_MAX == 1024) ? 1 : -1]; /* sRecNear[] is 1024 long (declared earlier, next to sRejXY) */
+static float sRecM[REC_MTX_MAX][12];       /* 3x3 and translation of the matrix that frame 1 carried: m[0..2], m[4..6], m[8..10], m[12..14] */
+static int sRecCount;                      /* table entries when recording */
 static int sRecCursor;
 static int sRecMatched;
-static int sRecWhy;                        /* primer motivo de sRecBad: 0 sin grabar, 1 demasiadas, 2 MUL anidada, 3 bloque raro, 4 sin emparejar */
-static int sRecBad;                        /* un bloque no tenia la forma esperada: no se parchea este tick */
-static int sRecMtxOn;                      /* 1 mientras se graba */
-static int sRecMtxValid;                   /* la anotacion de este tick sirve */
-static int sRecFull;                       /* verificaciones completas hechas (la 1a matriz de cada grabacion) */
+static int sRecWhy;                        /* first reason for sRecBad: 0 not recording, 1 too many, 2 nested MUL, 3 odd block, 4 unmatched */
+static int sRecBad;                        /* a block did not have the expected shape: this tick is not patched */
+static int sRecMtxOn;                      /* 1 while recording */
+static int sRecMtxValid;                   /* this tick's annotation is usable */
+static int sRecFull;                       /* full verifications done (the 1st matrix of each recording) */
 
 static void gfx_rec_mtx_begin(void) {
     int i, n = psp_mtx_tbl_count();
@@ -3766,7 +3770,7 @@ static void gfx_rec_mtx_begin(void) {
         sRecOff[i] = 0;
         sRecNear[i] = 0;
     }
-    sRecNearBand = psp_persp_near() * 1.4f; /* "cerca del near" = a menos de 0.4*near mas alla del plano */
+    sRecNearBand = psp_persp_near() * 1.4f; /* "close to the near" = within 0.4*near beyond the plane */
     sRecMtxOn = 1;
 }
 
@@ -3786,12 +3790,12 @@ static int gfx_rec_mtx_find(const Gfx *cmd) {
     return -1;
 }
 
-/* Justo despues de gfx_sp_matrix de un G_MTX; off = posicion de la lista del GE antes de interpretarlo. */
+/* Right after gfx_sp_matrix of a G_MTX; off = position of the GE list before interpreting it. */
 static void gfx_rec_mtx_done(const Gfx *cmd, unsigned int off, const float *m, unsigned int params) {
     const int i = gfx_rec_mtx_find(cmd);
     if (i < 0) {
-        /* No es una matriz de objeto de la tabla. Una de proyeccion o una cargada (LOAD) corta la cadena de objetos (HUD, menus...); una
-         * multiplicada (MUL) dentro de un objeto saldria en la lista ya compuesta con la matriz del 1er cuadro y no se podria parchear. */
+        /* It is not an object matrix from the table. A projection or a loaded one (LOAD) cuts the object chain (HUD, menus...); one
+         * multiplied (MUL) inside an object would come out in the list already composed with the 1st frame's matrix and could not be patched. */
         if ((params & G_MTX_PROJECTION) != 0 || (params & G_MTX_LOAD) != 0) {
             sRecCur = -1;
         } else if (sRecCur >= 0) {
@@ -3815,10 +3819,10 @@ static void gfx_rec_mtx_done(const Gfx *cmd, unsigned int off, const float *m, u
     sRecMatched++;
 }
 
-/* Cuanto se mueve (en unidades de vista) el punto del objeto que en el cuadro 1 estaba en q0 = (0, 0, -near) -- justo en el plano near,
- * que es donde la CPU recorto la geometria del cuadro 1 -- al pasar de la matriz del cuadro 1 (a1, guardada al grabar) a la real (m2).
- * Es la distancia al cuadrado. Una camara que solo gira, o un objeto quieto, da ~0 aunque su traslacion cambie mucho. Una matriz
- * degenerada (det ~ 0, no dibuja nada) da 0. Los NaN dan un valor que no pasa la comprobacion. */
+/* How much the object's point that in frame 1 was at q0 = (0, 0, -near) moves (in view units) -- right on the near plane,
+ * which is where the CPU clipped the geometry of frame 1 -- going from frame 1's matrix (a1, saved when recording) to the real one (m2).
+ * It is the squared distance. A camera that only rotates, or a still object, gives ~0 even if its translation changes a lot. A degenerate
+ * matrix (det ~ 0, draws nothing) gives 0. NaNs give a value that does not pass the check. */
 static float gfx_rec_mtx_disp2(const float *a1, const float *m2, float near_z) {
     const float vx = -a1[9], vy = -a1[10], vz = -near_z - a1[11];
     const float r0x = a1[0], r0y = a1[1], r0z = a1[2];
@@ -3835,7 +3839,7 @@ static float gfx_rec_mtx_disp2(const float *a1, const float *m2, float near_z) {
     }
     {
         const float id = 1.0f / det;
-        w0 = (vx * c12x + vy * c12y + vz * c12z) * id; /* w * A1 = v  ->  w = coordenadas locales del punto */
+        w0 = (vx * c12x + vy * c12y + vz * c12z) * id; /* w * A1 = v  ->  w = local coordinates of the point */
         w1 = (vx * c20x + vy * c20y + vz * c20z) * id;
         w2 = (vx * c01x + vy * c01y + vz * c01z) * id;
     }
@@ -3865,7 +3869,7 @@ static void gfx_run_dl(Gfx* cmd) {
 #if PSP_DEVBENCH == 5
         sB5NCmd++;
         if (__builtin_expect(sB5Abl & 0x1F00, 0)) {
-            /* Diagnostico: se salta un grupo de comandos (el coste incluye lo que ese grupo provoca despues) */
+            /* Diagnostic: a group of commands is skipped (the cost includes what that group causes afterwards) */
             int b5skip = 0;
             switch (opcode) {
                 case G_MTX: case (uint8_t)G_POPMTX: b5skip = B5ABL(8); break;
@@ -3899,7 +3903,7 @@ static void gfx_run_dl(Gfx* cmd) {
             // RSP commands:
             case G_MTX:
 #if PSP_EYE_SPACE
-                /* una matriz de modelo/vista ya no cambia nada del GE: el lote sigue (solo la proyeccion vacia) */
+                /* a model/view matrix no longer changes anything on the GE: the batch continues (only the projection flushes) */
 #ifdef F3DEX_GBI_2
                 if (!sEyeOn || ((C0(0, 8) ^ G_MTX_PUSH) & G_MTX_PROJECTION)) {
                     gfx_flush();
@@ -3997,8 +4001,8 @@ static void gfx_run_dl(Gfx* cmd) {
 #if defined(F3DEX_GBI) || defined(F3DLP_GBI)
             case (uint8_t)G_TRI2:
 #endif
-                /* Los triangulos vienen casi siempre en tandas seguidas (G_TRI2 / G_TRI1): se despachan aqui mismo, sin volver al switch
-                 * (salto indirecto por la tabla) por cada comando. El orden y lo que se hace con cada triangulo es exactamente el de antes. */
+                /* Triangles almost always come in consecutive runs (G_TRI2 / G_TRI1): they are dispatched right here, without going back to the switch
+                 * (indirect jump through the table) for every command. The order and what is done with each triangle is exactly as before. */
                 for (;;) {
 #if defined(F3DEX_GBI) || defined(F3DLP_GBI)
                     if (opcode == (uint8_t)G_TRI2) {
@@ -4182,7 +4186,7 @@ void gfx_init(struct GfxWindowManagerAPI *wapi, struct GfxRenderingAPI *rapi, co
     gfx_wapi->init(game_name, start_in_fullscreen);
     gfx_rapi->init();
 #if defined(TARGET_PSP) && PSP_SCRATCH
-    memset((void *) PSP_SCRATCH_BASE, 0, 0x4000); /* el scratchpad no viene en cero como la BSS */
+    memset((void *) PSP_SCRATCH_BASE, 0, 0x4000); /* the scratchpad does not come zeroed like the BSS */
 #endif
     rendering_state.color_combiner_valid = false;
     rendering_state.tri_pipeline_dirty = true;
@@ -4247,52 +4251,52 @@ struct GfxRenderingAPI *gfx_get_current_rendering_api(void) {
 
 unsigned int total_t0, total_t1;
 
-/* Perfil de tiempos por tick (microsegundos, promedio de 30 ticks en decimas de ms para mostrarlo con enteros):
- * gPspProf[0]=LOG logica+grafo de objetos, [1]=GFX emulacion de la lista (CPU), [2]=GE espera del GPU,
- * [3]=SLP espera de sincronizacion (holgura), [4]=MAX tick de trabajo mas largo (sin espera) en la ventana. */
+/* Per-tick timing profile (microseconds, average of 30 ticks in tenths of ms so it can be shown with integers):
+ * gPspProf[0]=LOG logic+object graph, [1]=GFX list emulation (CPU), [2]=GE wait for the GPU,
+ * [3]=SLP sync wait (slack), [4]=MAX longest work tick (without waiting) in the window. */
 int gPspProf[5];
 extern int gPspOptFpsCap, gPspOptKeepSpeed, gPspClockWant, gPspOptCullObj;
 extern float gPspObjDistScale, gPspFarScale; /* game/psp_options.c */
 extern int psp_objects_free(void);              /* game/spawn_object.c */
 extern int gPspFreeMin;                         /* game/spawn_object.c */
 extern unsigned int gPspKicks, gPspRawDraws;   /* gfx_scegu.c */
-extern unsigned int gPspWbCalls;                 /* gfx_scegu.c: vaciados de cache de la arena de vertices */
+extern unsigned int gPspWbCalls;                 /* gfx_scegu.c: vertex arena cache flushes */
 extern unsigned int gPspOptChanges;
 extern int gPspOptPipe;                                  /* game/psp_options.c */
 extern unsigned int gPspGateUs, gPspGateN, gPspQMax;     /* gfx_scegu.c: Triple Buffer */
 extern int gPspPipeBroken;
-unsigned int gPspPresented; /* cuadros presentados (lo lee el contador de FPS de game_init.c) */
+unsigned int gPspPresented; /* frames presented (read by game_init.c's FPS counter) */
 static unsigned int sProfGfx, sProfSleep, sProfAccGfx, sProfAccGe, sProfAccSleep, sProfAccWork, sProfMax, sProfTicks;
 static unsigned int sProfGe;
 extern unsigned int gPspProfSync, gPspProfVblank; /* gfx_scegu.c */
-int gPspProfX[2]; /* [0]=SYNC espera al GPU, [1]=VBL espera al vblank (decimas de ms) */
+int gPspProfX[2]; /* [0]=SYNC waits for the GPU, [1]=VBL waits for the vblank (tenths of ms) */
 static unsigned int sProfSyncCur, sProfVblCur, sProfAccSync, sProfAccVbl;
 
-/* Registro de tiempos en archivo (ms0:/sm64_profile.txt). Se activa SOLO mientras el contador de FPS del juego esta
- * en pantalla (L+R): al mostrarlo empieza el registro y al ocultarlo se cierra y se guarda. Todo vive aqui para no leer variables desde otros archivos ni dibujar texto.
- * Una linea cada 30 ticks: N=numero de ventana, LV=nivel, AR=area, WALL=ms reales de la ventana (1000 = 30 ticks/s),
- * DROP=ticks sin dibujar, LOG/GFX/GE/SLP/MAX en decimas de ms (promedio de 30 ticks; MAX = tick mas largo). */
+/* Timing log to file (ms0:/sm64_profile.txt). It is activated ONLY while the game's FPS counter is
+ * on screen (L+R): showing it starts the log and hiding it closes and saves it. Everything lives here so as not to read variables from other files or draw text.
+ * One line every 30 ticks: N=window number, LV=level, AR=area, WALL=real ms of the window (1000 = 30 ticks/s),
+ * DROP=ticks without drawing, LOG/GFX/GE/SLP/MAX in tenths of ms (average of 30 ticks; MAX = longest tick). */
 #include <pspctrl.h>
 #include <pspiofilemgr.h>
 extern short gCurrLevelNum;
 extern short gCurrAreaIndex;
 static char sProfLogBuf[16384];
-unsigned int gPspLp[32]; /* perfil de la logica: ver pc/psp_lprof.h */
+unsigned int gPspLp[32]; /* logic profile: see pc/psp_lprof.h */
 unsigned int gPspLc[16];
 static unsigned int sProfLate, sProfLateLog, sProfLateEmit, sProfLateSync;
-static unsigned int sProfAcc2[8]; /* desglose por clase de triangulo (ver sTriClass) */
+static unsigned int sProfAcc2[8]; /* breakdown by triangle class (see sTriClass) */
 static unsigned int sProfAcc3[4];
-static unsigned int sProfAccTx[2]; /* TXS / TXE por ventana */
-static unsigned int sProfBenchUc, sProfBenchCw; /* us por 1024 palabras escritas sin cache / con cache (+ vaciado) */
-static unsigned int sProfAcc[16], sProfFrames, sProfListMax, sProfBenchGm, sProfBenchClk, sProfBenchCpu; /* contadores por ventana (ver sPc*) */
+static unsigned int sProfAccTx[2]; /* TXS / TXE per window */
+static unsigned int sProfBenchUc, sProfBenchCw; /* us per 1024 words written uncached / cached (+ flush) */
+static unsigned int sProfAcc[16], sProfFrames, sProfListMax, sProfBenchGm, sProfBenchClk, sProfBenchCpu; /* per-window counters (see sPc*) */
 static int sProfLogLen = 0;
 int sProfLogOn = 0;
-/* Perfil de GPU (atajo Triangulo + L, solo con el registro ON): cada llamada de dibujo se serializa con el GE y se mide cuanto
- * tarda el GPU en ella (gfx_scegu.c), por tipo de pasada. Va MUY lento (decenas de ms por cuadro): solo para medir. */
+/* GPU profile (Triangle + L shortcut, only with the log ON): each draw call is serialized with the GE and the time the
+ * GPU takes on it is measured (gfx_scegu.c), per pass type. It runs VERY slowly (tens of ms per frame): for measuring only. */
 int gPspGpuProf = 0;
-float gPcAreaAcc = 0.0f; /* area en pixeles (aprox.) de los triangulos acumulados desde la ultima llamada de dibujo */
+float gPcAreaAcc = 0.0f; /* area in pixels (approx.) of the triangles accumulated since the last draw call */
 extern unsigned int gGpuUs[], gGpuTris[], gGpuPx[], gGpuCalls[];
-static int sProfGpuWin = 0;   /* 1 si el perfil de GPU estuvo activo en la ventana */
+static int sProfGpuWin = 0;   /* 1 if the GPU profile was active in the window */
 #if PSP_GPU_PROF
 static int sProfGpuPrevCombo = 0;
 #endif
@@ -4300,9 +4304,9 @@ static unsigned int sProfLogWindows = 0;
 static unsigned int sProfDroppedWin = 0;
 static unsigned int sProfLastWall = 0;
 static unsigned int sProfSixty = 0;
-/* diagnostico del controlador de 60 fps (por ventana): ticks, suma de A, ticks sobre presupuesto, suma de pre / e / s, cuadros asincronos */
-/* La presentacion asincrona solo compensa si hay cola de GE que solapar con la logica (JRB: agua/niebla, cola ~4 ms). En escenas
- * limitadas por CPU (TTM, cola ~0) solo anade cambios de hilo, asi que se activa con histeresis segun la cola media medida. */
+/* 60 fps controller diagnostic (per window): ticks, sum of A, ticks over budget, sum of pre / e / s, async frames */
+/* Async presentation only pays off if there is GE queue to overlap with the logic (JRB: water/fog, queue ~4 ms). In
+ * CPU-bound scenes (TTM, queue ~0) it only adds thread switches, so it is activated with hysteresis according to the measured average queue. */
 int gPspAsyncWant = PSP_ASYNC_PRESENT;
 static unsigned int sTailEma = 3000, sTailSum, sTailN;
 #define PSP_ASYNC_ON_US 2000U
@@ -4337,12 +4341,12 @@ static void prof_put_num(const char *label, int v) {
     }
 }
 
-int gPspLogStatus = 0;           /* 0 apagado, 1 escribiendo bien, 2 el ultimo intento de escribir fallo (lo muestra el contador de FPS) */
-extern int gPspFpsCounterOn;     /* game_init.c: 1 mientras el contador de FPS se dibuja */
-static unsigned int sProfLostW;  /* ventanas que no cupieron en el buffer porque no se pudo escribir */
+int gPspLogStatus = 0;           /* 0 off, 1 writing fine, 2 the last write attempt failed (shown by the FPS counter) */
+extern int gPspFpsCounterOn;     /* game_init.c: 1 while the FPS counter is drawn */
+static unsigned int sProfLostW;  /* windows that did not fit in the buffer because writing was not possible */
 
-/* Escribe el buffer en la tarjeta. Si algo falla (tarjeta ocupada, escritura corta...) el buffer se CONSERVA y se reintenta en la
- * proxima llamada, en vez de descartar el registro como antes (sin avisar). */
+/* Writes the buffer to the card. If something fails (card busy, short write...) the buffer is KEPT and retried on the
+ * next call, instead of discarding the log as before (silently). */
 static void prof_log_flush(void) {
     if (sProfLogLen > 0) {
         int ok = 0;
@@ -4361,9 +4365,9 @@ static void prof_log_flush(void) {
     }
 }
 
-/* Se llama una vez por cuadro: el registro sigue al contador de FPS del juego (L+R) */
+/* Called once per frame: the log follows the game's FPS counter (L+R) */
 #ifndef PSP_PROFILE_LOG
-#define PSP_PROFILE_LOG 0 /* 1 = permite escribir ms0:/sm64_profile.txt con el contador de FPS (solo para medir); 0 = version final, nunca escribe ni cronometra */
+#define PSP_PROFILE_LOG 0 /* 1 = allows writing ms0:/sm64_profile.txt with the FPS counter (for measuring only); 0 = final version, never writes or times */
 #endif
 static void prof_log_poll(void) {
     const int want = PSP_PROFILE_LOG ? gPspFpsCounterOn : 0;
@@ -4375,7 +4379,7 @@ static void prof_log_poll(void) {
         sProfLostW = 0;
         sProfLastWall = sceKernelGetSystemTimeLow();
         prof_put_str("--- registro ON ---\r\n");
-        /* firma del build: sirve para comparar logs entre compilaciones (compilador, optimizacion, opciones de este archivo) */
+        /* build signature: used to compare logs between builds (compiler, optimization, options of this file) */
         prof_put_str("BUILD " __DATE__ " " __TIME__ " gcc " __VERSION__
 #ifdef __OPTIMIZE__
                      " OPT"
@@ -4391,31 +4395,31 @@ static void prof_log_poll(void) {
 #endif
                      "\r\n");
 #if PSP_EYE2_VFPU
-        prof_put_num("EYE2 ", gPspEye2Ok); /* 1 = kernel VFPU de 2 vertices comprobado y en uso, 0 = fallo la prueba (se usa el de siempre), -1 = aun sin probar */
+        prof_put_num("EYE2 ", gPspEye2Ok); /* 1 = 2-vertex VFPU kernel checked and in use, 0 = the test failed (the usual one is used), -1 = not tested yet */
         prof_put_str("\r\n");
 #endif
         {
             extern int psp_me_debug(int which);
             prof_put_str("ME");
-            prof_put_num(" BOOT ", psp_me_debug(0));  /* meLibDefaultInit: <0 = el Media Engine no arranco */
-            prof_put_num(" INIT ", psp_me_debug(1));  /* 1 = el audio se sintetiza en el ME */
+            prof_put_num(" BOOT ", psp_me_debug(0));  /* meLibDefaultInit: <0 = the Media Engine did not start */
+            prof_put_num(" INIT ", psp_me_debug(1));  /* 1 = audio is synthesized on the ME */
             prof_put_num(" PROG ", psp_me_debug(2));
             prof_put_num(" STATE ", psp_me_debug(3));
-            prof_put_num(" BTRY ", psp_me_debug(4)); /* 1 = un intento, 3 = hubo que reintentar desde la carpeta de partidas */
+            prof_put_num(" BTRY ", psp_me_debug(4)); /* 1 = one attempt, 3 = it had to be retried from the savedata folder */
             prof_put_str("\r\n");
         }
-        prof_log_flush(); /* la cabecera queda guardada desde el primer momento */
+        prof_log_flush(); /* the header is saved from the very first moment */
     } else if (!want && sProfLogOn) {
         sProfLogOn = 0;
         prof_put_str("--- registro OFF ---\r\n");
         prof_log_flush();
-        if (sProfLogLen > 0) prof_log_flush(); /* un segundo intento si el primero fallo */
+        if (sProfLogLen > 0) prof_log_flush(); /* a second attempt if the first failed */
         gPspLogStatus = 0;
         gPspGpuProf = 0;
     }
 #if PSP_GPU_PROF
-    /* Perfil de GPU (Triangulo + L, solo con el registro activo). Solo se compila con PSP_GPU_PROF 1: asi no se lee el pad en
-     * cada cuadro cuando no hace falta. */
+    /* GPU profile (Triangle + L, only with the log active). Only compiled with PSP_GPU_PROF 1: this way the pad is not read on
+     * every frame when it is not needed. */
     {
         SceCtrlData pad;
         int gcombo;
@@ -4431,12 +4435,12 @@ static void prof_log_poll(void) {
 #endif
 }
 
-/* Se llama al cerrar cada ventana de 30 ticks, con gPspProf ya calculado */
+/* Called when closing each 30-tick window, with gPspProf already computed */
 static void prof_log_window(void) {
     const unsigned int now = sceKernelGetSystemTimeLow();
     if (sProfLogOn) {
         if (sProfLogLen >= (int) sizeof(sProfLogBuf) - 1500) {
-            prof_log_flush(); /* buffer casi lleno: intentar vaciarlo antes de perder la ventana */
+            prof_log_flush(); /* buffer almost full: try to flush it before losing the window */
         }
         if (sProfLogLen < (int) sizeof(sProfLogBuf) - 1500) {
             if (sProfLostW) {
@@ -4459,10 +4463,10 @@ static void prof_log_window(void) {
             prof_put_num(" SLP ", gPspProf[3]);
             prof_put_num(" MAX ", gPspProf[4]);
             {
-                /* promedios por cuadro dibujado de la ventana: TRI triangulos, VTX vertices, DRW llamadas de dibujo al GE,
-                 * MTX matrices, CLP triangulos recortados por la CPU; TXM texturas importadas (suma de la ventana),
-                 * TXC veces que se vacio la VRAM de texturas; TXMS ms en importar texturas, DRWMS ms dentro de las llamadas
-                 * de dibujo al GE (CPU), ambos por ventana en decimas de ms; LST KB de lista de comandos del GE (maximo). */
+                /* averages per drawn frame of the window: TRI triangles, VTX vertices, DRW draw calls to the GE,
+                 * MTX matrices, CLP triangles clipped by the CPU; TXM imported textures (sum over the window),
+                 * TXC times the texture VRAM was emptied; TXMS ms importing textures, DRWMS ms inside the draw calls
+                 * to the GE (CPU), both per window in tenths of ms; LST KB of GE command list (maximum). */
                 const unsigned int fr = sProfFrames ? sProfFrames : 1;
                 prof_put_num(" FR ", (int) sProfFrames);
                 prof_put_num(" TRI ", (int) (sProfAcc[0] / fr));
@@ -4475,19 +4479,19 @@ static void prof_log_window(void) {
                 prof_put_num(" TXMS ", (int) (sProfAcc[8] / 100));
                 prof_put_num(" DRWMS ", (int) (sProfAcc[7] / fr / 100));
                 prof_put_num(" LST ", (int) (sProfListMax / 1024));
-                prof_put_num(" GMUS ", (int) sProfBenchGm);   /* decimas de us por sceGuGetMemory */
-                prof_put_num(" CLKUS ", (int) sProfBenchClk); /* decimas de us por lectura del reloj */
-                prof_put_num(" LOOPUS ", (int) sProfBenchCpu); /* us de 20000 vueltas de un bucle de 3 instrucciones: ~180 a 333 MHz reales */
+                prof_put_num(" GMUS ", (int) sProfBenchGm);   /* tenths of us per sceGuGetMemory */
+                prof_put_num(" CLKUS ", (int) sProfBenchClk); /* tenths of us per clock read */
+                prof_put_num(" LOOPUS ", (int) sProfBenchCpu); /* us for 20000 turns of a 3-instruction loop: ~180 at a real 333 MHz */
                 prof_put_num(" MHZE ", sProfBenchCpu ? (int) (60000U / sProfBenchCpu) : 0); /* MHz reales estimados (si 1 instruccion/ciclo) */
-                /* EMIT desglosado: VTXMS ms (decimas, por cuadro) dentro de gfx_sp_vertex; TRIN triangulos recibidos por cuadro
-                 * (TRI son los que salieron dibujados); TRIUS decimas de us por triangulo (muestreado, ya sin dibujo ni texturas,
-                 * incluye ~1 lectura de reloj); FOGA/FOGK triangulos con niebla por cuadro / los que hacen 2a pasada. */
+                /* EMIT broken down: VTXMS ms (tenths, per frame) inside gfx_sp_vertex; TRIN triangles received per frame
+                 * (TRI are the ones that came out drawn); TRIUS tenths of us per triangle (sampled, already without drawing or textures,
+                 * includes ~1 clock read); FOGA/FOGK triangles with fog per frame / the ones that do a 2nd pass. */
                 prof_put_num(" VTXMS ", (int) (sProfAcc[9] / fr / 100));
                 prof_put_num(" TRIN ", (int) (sProfAcc[10] / fr));
                 prof_put_num(" TRIUS ", sProfAcc[12] ? (int) (sProfAcc[11] * 10 / sProfAcc[12]) : 0);
-                /* TRIUS desglosado por clase: tiempo medio (decimas de us) de un triangulo descartado pronto (TRR), dibujado sin recorte
-                 * (TRD) y recortado por la CPU (TRC); TRNR/TRND/TRNC = cuantos de cada clase por cuadro (estimado del muestreo 1/8);
-                 * CLPUS = tiempo total del recorte por CPU por cuadro (decimas de ms) */
+                /* TRIUS broken down by class: average time (tenths of us) of a triangle discarded early (TRR), drawn without clipping
+                 * (TRD) and clipped by the CPU (TRC); TRNR/TRND/TRNC = how many of each class per frame (estimated from the 1/8 sampling);
+                 * CLPUS = total CPU clipping time per frame (tenths of ms) */
                 prof_put_num(" TRR ", sProfAcc2[3] ? (int) (sProfAcc2[0] * 10 / sProfAcc2[3]) : 0);
                 prof_put_num(" TRD ", sProfAcc2[4] ? (int) (sProfAcc2[1] * 10 / sProfAcc2[4]) : 0);
                 prof_put_num(" TRC ", sProfAcc2[5] ? (int) (sProfAcc2[2] * 10 / sProfAcc2[5]) : 0);
@@ -4497,62 +4501,62 @@ static void prof_log_window(void) {
                 prof_put_num(" CLPUS ", (int) (sProfAcc2[6] / fr / 100));
                 prof_put_num(" FOGA ", (int) (sProfAcc[13] / fr));
                 prof_put_num(" FOGK ", (int) (sProfAcc[14] / fr));
-                prof_put_num(" CLPX ", (int) (sProfAcc[15] / fr)); /* triangulos que cruzaban un lado y se mandaron sin recortar */
+                prof_put_num(" CLPX ", (int) (sProfAcc[15] / fr)); /* triangles that crossed a side and were sent without clipping */
                 {
-                    /* opciones del menu (game/psp_options.c) vigentes al cerrar esta ventana: OFPS limite de fps, OPAC 0 = Keep FPS / 1 = Keep Speed;
-                     * OOBJ / OFAR = distancia de objetos / plano lejano de la camara en %; OCLK MHz pedidos;
-                     * OCHG = cuantas veces se tocaron las opciones durante la ventana (si no es 0 la ventana mezcla dos configuraciones) */
+                    /* menu options (game/psp_options.c) in effect when this window closed: OFPS fps limit, OPAC 0 = Keep FPS / 1 = Keep Speed;
+                     * OOBJ / OFAR = object distance / camera far plane in %; OCLK MHz requested;
+                     * OCHG = how many times the options were touched during the window (if not 0 the window mixes two configurations) */
                     static unsigned int sOptChg = 0;
                     prof_put_num(" OFPS ", gPspOptFpsCap);
                     prof_put_num(" OPAC ", gPspOptKeepSpeed);
                     prof_put_num(" OOBJ ", (int) (gPspObjDistScale * 100.0f + 0.5f));
-                    prof_put_num(" OFAR ", (int) (gPspFarScale * 100.0f + 0.5f)); /* plano lejano de la camara, en % */
+                    prof_put_num(" OFAR ", (int) (gPspFarScale * 100.0f + 0.5f)); /* camera far plane, in % */
                     {
                         static unsigned int sPrevKick, sPrevRaw, sPrevWb;
-                        prof_put_num(" OKCK ", (int) (gPspKicks - sPrevKick));    /* avisos al GE en la ventana */
-                        prof_put_num(" ORAW ", (int) (gPspRawDraws - sPrevRaw));  /* draws enviados sin aviso individual */
-                        prof_put_num(" OWBC ", (int) (gPspWbCalls - sPrevWb));   /* vaciados de cache de la arena en la ventana */
+                        prof_put_num(" OKCK ", (int) (gPspKicks - sPrevKick));    /* notices to the GE in the window */
+                        prof_put_num(" ORAW ", (int) (gPspRawDraws - sPrevRaw));  /* draws sent without individual notice */
+                        prof_put_num(" OWBC ", (int) (gPspWbCalls - sPrevWb));   /* arena cache flushes in the window */
                         sPrevWb = gPspWbCalls;
                         sPrevKick = gPspKicks;
                         sPrevRaw = gPspRawDraws;
                     }
                     prof_put_num(" OFREE ", psp_objects_free());
-                    prof_put_num(" OFMIN ", gPspFreeMin);                              /* minimo de objetos libres en la ventana */
-                    gPspFreeMin = 9999;                       /* objetos libres de los 240 del juego */
+                    prof_put_num(" OFMIN ", gPspFreeMin);                              /* minimum of free objects in the window */
+                    gPspFreeMin = 9999;                       /* free objects out of the game's 240 */
                     prof_put_num(" OSWP ", sSweepMode);                                /* Profile Sweep: etapa apagada (0 = ninguna) */
                     prof_put_num(" OCLK ", gPspClockWant);
                     prof_put_num(" OPIPE ", gPspOptPipe);                                /* Triple Buffer 0/1 */
-                    prof_put_num(" PGW ", gPspGateN ? (int) (gPspGateUs * 10U / gPspGateN / 1000U) : 0); /* espera media de start_frame por cuadro (0.1 ms) */
-                    prof_put_num(" PQD ", (int) gPspQMax);                               /* mayor cola de cuadros sin presentar vista (0..3) */
+                    prof_put_num(" PGW ", gPspGateN ? (int) (gPspGateUs * 10U / gPspGateN / 1000U) : 0); /* average start_frame wait per frame (0.1 ms) */
+                    prof_put_num(" PQD ", (int) gPspQMax);                               /* largest queue of unpresented frames seen (0..3) */
                     prof_put_num(" PBRK ", gPspPipeBroken);                              /* 1 = un semaforo vencio y se volvio al modo sincrono */
-                    prof_put_num(" OCUL ", gPspOptCullObj);                       /* 0 = culling de objetos original, 1 = tambien vertical */
+                    prof_put_num(" OCUL ", gPspOptCullObj);                       /* 0 = original object culling, 1 = vertical too */
                     prof_put_num(" OCHG ", (int) (gPspOptChanges - sOptChg));
                     sOptChg = gPspOptChanges;
                 }
-                prof_put_num(" TXS ", (int) (sProfAccTx[0] / fr));            /* cambios de textura (tile 0) que ya era la enlazada: no cortan el lote (por cuadro) */
-                prof_put_num(" TXE ", (int) (sProfAccTx[1] / fr));            /* cambios de textura (tile 0) pedidos por el juego (por cuadro) */
-                /* MTXMS: ms por cuadro (decimas) en gfx_sp_matrix; PREPMS: ms por cuadro (decimas) rehaciendo el estado del pipeline de
-                 * triangulos (cambio de textura / combinador / modo; sin contar el dibujo ni la importacion de texturas); PREPN: cuantas
-                 * veces por cuadro. UCW / CW: us por 1024 palabras escritas SIN cache (como pspgu escribe la lista) / CON cache + vaciado. */
+                prof_put_num(" TXS ", (int) (sProfAccTx[0] / fr));            /* texture changes (tile 0) that were already the bound one: they do not break the batch (per frame) */
+                prof_put_num(" TXE ", (int) (sProfAccTx[1] / fr));            /* texture changes (tile 0) requested by the game (per frame) */
+                /* MTXMS: ms per frame (tenths) in gfx_sp_matrix; PREPMS: ms per frame (tenths) rebuilding the triangle pipeline
+                 * state (texture / combiner / mode change; not counting drawing or texture import); PREPN: how many
+                 * times per frame. UCW / CW: us per 1024 words written UNCACHED (as pspgu writes the list) / CACHED + flush. */
                 prof_put_num(" MTXMS ", (int) (sProfAcc3[0] / fr / 100));
                 prof_put_num(" PREPMS ", (int) (sProfAcc3[1] / fr / 100));
                 prof_put_num(" PREPN ", (int) (sProfAcc3[2] / fr));
                 prof_put_num(" UCW ", (int) sProfBenchUc);
                 prof_put_num(" CW ", (int) sProfBenchCw);
-                prof_put_num(" ARN ", (int) (gPspArenaMax / 1024)); /* KB maximos usados de la arena de vertices */
-                /* cuadros "justos" (logica + dibujado + espera del GE > 14,5 ms): cuantos hubo en la ventana y, en promedio,
-                 * cuanto fue de logica / emision / espera al GE (decimas de ms) */
+                prof_put_num(" ARN ", (int) (gPspArenaMax / 1024)); /* maximum KB used of the vertex arena */
+                /* "tight" frames (logic + drawing + GE wait > 14.5 ms): how many there were in the window and, on average,
+                 * how much was logic / emission / GE wait (tenths of ms) */
                 prof_put_num(" LATE ", (int) sProfLate);
                 prof_put_num(" LLOG ", sProfLate ? (int) (sProfLateLog / sProfLate / 100) : 0);
                 prof_put_num(" LEMT ", sProfLate ? (int) (sProfLateEmit / sProfLate / 100) : 0);
                 prof_put_num(" LSYN ", sProfLate ? (int) (sProfLateSync / sProfLate / 100) : 0);
             }
             {
-                /* Logica, promedio POR TICK DE LOGICA en decimas de ms (el cronometro suma ~0,5 us por medicion):
-                 * AUD audio, INP controles, SCR script del nivel completo, UPD update_level, OBJ update_objects (TERR terreno,
-                 * COLL colisiones entre objetos, NTER resto de objetos), CAM camara, MAR Mario (dentro de OBJ), FLR/WAL/CEL
-                 * busquedas de suelo/pared/techo (dentro de OBJ/MAR/CAM), RND render_game completo, GEO geo_process_root.
-                 * Conteos por tick: NFLR/NWAL/NCEL llamadas, NOBJ objetos actualizados, NGO objetos y NGN nodos del grafo. */
+                /* Logic, average PER LOGIC TICK in tenths of ms (the timer adds ~0.5 us per measurement):
+                 * AUD audio, INP controls, SCR full level script, UPD update_level, OBJ update_objects (TERR terrain,
+                 * COLL collisions between objects, NTER rest of objects), CAM camera, MAR Mario (inside OBJ), FLR/WAL/CEL
+                 * floor/wall/ceiling searches (inside OBJ/MAR/CAM), RND full render_game, GEO geo_process_root.
+                 * Per-tick counts: NFLR/NWAL/NCEL calls, NOBJ objects updated, NGO objects and NGN graph nodes. */
                 const unsigned int tk = gPspLc[0] ? gPspLc[0] : 1;
                 static const char *const lpn[20] = {" AUD ", " INP ", " SCR ", " UPD ", " OBJ ", " TERR ", " COLL ", " NTER ",
                                                     " CAM ", " MAR ", " FLR ", " WAL ", " CEL ", " RND ", " GEO ",
@@ -4576,25 +4580,25 @@ static void prof_log_window(void) {
             }
             {
                 const unsigned int tk2 = sDbgTk ? sDbgTk : 1, fr2 = sDbgFr ? sDbgFr : 1;
-                prof_put_num(" AEST ", (int) (sDbgA / tk2 / 100));      /* A medio por tick (decimas de ms) */
-                prof_put_num(" AOVR ", (int) (sDbgOver * 100 / tk2));   /* % de ticks con A > presupuesto */
-                prof_put_num(" PRE ", (int) (sDbgPre / fr2 / 100));     /* logica previa al dibujo, por cuadro */
-                prof_put_num(" EUS ", (int) (sDbgE / fr2 / 100));       /* enviar el cuadro (sin esperas) */
-                prof_put_num(" SUS ", (int) (sDbgS / fr2 / 100));       /* cola del GE usada por la estimacion */
+                prof_put_num(" AEST ", (int) (sDbgA / tk2 / 100));      /* A average per tick (tenths of ms) */
+                prof_put_num(" AOVR ", (int) (sDbgOver * 100 / tk2));   /* % of ticks with A > budget */
+                prof_put_num(" PRE ", (int) (sDbgPre / fr2 / 100));     /* logic before drawing, per frame */
+                prof_put_num(" EUS ", (int) (sDbgE / fr2 / 100));       /* sending the frame (without waits) */
+                prof_put_num(" SUS ", (int) (sDbgS / fr2 / 100));       /* GE queue used by the estimate */
                 prof_put_num(" ASY ", (int) sDbgAsy);
-                prof_put_num(" TAIL ", (int) (sTailEma / 100));          /* cola media del GE (decimas de ms) */
+                prof_put_num(" TAIL ", (int) (sTailEma / 100));          /* average GE queue (tenths of ms) */
                 prof_put_num(" AWANT ", gPspAsyncWant);                 /* 1 = presentacion asincrona elegida */
                 {
                     extern unsigned int gPspF2Skip;
                     static unsigned int sF2Last = 0;
-                    prof_put_num(" F2SK ", (int) (gPspF2Skip - sF2Last)); /* 2os cuadros descartados en la ventana */
+                    prof_put_num(" F2SK ", (int) (gPspF2Skip - sF2Last)); /* 2nd frames dropped in the window */
                     {
-                        /* PSP_F2_REPLAY: RPL = 2os cuadros que repitieron la escena del 1o; el resto son los motivos por los que no
-                         * se pudo (RPN: sin grabacion, RPR: lista reiniciada, RPT: almacen de texturas vaciado, RPZ: varias mascaras
-                         * de ruido, RPB: la comprobacion de la lista fallo, RPO: desactivado tras fallos seguidos).
-                         * Etapa 2: RPP = de los RPL, los que llevaron las matrices reales parcheadas; RPM = no se pudo parchear por
-                         * la anotacion de matrices; RPD = un objeto se movio mas que la distancia near; RPQ = otro parche pendiente
-                         * (HUD, dialogo, transicion, nieve, burbujas, cuadros, fov). RPM/RPD/RPQ son cuadros dibujados enteros. */
+                        /* PSP_F2_REPLAY: RPL = 2nd frames that replayed the 1st one's scene; the rest are the reasons why it
+                         * could not (RPN: no recording, RPR: list restarted, RPT: texture store emptied, RPZ: several noise masks,
+                         * RPB: the list check failed, RPO: disabled after consecutive failures).
+                         * Stage 2: RPP = of the RPL, the ones that carried the real matrices patched; RPM = could not be patched because of
+                         * the matrix annotation; RPD = an object moved more than the near distance; RPQ = another pending patch
+                         * (HUD, dialog, transition, snow, bubbles, frames, fov). RPM/RPD/RPQ are frames drawn in full. */
                         extern unsigned int gPspRepOk, gPspRepNoRec, gPspRepRst, gPspRepTex, gPspRepBad, gPspRepNoise, gPspRepOff;
                         extern unsigned int gPspRepPatched, gPspRepMis, gPspRepDelta, gPspRepPend;
                         extern unsigned int gPspRepWhy[7];
@@ -4614,7 +4618,7 @@ static void prof_log_window(void) {
                         prof_put_num(" RPQ ", (int) (gPspRepPend - sRpM[3]));
                         prof_put_num(" RPE ", gPspReplayEma);
                         {
-                            extern unsigned int gPspRepSky; /* cuadros 2 con el cielo reescrito */
+                            extern unsigned int gPspRepSky; /* frames 2 with the sky rewritten */
                             static unsigned int sRpS;
                             prof_put_num(" RPS ", (int) (gPspRepSky - sRpS));
                             sRpS = gPspRepSky;
@@ -4635,12 +4639,12 @@ static void prof_log_window(void) {
                     {
                         extern unsigned int gPspAudCpuUs, gPspAudCpuN;
                         static unsigned int sAudUsLast = 0, sAudNLast = 0;
-                        prof_put_num(" AUDN ", (int) (gPspAudCpuN - sAudNLast));         /* bloques de audio sintetizados en la CPU (0 = en el ME) */
-                        prof_put_num(" AUDUS ", (int) ((gPspAudCpuUs - sAudUsLast) / 100)); /* tiempo de esa sintesis (decimas de ms) */
+                        prof_put_num(" AUDN ", (int) (gPspAudCpuN - sAudNLast));         /* audio blocks synthesized on the CPU (0 = on the ME) */
+                        prof_put_num(" AUDUS ", (int) ((gPspAudCpuUs - sAudUsLast) / 100)); /* time of that synthesis (tenths of ms) */
                         sAudNLast = gPspAudCpuN; sAudUsLast = gPspAudCpuUs;
                     }
                     {
-                        /* voz del titulo (acumulado): peticiones/reintentos/confirmadas sonando/ultima (1=Hello 2=Press Start) */
+                        /* title voice (cumulative): requests/retries/confirmed playing/last (1=Hello 2=Press Start) */
                         extern unsigned int gPspVox[4];
                         prof_put_num(" VOX ", (int) gPspVox[0]);
                         prof_put_num("/", (int) gPspVox[1]);
@@ -4648,10 +4652,10 @@ static void prof_log_window(void) {
                         prof_put_num("/", (int) gPspVox[3]);
                     }
                     {
-                        /* Audio con el ME: el hilo principal manda bloques al ME al terminar la logica y los recoge al empezar el
-                         * siguiente tick. MEN = bloques mandados en la ventana; MEWN = ticks en que el ME aun no habia terminado y la
-                         * CPU tuvo que esperar; MEWMS = esa espera total (decimas de ms por ventana); AUDUR = cortes de audio
-                         * (el anillo se vacio y sono silencio) en la ventana. */
+                        /* Audio with the ME: the main thread sends blocks to the ME when the logic finishes and collects them at the start of the
+                         * next tick. MEN = blocks sent in the window; MEWN = ticks in which the ME had not finished yet and the
+                         * CPU had to wait; MEWMS = that total wait (tenths of ms per window); AUDUR = audio dropouts
+                         * (the ring emptied and silence played) in the window. */
                         extern unsigned int gPspMePolls, gPspMeUs, gPspMeBlocks, gPspMeWaits, gPspAudUnder;
                         static unsigned int sMeU = 0, sMeB = 0, sMeW = 0, sAudUr = 0;
                         prof_put_num(" MEN ", (int) (gPspMeBlocks - sMeB));
@@ -4660,10 +4664,10 @@ static void prof_log_window(void) {
                         prof_put_num(" AUDUR ", (int) (gPspAudUnder - sAudUr));
                         extern unsigned int gPspMeTimeouts, gPspMeRecovered;
                         extern int psp_me_debug(int which);
-                        prof_put_num(" MEFAIL ", (int) gPspMeTimeouts); /* acumulado: trabajos del ME que pasaron los 100 ms */
-                        prof_put_num(" MEREC ", (int) gPspMeRecovered); /* acumulado: de esos, los que terminaron tarde y se recuperaron */
+                        prof_put_num(" MEFAIL ", (int) gPspMeTimeouts); /* cumulative: ME jobs that exceeded 100 ms */
+                        prof_put_num(" MEREC ", (int) gPspMeRecovered); /* cumulative: of those, the ones that finished late and recovered */
                         prof_put_num(" MEBUSY ", psp_me_debug(5));
-                        /* suspension: reanudaciones del ME buenas/malas, veces que se llamo a meLibOnWake, estado del ME al dormir (5 = detenido), y si se rindio: estado/progreso */
+                        /* suspend: good/bad ME resumes, times meLibOnWake was called, ME state when sleeping (5 = stopped), and if it gave up: state/progress */
                         prof_put_num(" MERES ", psp_me_debug(6));
                         prof_put_num(" MEREF ", psp_me_debug(7));
                         prof_put_num(" MEWK ", psp_me_debug(8));
@@ -4671,7 +4675,7 @@ static void prof_log_window(void) {
                         prof_put_num(" MERS ", psp_me_debug(10));
                         prof_put_num(" MERP ", psp_me_debug(11));
                         prof_put_num(" MEI ", psp_me_debug(1));
-                        prof_put_num(" MEN0 ", psp_me_debug(12)); /* llamadas a power_event(0) / (1) y flags de los ultimos avisos de energia */
+                        prof_put_num(" MEN0 ", psp_me_debug(12)); /* calls to power_event(0) / (1) and flags of the last power notices */
                         prof_put_num(" MEN1 ", psp_me_debug(13));
                         prof_put_num(" MEF0 ", psp_me_debug(14));
                         prof_put_num(" MEF1 ", psp_me_debug(15));
@@ -4681,9 +4685,9 @@ static void prof_log_window(void) {
                         sMeU = gPspMeUs; sMeB = gPspMeBlocks; sMeW = gPspMeWaits; sAudUr = gPspAudUnder;
                     }
                     {
-                        /* NOTAS = mayor numero de notas del sintetizador en uso (tope PSP_AUDIO_NOTES); NSTL = notas robadas a otras
-                         * en uso; NDRP = capas que se quedaron sin nota (no suenan); SFXC = suma de sonidos que competian por el canal
-                         * de su banco (1 por banco) en cada tick. Todo en la ventana. */
+                        /* NOTAS = highest number of synthesizer notes in use (cap PSP_AUDIO_NOTES); NSTL = notes stolen from others
+                         * in use; NDRP = layers left without a note (they do not sound); SFXC = sum of sounds competing for the channel
+                         * of their bank (1 per bank) in each tick. All per window. */
                         extern unsigned int gPspNoteMax, gPspNoteSteal, gPspNoteDrop, gPspSfxOver;
                         static unsigned int sNs = 0, sNd = 0, sSo = 0;
                         prof_put_num(" NOTAS ", (int) gPspNoteMax);
@@ -4695,7 +4699,7 @@ static void prof_log_window(void) {
                     sF2Last = gPspF2Skip;
                 }
                 {
-                    /* reloj real de CPU/bus (MHz): si el sistema lo baja (modo ahorro de energia, bateria, plugin) se vuelve a pedir 333/166 */
+                    /* real CPU/bus clock (MHz): if the system lowers it (power saving mode, battery, plugin) 333/166 is requested again */
                     static unsigned int sClkFix = 0;
                     const int cpu = scePowerGetCpuClockFrequencyInt(), bus = scePowerGetBusClockFrequencyInt();
                     prof_put_num(" CPU ", cpu);
@@ -4709,10 +4713,10 @@ static void prof_log_window(void) {
             }
             prof_put_num(" GPON ", sProfGpuWin);
             if (sProfGpuWin) {
-                /* Perfil de GPU, promedio por cuadro: Gi = us de GE, Ni = triangulos, Pi = kpixeles (area aprox.), Ci = llamadas.
-                 * i: 0 opaco 1 recorte 2 translucido (sin niebla); 3 4 5 igual pero con niebla (1a pasada);
-                 * 6 pasada de niebla (opaco/recorte) 7 pasada de niebla (translucido) 8 especial (ruido/Peach) 9 sprites 2D
-                 * 10 espera de GE entre llamadas (limpiar, texturas...). */
+                /* GPU profile, average per frame: Gi = us of GE, Ni = triangles, Pi = kpixels (approx. area), Ci = calls.
+                 * i: 0 opaque 1 cutout 2 translucent (no fog); 3 4 5 same but with fog (1st pass);
+                 * 6 fog pass (opaque/cutout) 7 fog pass (translucent) 8 special (noise/Peach) 9 2D sprites
+                 * 10 GE wait between calls (clear, textures...). */
                 static const char *const gl[11] = {" G0 ", " G1 ", " G2 ", " G3 ", " G4 ", " G5 ", " G6 ", " G7 ", " G8 ", " G9 ", " G10 "};
                 static const char *const nl[11] = {" N0 ", " N1 ", " N2 ", " N3 ", " N4 ", " N5 ", " N6 ", " N7 ", " N8 ", " N9 ", " N10 "};
                 static const char *const pl[11] = {" P0 ", " P1 ", " P2 ", " P3 ", " P4 ", " P5 ", " P6 ", " P7 ", " P8 ", " P9 ", " P10 "};
@@ -4728,7 +4732,7 @@ static void prof_log_window(void) {
             }
             prof_put_str("\r\n");
         } else {
-            sProfLostW++; /* no cupo y no se pudo escribir: se avisa en la siguiente linea que se guarde */
+            sProfLostW++; /* it did not fit and could not be written: the next line warns that it should be saved */
         }
         {
             int q;
@@ -4737,7 +4741,7 @@ static void prof_log_window(void) {
         }
         sProfLogWindows++;
         if ((sProfLogWindows % 5) == 0 || gPspLogStatus == 2) {
-            prof_log_flush(); /* cada 5 s (o en cada ventana mientras haya un error pendiente) */
+            prof_log_flush(); /* every 5 s (or on every window while there is a pending error) */
         }
     }
     sProfLastWall = now;
@@ -4746,46 +4750,46 @@ static void prof_log_window(void) {
     sDbgTk = sDbgA = sDbgOver = sDbgFr = sDbgPre = sDbgE = sDbgS = sDbgAsy = 0;
 }
 
-/* ---- 60 fps dinamicos (PSP): "a los cuadros que alcance" ----
- * La logica del juego sigue a 30 Hz. Cada tick presenta UNO o DOS cuadros: con dos, el primero sale con las matrices
- * interpoladas (punto medio entre el tick anterior y el actual) y el segundo con el estado real. Mezclando ticks de 1 y de 2
- * cuadros se obtienen velocidades intermedias: si la fraccion de ticks con 2 cuadros es p, la imagen va a 30 + 30 * p fps
- * (p = 1/2 -> 45 fps, 2/3 -> 50 fps). El maximo es 60.
- * Un tick "cabe" si A = logica + dibujado (CPU + espera del GPU, sin esperar al vblank) <= PSP60_BUDGET_US, o sea si cabria
- * en un vblank (16,7 ms). Se mide con que frecuencia caben los ticks (h, 0..1000) y se usa p = h: si en una zona caben todos
- * -> 60 fps; si solo caben la mitad -> ~45 fps; si no cabe ninguno -> 30 fps. Un acumulador (tipo Bresenham) reparte los
- * ticks de 2 cuadros de forma pareja (45 fps = 2,1,2,1...). */
-#define PSP_60FPS 1               /* 0 = siempre 30 fps */
-#define PSP_60FPS_FORCE 1         /* 1 = 60 fps fijos: si la escena no cabe, va mas lento (con trompicones) pero siempre intenta 60. 0 = dinamico 30/60 */
-#define PSP60_BUDGET_US 16000U    /* un tick de 30 fps cabe si A <= esto (un vblank = 16667 us, con un poco de margen) */
-#define PSP60_SLACK_US 1500U      /* "Keep Speed": un tick de 30 fps (que lleva la estimacion PSP60_EXTRA_US) solo cuenta como "no cabe" si pasa del
-                                   * presupuesto por mas de esto. Entre medias no cuenta ni a favor ni en contra (ver gfx_psp_update_mode). */
-#define PSP60_WALL_OK_US 35000U   /* "Keep Speed": un tick de 60 fps cabe mientras el tiempo REAL por tick (promedio movil) no pase de esto (2 vblanks = 33333 us) */
-#define PSP60_WALL_CLAMP_US 45000U /* un tick real mas largo que esto (carga, menu HOME, cambio de modo) cuenta como esto, para que un tropiezo suelto no pese de mas */
-#define PSP60_WALL_SHIFT 3        /* ventana del promedio del tiempo real por tick (~8 ticks) */
-#define PSP60_EXTRA_US 1000U      /* estimacion del coste del parche de matrices del 2o cuadro (se suma en ticks de 1 cuadro) */
-#define PSP60_IGNORE_US 50000U    /* muestras mayores (carga de nivel, menu HOME...) no cuentan */
+/* ---- Dynamic 60 fps (PSP): "at whatever frames it can reach" ----
+ * The game logic still runs at 30 Hz. Each tick presents ONE or TWO frames: with two, the first comes out with the interpolated
+ * matrices (midpoint between the previous tick and the current one) and the second with the real state. Mixing 1-frame and 2-frame
+ * ticks gives intermediate speeds: if the fraction of ticks with 2 frames is p, the image runs at 30 + 30 * p fps
+ * (p = 1/2 -> 45 fps, 2/3 -> 50 fps). The maximum is 60.
+ * A tick "fits" if A = logic + drawing (CPU + GPU wait, without waiting for the vblank) <= PSP60_BUDGET_US, that is, if it would fit
+ * in one vblank (16.7 ms). How often ticks fit is measured (h, 0..1000) and p = h is used: if in a zone all of them fit
+ * -> 60 fps; if only half fit -> ~45 fps; if none fits -> 30 fps. An accumulator (Bresenham style) spreads the
+ * 2-frame ticks evenly (45 fps = 2,1,2,1...). */
+#define PSP_60FPS 1               /* 0 = always 30 fps */
+#define PSP_60FPS_FORCE 1         /* 1 = fixed 60 fps: if the scene does not fit, it runs slower (stuttering) but always tries for 60. 0 = dynamic 30/60 */
+#define PSP60_BUDGET_US 16000U    /* a 30 fps tick fits if A <= this (one vblank = 16667 us, with a little margin) */
+#define PSP60_SLACK_US 1500U      /* "Keep Speed": a 30 fps tick (which carries the PSP60_EXTRA_US estimate) only counts as "does not fit" if it exceeds the
+                                   * budget by more than this. In between it counts neither for nor against (see gfx_psp_update_mode). */
+#define PSP60_WALL_OK_US 35000U   /* "Keep Speed": a 60 fps tick fits while the REAL time per tick (moving average) does not exceed this (2 vblanks = 33333 us) */
+#define PSP60_WALL_CLAMP_US 45000U /* a real tick longer than this (loading, HOME menu, mode change) counts as this, so that a one-off stumble does not weigh too much */
+#define PSP60_WALL_SHIFT 3        /* window of the real time per tick average (~8 ticks) */
+#define PSP60_EXTRA_US 1000U      /* estimate of the cost of the 2nd frame's matrix patch (added on 1-frame ticks) */
+#define PSP60_IGNORE_US 50000U    /* larger samples (level load, HOME menu...) do not count */
 #define PSP60_DOWN_SHIFT 3        /* si empeora, reacciona en ~8 ticks */
-#define PSP60_UP_SHIFT 3          /* igual al subir: asi p coincide con la fraccion real de ticks que caben */
+#define PSP60_UP_SHIFT 3          /* same when going up: this way p matches the real fraction of ticks that fit */
 
-/* gfx_psp.c lo define de verdad; esta definicion debil solo evita el error de enlace si gfx_psp.c es la version vieja. */
+/* gfx_psp.c really defines it; this weak definition only avoids the link error if gfx_psp.c is the old version. */
 int gPspSixtyMode __attribute__((weak)) = 0;
-extern int gPspPresentAsync;           /* gfx_scegu.c: este cuadro se presento de forma asincrona (hilo) */
-extern unsigned int gPspProfPendWait;  /* us que start_frame espero a la presentacion asincrona anterior */
-extern unsigned int gPspAsyncSync;     /* de esa presentacion: us desde end_frame hasta que el GE termino */
+extern int gPspPresentAsync;           /* gfx_scegu.c: this frame was presented asynchronously (thread) */
+extern unsigned int gPspProfPendWait;  /* us that start_frame waited for the previous async presentation */
+extern unsigned int gPspAsyncSync;     /* of that presentation: us from end_frame until the GE finished */
 extern int gPspPendingDone;
-static unsigned int sLastAsyncS;       /* ultima cola del GE medida en una presentacion asincrona (us) */
-/* Modelo de la presentacion asincrona del 2o cuadro (ver el calculo de A en gfx_run): mientras el hilo espera al GE y al vblank del 2o
- * cuadro, el hilo principal ya hace la logica del tick siguiente. Esa logica y el envio del 2o cuadro caben en el hueco de un vblank
- * (PSP60_BUDGET_US); solo lo que pase de ahi retrasa el envio del 1er cuadro. Con el replay, el envio del 2o cuadro es casi nada. */
-static int sLastF2Async;               /* el 2o cuadro anterior se presento de forma asincrona */
+static unsigned int sLastAsyncS;       /* last GE queue measured in an async presentation (us) */
+/* Async presentation model of the 2nd frame (see the A calculation in gfx_run): while the thread waits for the GE and the vblank of the 2nd
+ * frame, the main thread is already doing the next tick's logic. That logic and the sending of the 2nd frame fit in the gap of a vblank
+ * (PSP60_BUDGET_US); only what goes beyond that delays the sending of the 1st frame. With replay, sending the 2nd frame is almost nothing. */
+static int sLastF2Async;               /* the previous 2nd frame was presented asynchronously */
 static unsigned int sLastF2E = 1000;   /* su parche + envio (us) */
-int gPspReplayEma = 0;                 /* 0..1000: fraccion reciente de 2os cuadros que repitieron la lista (sube sola en 30 fps para reintentar) */
-static unsigned int sTickPre;          /* mayor tiempo previo a dibujar (logica) de los cuadros del tick actual */
+int gPspReplayEma = 0;                 /* 0..1000: recent fraction of 2nd frames that replayed the list (rises by itself at 30 fps to retry) */
+static unsigned int sTickPre;          /* longest pre-draw time (logic) of the current tick's frames */
 static unsigned int sTickMaxA;
-static int sFitRate = 1000; /* milesimas de ticks que caben; empieza optimista y cae rapido si no */
-static unsigned int sLastTickUs;     /* reloj (us) en la llamada anterior a gfx_psp_update_mode */
-static int sWallEma = 33333;         /* promedio movil del tiempo real por tick de 60 fps (us) */
+static int sFitRate = 1000; /* thousandths of ticks that fit; starts optimistic and drops quickly if not */
+static unsigned int sLastTickUs;     /* clock (us) at the previous call to gfx_psp_update_mode */
+static int sWallEma = 33333;         /* moving average of the real time per 60 fps tick (us) */
 static unsigned int sAcc;   /* acumulador de p en milesimas */
 
 void gfx_psp_update_mode(void) {
@@ -4795,7 +4799,7 @@ void gfx_psp_update_mode(void) {
     sTickPre = 0;
 #if PSP_F2_REPLAY && PSP_F2_REPLAY_MTX
     if (!gPspSixtyMode) {
-        gPspReplayEma += (1000 - gPspReplayEma) >> 5; /* en 30 fps no hay muestras: reintenta de vez en cuando */
+        gPspReplayEma += (1000 - gPspReplayEma) >> 5; /* at 30 fps there are no samples: it retries from time to time */
     }
 #endif
 #if PSP_ASYNC_PRESENT
@@ -4808,28 +4812,28 @@ void gfx_psp_update_mode(void) {
     }
 #endif
     {
-        /* Tiempo REAL del tick que acaba de terminar (entre dos llamadas). En los ticks de 60 fps es la medida directa de si el juego va a
-         * su velocidad (2 vblanks = 33333 us): la estimacion A de abajo es pesimista (a 60 fps estables A puede salir por encima del
-         * presupuesto en la mayoria de ticks), y con ella "Keep Speed" bajaba de 50 fps donde "Keep FPS" iba a 60 estables. */
+        /* REAL time of the tick that just ended (between two calls). On 60 fps ticks it is the direct measure of whether the game is running at
+         * its speed (2 vblanks = 33333 us): the A estimate below is pessimistic (at stable 60 fps A can come out above the
+         * budget on most ticks), and with it "Keep Speed" dropped below 50 fps where "Keep FPS" ran at a stable 60. */
         const unsigned int now = (unsigned int) sceKernelLibcClock();
         unsigned int w = sLastTickUs ? now - sLastTickUs : 0U;
         sLastTickUs = now;
-        if (a != 0 && a < PSP60_IGNORE_US) { /* a == 0: no se dibujo ningun cuadro (saltado), no hay muestra */
-            int fit; /* 1 = sube la tasa, -1 = baja, 0 = no cuenta */
+        if (a != 0 && a < PSP60_IGNORE_US) { /* a == 0: no frame was drawn (skipped), there is no sample */
+            int fit; /* 1 = raises the rate, -1 = lowers it, 0 = does not count */
             if (!gPspSixtyMode) {
                 a += PSP60_EXTRA_US;
             }
             sDbgTk++; sDbgA += a; if (a > PSP60_BUDGET_US) sDbgOver++;
             if (gPspSixtyMode) {
-                /* tick de 60 fps: cabe si el tiempo real (promedio movil) no pasa de ~2 vblanks */
+                /* 60 fps tick: fits if the real time (moving average) does not exceed ~2 vblanks */
                 if (w != 0U) {
                     if (w > PSP60_WALL_CLAMP_US) w = PSP60_WALL_CLAMP_US;
                     sWallEma += ((int) w - sWallEma) >> PSP60_WALL_SHIFT;
                 }
                 fit = sWallEma <= (int) PSP60_WALL_OK_US ? 1 : -1;
             } else {
-                /* tick de 30 fps: no hay tiempo real que mirar (siempre ~33 ms); se estima si cabria en 60 fps. Solo cuenta si claramente cabe
-                 * o claramente no cabe (la estimacion lleva PSP60_EXTRA_US, pesimista porque el 2o cuadro se repite casi gratis). */
+                /* 30 fps tick: there is no real time to look at (always ~33 ms); it is estimated whether it would fit at 60 fps. It only counts if it clearly fits
+                 * or clearly does not fit (the estimate carries PSP60_EXTRA_US, pessimistic because the 2nd frame is repeated almost for free). */
                 fit = a <= PSP60_BUDGET_US ? 1 : (a > PSP60_BUDGET_US + PSP60_SLACK_US ? -1 : 0);
             }
             if (fit > 0) {
@@ -4841,13 +4845,13 @@ void gfx_psp_update_mode(void) {
             if (sFitRate > 1000) sFitRate = 1000;
         }
     }
-    /* los extremos se redondean para no quedar en 59 / 31 fps por la cola del promedio */
+    /* the extremes are rounded so as not to stay at 59 / 31 fps because of the average's tail */
     {
         unsigned int p = (unsigned int) sFitRate;
         {
-            /* Menu de opciones (game/psp_options.c): fraccion de ticks con 2 cuadros que corresponde al limite de fps (30 -> 0, 45 -> 1/2,
-             * 60 -> todos). "Keep FPS": siempre esa fraccion (si no cabe, el juego va mas lento); "Keep Speed": a lo sumo esa fraccion y solo
-             * los ticks que caben (como el modo dinamico de antes). */
+            /* Options menu (game/psp_options.c): fraction of ticks with 2 frames that corresponds to the fps limit (30 -> 0, 45 -> 1/2,
+             * 60 -> all). "Keep FPS": always that fraction (if it does not fit, the game runs slower); "Keep Speed": at most that fraction and only
+             * the ticks that fit (like the dynamic mode from before). */
             const unsigned int cap = (unsigned int) ((gPspOptFpsCap - 30) * 1000 / 30);
             if (!gPspOptKeepSpeed || p > cap) p = cap;
         }
@@ -4865,7 +4869,7 @@ void gfx_psp_update_mode(void) {
     {
         extern int psp_warp_busy(void);
         if (psp_warp_busy()) {
-            gPspSixtyMode = 0; /* cambio de nivel / transicion: modo normal (ver level_update.c) */
+            gPspSixtyMode = 0; /* level change / transition: normal mode (see level_update.c) */
         }
     }
 #endif
@@ -4874,10 +4878,10 @@ void gfx_psp_update_mode(void) {
 #endif
 }
 
-/* ---- PSP_F2_REPLAY (opcion 3, etapa 1) ----
- * Rol del cuadro que se va a enviar (lo pone pc_main.c): 0 = normal (30 fps, o un cuadro que no participa), 1 = 1er cuadro de un tick de
- * 60 fps (se graba la escena en la lista del GE), 2 = 2o cuadro (si la grabacion vale, se repite en vez de recorrer la lista otra vez).
- * La mecanica de la lista esta en gfx_scegu.c. */
+/* ---- PSP_F2_REPLAY (option 3, stage 1) ----
+ * Role of the frame about to be sent (set by pc_main.c): 0 = normal (30 fps, or a frame that does not take part), 1 = 1st frame of a
+ * 60 fps tick (the scene is recorded in the GE list), 2 = 2nd frame (if the recording is valid, it is replayed instead of walking the list again).
+ * The list mechanics are in gfx_scegu.c. */
 extern void gfx_scegu_rec_reset(void);
 extern int gfx_scegu_rec_begin(void);
 extern void gfx_scegu_rec_end(void);
@@ -4886,18 +4890,18 @@ extern void gfx_scegu_replay_arm(int on);
 extern void gfx_scegu_replay_scene(void);
 static int sFrameRole;
 static int sReplayDecision;  /* lo decide gfx_psp_replay_prepare() y lo consume gfx_run() */
-/* Contadores (por ventana en el log): RPP = cuadros 2 repetidos con las matrices reales parcheadas; RPM = no se pudo parchear porque la
- * anotacion de matrices no cuadraba; RPD = un objeto se movio mas de lo permitido; RPQ = habia otro parche pendiente (HUD, nieve...). */
+/* Counters (per window in the log): RPP = replayed frames 2 with the real matrices patched; RPM = could not be patched because the
+ * matrix annotation did not match; RPD = an object moved more than allowed; RPQ = another patch was pending (HUD, snow...). */
 unsigned int gPspRepPatched, gPspRepMis, gPspRepDelta, gPspRepPend;
-unsigned int gPspRepSky; /* cuadros 2 en los que tambien se actualizo el cielo */
-unsigned int gPspRepWhy[7]; /* motivos de RPM: [0] sin grabar, [1] demasiadas entradas, [2] MUL anidada, [3] bloque raro, [4] sin emparejar, [5] la cuenta cambio, [6] otro */
+unsigned int gPspRepSky; /* frames 2 in which the sky was also updated */
+unsigned int gPspRepWhy[7]; /* reasons for RPM: [0] not recorded, [1] too many entries, [2] nested MUL, [3] odd block, [4] unmatched, [5] the count changed, [6] other */
 static void gfx_invalidate_render_state(void);
 
 void gfx_psp_set_role(int role) {
     sFrameRole = role;
 #if PSP_F2_REPLAY
     if (role != 2) {
-        gfx_scegu_rec_reset(); /* una grabacion de un tick anterior no puede usarse nunca */
+        gfx_scegu_rec_reset(); /* a recording from a previous tick can never be used */
 #if PSP_F2_REPLAY_MTX
         sRecMtxValid = 0;
         sRecMtxOn = 0;
@@ -4907,9 +4911,9 @@ void gfx_psp_set_role(int role) {
 #endif
 }
 
-/* Lo llama pc_main.c en el 2o cuadro de un tick de 60 fps, justo antes de patch_interpolations() (que vacia la tabla de matrices).
- * pending = 1 si el juego tiene algun parche que no es solo "cambiar la matriz de un objeto". Decide si el cuadro se repite desde la
- * lista del GE (y en ese caso deja ya escritas las matrices reales) o se dibuja entero. */
+/* Called by pc_main.c on the 2nd frame of a 60 fps tick, right before patch_interpolations() (which empties the matrix table).
+ * pending = 1 if the game has any patch that is not just "change an object's matrix". It decides whether the frame is replayed from the
+ * GE list (and in that case leaves the real matrices already written) or is drawn in full. */
 void gfx_psp_replay_prepare(int pending) {
     sReplayDecision = 0;
 #if PSP_F2_REPLAY
@@ -4930,10 +4934,10 @@ void gfx_psp_replay_prepare(int pending) {
             return;
         }
         {
-            /* La CPU recorta y descarta con las matrices del cuadro 1. Si un objeto tiene triangulos pegados al plano near (sRecNear) y
-             * se movio mas de unas unidades en esa zona entre los dos cuadros, el 2o cuadro podria dejar un hueco (corte viejo) o
-             * mandar al GE un triangulo cruzando el near sin recortar: en ese caso (poco habitual) se vuelve a emitir la escena.
-             * Los demas objetos (lo normal) no se miran: un objeto lejano que gira no tiene nada que ver con el plano near. */
+            /* The CPU clips and discards with frame 1's matrices. If an object has triangles against the near plane (sRecNear) and
+             * it moved more than a few units in that zone between the two frames, the 2nd frame could leave a gap (old cut) or
+             * send the GE a triangle crossing the near without clipping: in that (uncommon) case the scene is emitted again.
+             * The other objects (the normal case) are not looked at: a distant object that rotates has nothing to do with the near plane. */
             const float near_z = psp_persp_near();
             const float lim = 0.08f * near_z;
             const float lim2 = lim * lim;
@@ -4958,7 +4962,7 @@ void gfx_psp_replay_prepare(int pending) {
         if (sRecSkyOk) {
             const float *so = psp_sky_real_ortho();
             if (so != NULL) {
-                /* GU_VIEW nueva = ortografica real x lo que habia acumulado antes (mismo orden que gfx_sp_matrix) */
+                /* new GU_VIEW = real orthographic x what had accumulated before (same order as gfx_sp_matrix) */
                 float ra[16] __attribute__((aligned(16)));
                 float rb[16] __attribute__((aligned(16)));
                 float rc[16] __attribute__((aligned(16)));
@@ -4982,7 +4986,7 @@ void gfx_psp_replay_prepare(int pending) {
 #endif
 }
 
-/* pc_main.c: el 2o cuadro repetira la lista del 1o (se decide en gfx_psp_replay_prepare, antes de enviar) */
+/* pc_main.c: the 2nd frame will replay the 1st one's list (decided in gfx_psp_replay_prepare, before sending) */
 int gfx_psp_replay_decided(void) {
     return sReplayDecision;
 }
@@ -5013,7 +5017,7 @@ void gfx_run(Gfx *commands) {
         replay = sReplayDecision; /* lo decidio gfx_psp_replay_prepare() */
     }
     sReplayDecision = 0;
-    gfx_scegu_replay_arm(replay); /* decide ya que lista abrira start_frame */
+    gfx_scegu_replay_arm(replay); /* decides now which list start_frame will open */
 #endif
     if (!gfx_wapi->start_frame()) {
         dropped_frame = true;
@@ -5024,7 +5028,16 @@ void gfx_run(Gfx *commands) {
     //double t0 = gfx_wapi->get_time();
     unsigned int t0 = sceKernelLibcClock();
     gfx_rapi->start_frame();
-    unsigned int pend_w = 0; /* us esperando a la presentacion asincrona del cuadro anterior (dentro de start_frame) */
+#ifdef TARGET_PSP
+    {
+        extern int gPspTvStateDirty; /* gfx_scegu.c: the previous frame's TV pass changed the GE state */
+        if (gPspTvStateDirty) {
+            gPspTvStateDirty = 0;
+            gfx_invalidate_render_state();
+        }
+    }
+#endif
+    unsigned int pend_w = 0; /* us waiting for the previous frame's async presentation (inside start_frame) */
     if (gPspPendingDone) {
         pend_w = gPspProfPendWait;
         sLastAsyncS = gPspAsyncSync;
@@ -5032,8 +5045,8 @@ void gfx_run(Gfx *commands) {
         gPspProfPendWait = 0;
     }
     if (sProfLogOn && sProfFrames == 0) {
-        /* Medicion: coste de una llamada sceGuGetMemory (incluye la llamada al sistema que avisa al GE) y de leer el reloj.
-         * Se repite 64 veces una vez por ventana; ocupa unos bytes de la lista. Resultado en decimas de microsegundo. */
+        /* Measurement: cost of a sceGuGetMemory call (includes the system call that notifies the GE) and of reading the clock.
+         * It is repeated 64 times once per window; it takes a few bytes of the list. Result in tenths of a microsecond. */
         unsigned int tb0, tb1, tb2;
         int bi;
         tb0 = sceKernelGetSystemTimeLow();
@@ -5048,9 +5061,9 @@ void gfx_run(Gfx *commands) {
         sProfBenchGm = (tb1 - tb0) * 10 / 64;
         sProfBenchClk = (tb2 - tb1) * 10 / 64;
         {
-            /* Escribir 1024 palabras en memoria SIN cache (como pspgu escribe la lista de comandos del GE: sceGuStart suma 0x40000000)
-             * frente a CON cache y vaciando despues (como hace gfx_scegu.c con la arena de vertices). Da el tope de lo que ahorraria
-             * pasar la lista a escritura con cache. No toca la lista del GE. */
+            /* Writing 1024 words to UNCACHED memory (as pspgu writes the GE command list: sceGuStart adds 0x40000000)
+             * versus CACHED and flushing afterwards (as gfx_scegu.c does with the vertex arena). Gives the ceiling of what would be saved by
+             * moving the list to cached writes. It does not touch the GE list. */
             static unsigned int sBenchBuf[1024] __attribute__((aligned(64)));
             volatile unsigned int *uc = (volatile unsigned int *) ((uintptr_t) sBenchBuf | 0x40000000U);
             volatile unsigned int *cw = (volatile unsigned int *) sBenchBuf;
@@ -5066,10 +5079,10 @@ void gfx_run(Gfx *commands) {
             sProfBenchCw = u2 - u1;
         }
         {
-            /* Medicion del reloj REAL de la CPU: un bucle de 3 instrucciones (addiu / bnez / nop) con una cadena de dependencia, de
-             * 20000 vueltas, se repite 3 veces y se toma el menor tiempo (otro hilo puede interrumpir una vuelta). Con la CPU a
-             * 333 MHz y 1 instruccion por ciclo son ~180 us; si el reloj real es mayor/menor el tiempo cambia en proporcion.
-             * scePowerGetCpuClockFrequency solo dice lo que se PIDIO (CFW como ARK puede aplicar otra cosa), esto lo comprueba. */
+            /* Measurement of the REAL CPU clock: a 3-instruction loop (addiu / bnez / nop) with a dependency chain, of
+             * 20000 turns, is repeated 3 times and the smallest time is taken (another thread can interrupt a turn). With the CPU at
+             * 333 MHz and 1 instruction per cycle it is ~180 us; if the real clock is higher/lower the time changes proportionally.
+             * scePowerGetCpuClockFrequency only says what was REQUESTED (a CFW like ARK may apply something else), this checks it. */
             unsigned int best = 0xFFFFFFFFU;
             int rep;
             for (rep = 0; rep < 3; rep++) {
@@ -5086,13 +5099,13 @@ void gfx_run(Gfx *commands) {
     }
 #if PSP_F2_REPLAY
     if (replay) {
-        /* 2o cuadro: la escena del 1o ya esta en la lista del GE; el estado del renderizador (rendering_state, rsp...) y el del GE
-         * quedaron como al final del 1er cuadro, y la escena los deja igual otra vez. */
+        /* 2nd frame: the 1st one's scene is already in the GE list; the renderer state (rendering_state, rsp...) and the GE's
+         * were left as at the end of the 1st frame, and the scene leaves them the same again. */
         gfx_scegu_replay_scene();
     } else {
         if (sFrameRole == 1) {
-            /* Para que la escena grabada no dependa de como terminara el cuadro anterior, todo el estado cacheado se da por perdido y
-             * se vuelve a enviar al GE la primera vez que se usa (igual que tras un cuadro de callback). */
+            /* So that the recorded scene does not depend on how the previous frame ended, all cached state is considered lost and
+             * is sent to the GE again the first time it is used (same as after a callback frame). */
             gfx_invalidate_render_state();
             recording = gfx_scegu_rec_begin();
 #if PSP_F2_REPLAY_MTX
@@ -5125,7 +5138,7 @@ void gfx_run(Gfx *commands) {
     gfx_flush();
 #if PSP_DEVBENCH == 5
     {
-        /* se dispara con L + R + SELECT a la vez (en la escena que se quiera medir); para probar en el emulador, a los 500 cuadros */
+        /* triggered with L + R + SELECT at once (in the scene to be measured); to test in the emulator, at 500 frames */
         static int sB5N;
         SceCtrlData b5pad;
         sB5N++;
@@ -5151,7 +5164,7 @@ void gfx_run(Gfx *commands) {
     }
     gfx_rapi->end_frame();
 #if PSP_F2_REPLAY
-    gfx_scegu_replay_arm(0); /* la lista corta B solo vale para este cuadro (otros usos del GU, p.ej. el menu HOME, usan la grande) */
+    gfx_scegu_replay_arm(0); /* the short list B is only valid for this frame (other uses of the GU, e.g. the HOME menu, use the big one) */
 #endif
     {
         const unsigned int ts0 = sceKernelLibcClock();
@@ -5160,9 +5173,9 @@ void gfx_run(Gfx *commands) {
         sProfVblCur = gPspProfVblank + pend_w;
 #if PSP_ASYNC_PRESENT
         {
-            /* Coste de un cuadro con la presentacion asincrona: la logica (pre) y la cola del GE (s) se solapan, asi que un
-             * cuadro cabe si  E + max(logica, cola GE) <= vblank,  con E = enviar el cuadro (sin esperas). En el ultimo cuadro
-             * de un tick la cola es la medida en el tick anterior (el hilo aun no ha terminado). */
+            /* Cost of a frame with async presentation: the logic (pre) and the GE queue (s) overlap, so a
+             * frame fits if  E + max(logic, GE queue) <= vblank,  with E = sending the frame (without waits). In the last frame
+             * of a tick the queue is the one measured in the previous tick (the thread has not finished yet). */
             const unsigned int pre = t0 - total_t0;
             const unsigned int e_us = sProfGfx > sProfVblCur + sProfSyncCur ? sProfGfx - sProfVblCur - sProfSyncCur : 0;
             const unsigned int s_used = gPspPresentAsync ? sLastAsyncS : sProfSyncCur;
@@ -5173,19 +5186,19 @@ void gfx_run(Gfx *commands) {
             sTailSum += s_used; sTailN++;
 #if PSP_F2_REPLAY && PSP_F2_REPLAY_MTX
             if (sFrameRole == 2 && gPspPresentAsync && replay) {
-                /* 2o cuadro repetido y asincrono: su logica ya paso; lo que cuenta es que su GE termine antes del vblank */
+                /* 2nd frame replayed and async: its logic has already passed; what counts is that its GE finishes before the vblank */
                 a = pre + e_us + s_used;
             } else if (sFrameRole != 2 && (sLastF2Async || gPspReplayEma >= 600)) {
-                /* El 2o cuadro anterior se presento (o se presentara) de forma asincrona: la logica de este tick + el envio de aquel cuadro
-                 * se solapan con su espera al GE / vblank. Solo lo que pasa de un vblank retrasa el envio de este cuadro. */
+                /* The previous 2nd frame was presented (or will be presented) asynchronously: this tick's logic + the sending of that frame
+                 * overlap with its wait for the GE / vblank. Only what goes beyond one vblank delays the sending of this frame. */
                 const unsigned int hide = (sLastF2Async ? sLastF2E : 1000U) + pre;
                 a = e_us + s_used + (hide > PSP60_BUDGET_US ? hide - PSP60_BUDGET_US : 0U);
             } else
 #endif
             if (gPspAsyncWant) {
-                a = e_us + (sTickPre > s_used ? sTickPre : s_used); /* la logica se solapa con la cola del GE */
+                a = e_us + (sTickPre > s_used ? sTickPre : s_used); /* the logic overlaps with the GE queue */
             } else {
-                a = sTickPre + e_us + s_used; /* sin solape: logica + enviar + esperar al GE */
+                a = sTickPre + e_us + s_used; /* no overlap: logic + send + wait for the GE */
             }
 #if PSP_F2_REPLAY && PSP_F2_REPLAY_MTX
             if (sFrameRole == 2) {
@@ -5235,10 +5248,10 @@ void gfx_run(Gfx *commands) {
 }
 
 #if PSP_DEVBENCH
-/* ---- Diagnostico en la PSP real (PSP_DEVBENCH 1): a los ~7 s de arrancar (cuadro 400) mide, con relojes reales, cuanto cuesta cada etapa del
- * procesado de vertices/triangulos con datos falsos, escribe ms0:/sm64_devbench.txt y cierra el juego. Cada medicion = el MINIMO de 3 repeticiones
- * (los otros hilos, como el audio, solo pueden sumar tiempo). "hot" = mismos vertices una y otra vez (en la cache de datos); "cold" = recorre
- * 96 KB de vertices (mas que los 16 KB de cache), como pasa en el juego. No se usa en el juego normal. */
+/* ---- Diagnostic on the real PSP (PSP_DEVBENCH 1): ~7 s after boot (frame 400) it measures, with real clocks, how much each stage of
+ * vertex/triangle processing costs with fake data, writes ms0:/sm64_devbench.txt and closes the game. Each measurement = the MINIMUM of 3 repetitions
+ * (other threads, such as audio, can only add time). "hot" = the same vertices over and over (in the data cache); "cold" = walks
+ * 96 KB of vertices (more than the 16 KB cache), as happens in the game. Not used in the normal game. */
 #include <stdarg.h>
 extern void memcpy_vfpu(void *dst, const void *src, size_t size); /* mixer.c */
 static char sDbBuf[24576];
@@ -5296,7 +5309,7 @@ static void psp_devbench(void) {
     { float x = 1.0f; DB_TIME(r, 20000, { x = x * 1.0001f + 0.0001f; x = x * 1.0001f + 0.0001f; x = x * 1.0001f + 0.0001f; x = x * 1.0001f + 0.0001f; __asm__ volatile("" : "+f"(x)); });
       db_printf("fmul_add_chain        %8.1f ns/(mul+add)\n", r / 4.0); }
 
-    /* --- memoria --- */
+    /* --- memory --- */
     { volatile unsigned int *p = (volatile unsigned int *)sDbCold; unsigned int s = 0; int pos = 0;
       DB_TIME(r, 1536 * 4, { s += p[pos]; pos += 16; if (pos >= (int)(sizeof(sDbCold) / 4)) pos = 0; });
       db_printf("read_cold_64B_line    %8.1f ns/line (%u)\n", r, s & 1u); }
@@ -5308,31 +5321,31 @@ static void psp_devbench(void) {
     DB_TIME(r, 200, memcpy(sDbMemB, sDbMemA, sizeof(sDbMemA)));
     db_printf("memcpy_libc_32KB      %8.1f ns/KB\n", r / 32.0);
 
-    /* --- escrituras en memoria fria (lo que hace el juego al copiar vertices a la arena) --- */
+    /* --- writes to cold memory (what the game does when copying vertices to the arena) --- */
     {
         static unsigned char sDbWr[98304] __attribute__((aligned(64)));
         int off = 0;
-        /* 1 KB por iteracion, recorriendo 96 KB: siempre lineas que no estan en la cache */
+        /* 1 KB per iteration, walking 96 KB: always lines that are not in the cache */
         DB_TIME(r, 4000, { unsigned char *d = sDbWr + off;
             for (int q = 0; q < 1024; q += 64) __asm__ volatile("vzero.q c000\n sv.q c000, 0(%0)\n sv.q c000, 16(%0)\n sv.q c000, 32(%0)\n sv.q c000, 48(%0)\n" :: "r"(d + q) : "memory");
             off += 1024; if (off >= (int)sizeof(sDbWr)) off = 0; });
-        db_printf("write_cold_cached_1KB %8.1f ns/KB  (sv.q, cache de datos)\n", r);
+        db_printf("write_cold_cached_1KB %8.1f ns/KB  (sv.q, data cache)\n", r);
         off = 0;
         DB_TIME(r, 4000, { unsigned char *d = (unsigned char *)((unsigned int)(sDbWr + off) | 0x40000000u);
             for (int q = 0; q < 1024; q += 64) __asm__ volatile("vzero.q c000\n sv.q c000, 0(%0)\n sv.q c000, 16(%0)\n sv.q c000, 32(%0)\n sv.q c000, 48(%0)\n" :: "r"(d + q) : "memory");
             off += 1024; if (off >= (int)sizeof(sDbWr)) off = 0; });
-        db_printf("write_cold_uncached   %8.1f ns/KB  (sv.q, direccion sin cache)\n", r);
+        db_printf("write_cold_uncached   %8.1f ns/KB  (sv.q, uncached address)\n", r);
         off = 0;
         DB_TIME(r, 4000, { memcpy_vfpu(sDbWr + off, sDbMemA, 1024); off += 1024; if (off >= (int)sizeof(sDbWr)) off = 0; });
-        db_printf("copy_hot_to_cold_1KB  %8.1f ns/KB  (memcpy_vfpu, origen en cache -> destino frio)\n", r);
+        db_printf("copy_hot_to_cold_1KB  %8.1f ns/KB  (memcpy_vfpu, source in cache -> cold destination)\n", r);
         off = 0;
         DB_TIME(r, 4000, { memcpy_vfpu(sDbWr + off, sDbMemA, 1024); sceKernelDcacheWritebackRange(sDbWr + off, 1024); off += 1024; if (off >= (int)sizeof(sDbWr)) off = 0; });
-        db_printf("copy+writeback_1KB    %8.1f ns/KB  (como la arena de vertices del juego)\n", r);
+        db_printf("copy+writeback_1KB    %8.1f ns/KB  (like the game's vertex arena)\n", r);
         off = 0;
         DB_TIME(r, 1000, { memcpy_vfpu(sDbWr + off, sDbMemA, 4096); sceKernelDcacheWritebackRange(sDbWr + off, 4096); off += 4096; if (off >= (int)sizeof(sDbWr)) off = 0; });
         db_printf("copy+writeback_4KB    %8.1f ns/KB\n", r / 4.0);
         DB_TIME(r, 20000, sceKernelDcacheWritebackRange(sDbWr, 64));
-        db_printf("writeback_range_call  %8.1f ns/call (64 B limpios)\n", r);
+        db_printf("writeback_range_call  %8.1f ns/call (64 B clean)\n", r);
     }
 
     /* --- matrices de prueba (finitas, normales) --- */
@@ -5340,7 +5353,7 @@ static void psp_devbench(void) {
     sDbM[0] = 0.001f; sDbM[5] = 0.001f; sDbM[10] = 0.001f; sDbM[15] = 1.0f; sDbM[11] = 0.0003f;
     sDbM[16] = sDbM[21] = sDbM[26] = sDbM[31] = 1.0f;
 
-    /* --- kernels de transformacion sueltos (sin el resto de gfx_sp_vertex_impl) --- */
+    /* --- standalone transform kernels (without the rest of gfx_sp_vertex_impl) --- */
     {
         const int N = 14;
         int off = 0;
@@ -5385,8 +5398,8 @@ static void psp_devbench(void) {
         rsp.geometry_mode = save_gm;
     }
 
-    /* --- triangulos, sin tocar el GE: Profile Sweep 5 = vuelve al entrar en gfx_sp_tri1 (coste de la llamada), 4 = hasta antes de preparar el
-     * estado (descarte, scissor, recorte) --- */
+    /* --- triangles, without touching the GE: Profile Sweep 5 = returns on entering gfx_sp_tri1 (cost of the call), 4 = up to before preparing the
+     * state (discard, scissor, clipping) --- */
     {
         struct LoadedVertex *lv = &rsp.loaded_vertices[0];
         for (int k = 0; k < 6; k++) {
@@ -5408,8 +5421,8 @@ static void psp_devbench(void) {
         sSweepMode = 0;
     }
 
-    /* --- cache de instrucciones: el mismo triangulo (Profile Sweep 4, en pantalla) solo, con vertices antes de cada par de triangulos
-     * (otro codigo en medio) y las dos cosas por separado. Si "mezclado" sale mucho mas que la suma, el codigo se estorba en la cache. */
+    /* --- instruction cache: the same triangle (Profile Sweep 4, on screen) alone, with vertices before each pair of triangles
+     * (other code in between) and both things separately. If "mixed" comes out much higher than the sum, the code gets in its own way in the cache. */
     {
         struct LoadedVertex *lv = &rsp.loaded_vertices[0];
         for (int k = 0; k < 6; k++) lv[k].clip_rej = 0;
@@ -5429,7 +5442,7 @@ static void psp_devbench(void) {
             sSweepMode = 4; rsp.geometry_mode = G_ZBUFFER | G_SHADE | G_CULL_BACK;
             gfx_sp_tri1(0, 1, 2); gfx_sp_tri1(1, 3, 2); });
         sSweepMode = 0;
-        db_printf("icache: tri_x2 solo %7.1f  vtx_x4(lit) solo %7.1f  mezclado %7.1f  (exceso %7.1f ns)\n", t_tri, t_vtx, t_mix, t_mix - t_tri - t_vtx);
+        db_printf("icache: tri_x2 alone %7.1f  vtx_x4(lit) alone %7.1f  mixed %7.1f  (excess %7.1f ns)\n", t_tri, t_vtx, t_mix, t_mix - t_tri - t_vtx);
     }
 
     db_printf("END\n");
@@ -5453,20 +5466,20 @@ static void b5n_up(const uint8_t *buf, int w, int h, unsigned int t) { (void) bu
 static uint32_t b5n_new(void) { return 0; }
 static void b5n_draw(float *b, size_t l, size_t n) { (void) b; (void) l; (void) n; }
 
-/* Microprueba: el primer triangulo de cada clase (niebla 0..3 x shade_only x textura) que pasa limpio por el descarte se repite aislado, con el estado
- * del cuadro real y todo en cache, con cada variante de gfx_tri_core: coste "en caliente" del codigo de salida, y la huella del buffer que produce. */
+/* Microtest: the first triangle of each class (fog 0..3 x shade_only x texture) that passes the discard cleanly is repeated in isolation, with the real frame's
+ * state and everything in cache, with each gfx_tri_core variant: "hot" cost of the output code, and the footprint of the buffer it produces. */
 static const int sB5Vars[4] = { 0, 1, 3, 7 };
 static double sB5MicroNs[16][4];
 static unsigned int sB5MicroH[16][4];
 static unsigned int sB5MicroN[16];
-/* Escribe lo acumulado hasta ahora en ms0:/sm64_devbench.txt (si la consola se cuelga a mitad, queda hasta donde llego). */
+/* Writes what has accumulated so far to ms0:/sm64_devbench.txt (if the console hangs midway, what it got to is kept). */
 static void b5_save(void) {
     SceUID fd = sceIoOpen("ms0:/sm64_devbench.txt", PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
     if (fd >= 0) { sceIoWrite(fd, sDbBuf, sDbLen); sceIoClose(fd); }
 }
 static unsigned int sB5FuzzN, sB5FuzzBad[2];
-/* Prueba de equivalencia: triangulos con z/w, colores, mul/offset de niebla al azar (incluye w casi 0, negativas, fuera de rango) con las 3 variantes de salida;
- * la variante 1 (bucle de siempre) es la referencia y las 3 y 7 deben dar exactamente los mismos bytes en el buffer y los mismos factores de niebla. */
+/* Equivalence test: triangles with random z/w, colors, fog mul/offset (includes w almost 0, negative, out of range) with the 3 output variants;
+ * variant 1 (the usual loop) is the reference and 3 and 7 must give exactly the same bytes in the buffer and the same fog factors. */
 static void b5_fuzz(const struct LoadedVertex *tmpl) {
     static struct LoadedVertex fv[3] __attribute__((aligned(16)));
     static unsigned char ref[3 * sizeof(psp_fast_t) + 3];
@@ -5553,13 +5566,13 @@ static void b5_micro_capture(struct LoadedVertex *t1, struct LoadedVertex *t2, s
     sB5CapSeen[key] = 1;
     gfx_flush();
     tv[0] = *t1; tv[1] = *t2; tv[2] = *t3;
-    /* Sin ajuste de decal durante la microprueba y la prueba al azar: ese ajuste manda comandos REALES al GE cuando cambia (con vertices al azar
-     * serian miles y desbordarian la lista). */
+    /* No decal adjustment during the microtest and the random test: that adjustment sends REAL commands to the GE when it changes (with random vertices
+     * there would be thousands and they would overflow the list). */
     const bool saveDecal = rendering_state.decal_mode;
     rendering_state.decal_mode = false;
-    db_printf("STAGE capturando clase %d: prueba al azar\n", key); b5_save();
+    db_printf("STAGE capturing class %d: random test\n", key); b5_save();
     b5_fuzz(tv);
-    db_printf("STAGE clase %d: microprueba\n", key); b5_save();
+    db_printf("STAGE class %d: microtest\n", key); b5_save();
     const int saveVar = sTriVarSel;
     for (int vi = 0; vi < 4; vi++) {
         double best = 1.0e30;
@@ -5587,9 +5600,9 @@ static void b5_micro_capture(struct LoadedVertex *t1, struct LoadedVertex *t2, s
     rendering_state.decal_mode = saveDecal;
 }
 
-/* Diagnostico 5 (solo modo usuario, sin nada de kernel): repite el cuadro real varias veces cortando o quitando partes del trabajo.
- * La diferencia de tiempo entre dos configuraciones es lo que cuesta lo que se quito. Nada llega al GE.
- * Cada configuracion se mide 1 vez en frio (caches vaciadas justo antes) y 5 en caliente (se toma el menor tiempo). */
+/* Diagnostic 5 (user mode only, no kernel involved): replays the real frame several times cutting or removing parts of the work.
+ * The time difference between two configurations is what the removed part costs. Nothing reaches the GE.
+ * Each configuration is measured once cold (caches flushed right before) and 5 times hot (the smallest time is taken). */
 static const char *b5_opname(unsigned int o) {
     switch (o) {
         case G_MTX: return "MTX";
@@ -5633,7 +5646,7 @@ static const char *b5_opname(unsigned int o) {
 
 static void psp_devbench5(Gfx *root) {
     enum { NC = 22, ROUNDS = 6 };
-    /* sweep, cull, abl, variante de salida de triangulos, variante de matrices */
+    /* sweep, cull, abl, triangle output variant, matrix variant */
     static const int cfg[NC][5] = {
         { 7, 0, 0, 0, 0 }, { 6, 0, 0, 0, 0 }, { 5, 0, 0, 0, 0 }, { 0, 1, 0, 0, 0 }, { 4, 0, 0, 0, 0 }, { 3, 0, 0, 0, 0 }, { 2, 0, 0, 0, 0 },
         { 5, 0, 1 << 6, 0, 0 },
@@ -5641,14 +5654,14 @@ static void psp_devbench5(Gfx *root) {
         { 2, 0, 0, 3, 0 }, { 2, 0, 0, 3, 0 }, { 2, 0, 0, 3, 1 }, { 2, 0, 0, 3, 2 }, { 2, 0, 0, 3, 3 },
         { 2, 0, 1 << 8, 3, 0 } };
     static const char *cname[NC] = {
-        "A0 recorrido de la lista (sin vertices ni triangulos)", "A1 + transformacion de vertices", "A2 + iluminacion/resto de vertices",
-        "A3 + despacho del triangulo y descarte (clip/cara trasera)", "A4 + preludio de gfx_tri_core (scissor, recorte)", "A5 + prepare/enva/lod",
-        "A6 + bucle de salida de vertices + flush (todo menos el dibujo)", "V  recorrido + preparacion de cada carga de vertices (sin transformar)",
-        "B0 control (salida de siempre): todo menos el dibujo", "B1 sin niebla por vertice", "B2 sin u/v de textura", "B3 sin copiar color", "B4 sin llamar a scegu_fog_mode",
-        "B5 sin test de scissor", "B6 sin gfx_prepare_tri_pipeline_state", "B7 salida minima (sin niebla, u/v ni color)",
-        "P  produccion (parche 113): salida variante 3", "P2 igual que P (mide el ruido)",
-        "M1 produccion + MP de matrices perezoso", "M2 produccion + gfx_update_mv sin copias", "M3 produccion + M1 + M2",
-        "D8 produccion sin G_MTX / G_POPMTX" };
+        "A0 walking the list (no vertices or triangles)", "A1 + vertex transformation", "A2 + lighting/rest of the vertices",
+        "A3 + triangle dispatch and discard (clip/back face)", "A4 + gfx_tri_core prelude (scissor, clipping)", "A5 + prepare/enva/lod",
+        "A6 + vertex output loop + flush (everything but the drawing)", "V  walk + preparation of each vertex load (without transforming)",
+        "B0 control (usual output): everything but the drawing", "B1 without per-vertex fog", "B2 without texture u/v", "B3 without copying color", "B4 without calling scegu_fog_mode",
+        "B5 without scissor test", "B6 without gfx_prepare_tri_pipeline_state", "B7 minimal output (no fog, u/v or color)",
+        "P  production (patch 113): output variant 3", "P2 same as P (measures the noise)",
+        "M1 production + lazy matrix MP", "M2 production + gfx_update_mv without copies", "M3 production + M1 + M2",
+        "D8 production without G_MTX / G_POPMTX" };
     static unsigned int tcold[NC], thot[NC];
     static unsigned int hist[12], nVtx, nSub, nPass, nDraw, nCmd;
     const int saveSweep = sSweepMode;
@@ -5676,7 +5689,7 @@ static void psp_devbench5(Gfx *root) {
     int stage;
     for (stage = 0; stage < 2; stage++) {
     const int clo = stage ? 16 : 0, chi = stage ? NC : 16;
-    db_printf("STAGE configuraciones %d..%d\n", clo, chi - 1); b5_save();
+    db_printf("STAGE configurations %d..%d\n", clo, chi - 1); b5_save();
     for (rd = 0; rd < ROUNDS; rd++) {
         for (c = clo; c < chi; c++) {
             unsigned int u0, u1, v0, s0, p0, cm0, h0[12];
@@ -5717,8 +5730,8 @@ static void psp_devbench5(Gfx *root) {
     }
     sB5Cull = 0;
     sB5Abl = 0;
-    db_printf("STAGE huellas de todo el cuadro\n"); b5_save();
-    /* huella del buffer de salida de TODO el cuadro con cada variante (deben ser iguales: mismo resultado bit a bit) */
+    db_printf("STAGE whole-frame footprints\n"); b5_save();
+    /* footprint of the output buffer of the WHOLE frame with each variant (they must be equal: same result bit for bit) */
     {
         unsigned int hv[7];
         static const int hc[7][2] = { { 0, 0 }, { 1, 0 }, { 3, 0 }, { 7, 0 }, { 3, 1 }, { 3, 2 }, { 3, 3 } };
@@ -5739,11 +5752,11 @@ static void psp_devbench5(Gfx *root) {
         }
         sTriVarSel = 3;
         sMtxVar = 0;
-        db_printf("huella del buffer de todo el cuadro (salida/matrices): 0/0 %08x  1/0 %08x  3/0 %08x  7/0 %08x  3/1 %08x  3/2 %08x  3/3 %08x   %s\n",
-                  hv[0], hv[1], hv[2], hv[3], hv[4], hv[5], hv[6], same ? "IGUALES" : "DISTINTAS");
-        db_printf("STAGE tiempos por comando\n"); b5_save();
+        db_printf("whole-frame buffer footprint (output/matrices): 0/0 %08x  1/0 %08x  3/0 %08x  7/0 %08x  3/1 %08x  3/2 %08x  3/3 %08x   %s\n",
+                  hv[0], hv[1], hv[2], hv[3], hv[4], hv[5], hv[6], same ? "EQUAL" : "DIFFERENT");
+        db_printf("STAGE per-command times\n"); b5_save();
         {
-            /* tiempo de cada tipo de comando de la lista (inclusivo: G_DL incluye lo que ejecuta) y de partes del camino de matrices */
+            /* time of each command type in the list (inclusive: G_DL includes what it executes) and of parts of the matrix path */
             unsigned int t0, t1, ntm = 0, order[256], oi, oj, nord = 0;
             double ovns;
             memset(sB5OpAcc, 0, sizeof(sB5OpAcc)); memset(sB5OpN, 0, sizeof(sB5OpN));
@@ -5761,7 +5774,7 @@ static void psp_devbench5(Gfx *root) {
             sB5OpOn = 0;
             for (oi = 0; oi < 256; oi++) if (sB5OpN[oi]) order[nord++] = oi;
             for (oi = 0; oi < nord; oi++) for (oj = oi + 1; oj < nord; oj++) if (sB5OpAcc[order[oj]] > sB5OpAcc[order[oi]]) { unsigned int tq = order[oi]; order[oi] = order[oj]; order[oj] = tq; }
-            db_printf("tiempo por tipo de comando, descontado el reloj (%.0f ns por lectura), por cuadro; %u\n", ovns, ntm & 1u);
+            db_printf("time per command type, clock overhead subtracted (%.0f ns per read), per frame; %u\n", ovns, ntm & 1u);
             for (oi = 0; oi < nord && oi < 16; oi++) {
                 const unsigned int o = order[oi];
                 const double n = (double) sB5OpN[o] / 3.0;
@@ -5769,28 +5782,28 @@ static void psp_devbench5(Gfx *root) {
                 db_printf("  op 0x%02x %-10s %6.0f cmds  %8.0f us  %7.0f ns/cmd\n", o, b5_opname(o), n, us, n > 0 ? us * 1000.0 / n : 0.0);
             }
             {
-                static const char *sn[8] = { "gfx_update_mv", "luces (calculate_normal_dir)", "copia MP -> sXfm", "", "", "flush de MP perezoso", "", "" };
+                static const char *sn[8] = { "gfx_update_mv", "lights (calculate_normal_dir)", "copy MP -> sXfm", "", "", "lazy MP flush", "", "" };
                 for (oi = 0; oi < 8; oi++) {
                     if (!sB5SecN[oi]) continue;
                     {
                         const double n = (double) sB5SecN[oi] / 3.0;
                         const double us = ((double) sB5Sec[oi] / 3.0) - n * ovns / 1000.0;
-                        db_printf("  seccion %-30s %6.0f veces  %8.0f us  %7.0f ns/vez\n", sn[oi], n, us, n > 0 ? us * 1000.0 / n : 0.0);
+                        db_printf("  section %-30s %6.0f times  %8.0f us  %7.0f ns/time\n", sn[oi], n, us, n > 0 ? us * 1000.0 / n : 0.0);
                     }
                 }
             }
         }
 #ifdef PSP_B5_MICRO
-        /* microprueba aislada por clase de triangulo (solo emulador: en la PSP real se colgaba) */
-        db_printf("STAGE captura de clases\n"); b5_save();
+        /* isolated microtest per triangle class (emulator only: on the real PSP it hung) */
+        db_printf("STAGE class capture\n"); b5_save();
         sB5Cap = 1;
         gfx_sp_reset();
         gfx_run_dl(root);
         gfx_flush();
         sB5Cap = 0;
 #endif
-        db_printf("STAGE tiempos de prepare\n"); b5_save();
-        /* tiempos de las secciones de gfx_prepare_tri_pipeline_state (cada marca de tiempo cuesta una llamada al reloj: se resta) */
+        db_printf("STAGE prepare times\n"); b5_save();
+        /* times of the sections of gfx_prepare_tri_pipeline_state (each timestamp costs a clock call: it is subtracted) */
         {
             unsigned int t0, t1, ov, ntm = 0;
             double ovns;
@@ -5808,13 +5821,13 @@ static void psp_devbench5(Gfx *root) {
                 gfx_flush();
             }
             sB5PrepOn = 0;
-            db_printf("llamadas reales de gfx_prepare_tri_pipeline_state (estado sucio): %u por cuadro (reloj: %.0f ns por llamada, %u)\n", sB5PN / 3, ovns, ntm & 1u);
+            db_printf("real calls of gfx_prepare_tri_pipeline_state (dirty state): %u per frame (clock: %.0f ns per call, %u)\n", sB5PN / 3, ovns, ntm & 1u);
             {
-                static const char *pn[6] = { "", "estado GE (depth/zmode/viewport/scissor)", "combinador + shader + alpha", "texturas (peek/import/sampler)",
-                                             "escala de textura", "modo de niebla (nuevo)" };
+                static const char *pn[6] = { "", "GE state (depth/zmode/viewport/scissor)", "combiner + shader + alpha", "textures (peek/import/sampler)",
+                                             "texture scale", "fog mode (new)" };
                 for (k = 1; k < 6; k++) {
                     const double per = sB5PN ? (double) sB5PAcc[k] * 1000.0 / (double) sB5PN - ovns : 0.0;
-                    db_printf("  prepare seccion %-44s %8.0f ns por llamada\n", pn[k], per);
+                    db_printf("  prepare section %-44s %8.0f ns per call\n", pn[k], per);
                 }
             }
         }
@@ -5822,41 +5835,41 @@ static void psp_devbench5(Gfx *root) {
     sSweepMode = saveSweep;
     sProfLogOn = saveProf;
     gfx_rapi = sB5RapiSaved;
-    db_printf("vertices %u, triangulos recibidos %u, pasan el descarte %u, dibujados %u, comandos del DL %u\n", nVtx, nSub, nPass, nDraw, nCmd);
-    db_printf("de los triangulos que llegan a la salida: niebla modo0 %u modo1 %u modo2 %u modo3 %u | shade_only %u  con textura %u  scissor activo %u  necesita recorte de scissor %u  recorte de CPU %u  enva_blanco %u\n",
+    db_printf("vertices %u, triangles received %u, pass the discard %u, drawn %u, DL commands %u\n", nVtx, nSub, nPass, nDraw, nCmd);
+    db_printf("of the triangles that reach the output: fog mode0 %u mode1 %u mode2 %u mode3 %u | shade_only %u  with texture %u  scissor active %u  needs scissor clipping %u  CPU clipping %u  enva_white %u\n",
               hist[0], hist[1], hist[2], hist[3], hist[4], hist[5], hist[6], hist[7], hist[8], hist[9]);
-    db_printf("%-70s %9s %9s %9s %9s\n", "configuracion", "frio us", "calie. us", "d.frio", "d.calie.");
+    db_printf("%-70s %9s %9s %9s %9s\n", "configuration", "cold us", "hot us", "d.cold", "d.hot");
     for (c = 0; c < 8; c++) {
         const int prev = (c == 0) ? -1 : (c == 7 ? 0 : c - 1);
         const int dc = prev < 0 ? (int) tcold[c] : (int) tcold[c] - (int) tcold[prev];
         const int dh = prev < 0 ? (int) thot[c] : (int) thot[c] - (int) thot[prev];
         db_printf("%-70s %9u %9u %9d %9d\n", cname[c], tcold[c], thot[c], dc, dh);
     }
-    db_printf("-- quitando partes de la salida / prepare (diferencia contra el control B0, caliente) --\n");
+    db_printf("-- removing parts of the output / prepare (difference against control B0, hot) --\n");
     for (c = 8; c < NC; c++) {
         const int dh = (int) thot[c] - (int) thot[8];
         const int dc = (int) tcold[c] - (int) tcold[8];
-        db_printf("%-70s %9u %9u %9d %9d   (%+.0f ns por triangulo dibujado)\n", cname[c], tcold[c], thot[c], dc, dh, nDraw ? (double) dh * 1000.0 / nDraw : 0.0);
+        db_printf("%-70s %9u %9u %9d %9d   (%+.0f ns per drawn triangle)\n", cname[c], tcold[c], thot[c], dc, dh, nDraw ? (double) dh * 1000.0 / nDraw : 0.0);
     }
     {
         const double nv = nVtx ? (double) nVtx : 1.0, ns = nSub ? (double) nSub : 1.0, np = nPass ? (double) nPass : 1.0, nd = nDraw ? (double) nDraw : 1.0;
-        db_printf("por vertice: setup de cada carga %.0f ns, transformacion %.0f ns, iluminacion %.0f ns (caliente)\n",
+        db_printf("per vertex: setup of each load %.0f ns, transformation %.0f ns, lighting %.0f ns (hot)\n",
                   (double) ((int) thot[7] - (int) thot[0]) * 1000.0 / nv,
                   (double) ((int) thot[1] - (int) thot[7]) * 1000.0 / nv, (double) ((int) thot[2] - (int) thot[1]) * 1000.0 / nv);
-        db_printf("por triangulo: despacho+descarte %.0f ns (por recibido) | preludio %.0f | prepare %.0f | salida %.0f ns (por pasado) | salida por dibujado %.0f ns\n",
+        db_printf("per triangle: dispatch+discard %.0f ns (per received) | prelude %.0f | prepare %.0f | output %.0f ns (per passed) | output per drawn %.0f ns\n",
                   (double) ((int) thot[3] - (int) thot[2]) * 1000.0 / ns, (double) ((int) thot[4] - (int) thot[3]) * 1000.0 / np,
                   (double) ((int) thot[5] - (int) thot[4]) * 1000.0 / np, (double) ((int) thot[6] - (int) thot[5]) * 1000.0 / np,
                   (double) ((int) thot[6] - (int) thot[5]) * 1000.0 / nd);
     }
-    db_printf("prueba de equivalencia con datos al azar (niebla 1..3, varias clases): %u comparaciones, distintas variante 3: %u, variante 7: %u   %s\n",
-              sB5FuzzN, sB5FuzzBad[0], sB5FuzzBad[1], (sB5FuzzBad[0] | sB5FuzzBad[1]) ? "*** DIFERENCIAS ***" : "OK");
-    db_printf("-- microprueba aislada: gfx_tri_core de un triangulo real de cada clase, repetido con todo en cache (lotes de 9 triangulos como en el juego) --\n");
-    db_printf("%-34s %8s %9s %9s %9s %9s   %s\n", "clase", "tris", "v0 ns", "v1 ns", "v3 ns", "v7 ns", "huellas");
+    db_printf("equivalence test with random data (fog 1..3, several classes): %u comparisons, differing variant 3: %u, variant 7: %u   %s\n",
+              sB5FuzzN, sB5FuzzBad[0], sB5FuzzBad[1], (sB5FuzzBad[0] | sB5FuzzBad[1]) ? "*** DIFFERENCES ***" : "OK");
+    db_printf("-- isolated microtest: gfx_tri_core of a real triangle of each class, repeated with everything in cache (batches of 9 triangles as in the game) --\n");
+    db_printf("%-34s %8s %9s %9s %9s %9s   %s\n", "class", "tris", "v0 ns", "v1 ns", "v3 ns", "v7 ns", "footprints");
     for (k = 0; k < 16; k++) {
         if (!sB5CapSeen[k]) continue;
-        db_printf("niebla=%d shade_only=%d textura=%d %*s %8u %9.0f %9.0f %9.0f %9.0f   %s\n", k >> 2, (k >> 1) & 1, k & 1, 4, "", sB5MicroN[k],
+        db_printf("fog=%d shade_only=%d texture=%d %*s %8u %9.0f %9.0f %9.0f %9.0f   %s\n", k >> 2, (k >> 1) & 1, k & 1, 4, "", sB5MicroN[k],
                   sB5MicroNs[k][0], sB5MicroNs[k][1], sB5MicroNs[k][2], sB5MicroNs[k][3],
-                  (sB5MicroH[k][0] == sB5MicroH[k][1] && sB5MicroH[k][0] == sB5MicroH[k][2] && sB5MicroH[k][0] == sB5MicroH[k][3]) ? "iguales" : "DISTINTAS");
+                  (sB5MicroH[k][0] == sB5MicroH[k][1] && sB5MicroH[k][0] == sB5MicroH[k][2] && sB5MicroH[k][0] == sB5MicroH[k][3]) ? "equal" : "DIFFERENT");
     }
     db_printf("END\n");
     {
@@ -5936,11 +5949,11 @@ void gfx_end_frame(void) {
             sProfAccSync = sProfAccVbl = 0;
             prof_log_window();
             if (gPspSweep) {
-                if (gMenuMode == -1) { /* solo cuenta con el juego en marcha (no en la pausa / menu) */
+                if (gMenuMode == -1) { /* only counts with the game running (not in the pause / menu) */
                     sSweepWin++;
                     sSweepMode = sSweepWin / 6;
                     if (sSweepMode > 8) {
-                        gPspSweep = 0; /* fin: psp_options_poll lo ve y apaga la fila */
+                        gPspSweep = 0; /* end: psp_options_poll sees it and turns the row off */
                         sSweepMode = 0;
                         sSweepWin = 0;
                     }
@@ -5990,7 +6003,7 @@ void gfx_render_callback_frame(void (*draw_callback)(void *arg), void *arg) {
 
     dropped_frame = false;
 #if PSP_F2_REPLAY
-    /* El menu HOME usa la lista grande y pisa la escena grabada: nada de repetirla despues. */
+    /* The HOME menu uses the big list and overwrites the recorded scene: no replaying after that. */
     gfx_scegu_replay_arm(0);
     gfx_scegu_rec_reset();
 #if PSP_F2_REPLAY && PSP_F2_REPLAY_MTX

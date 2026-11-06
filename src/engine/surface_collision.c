@@ -540,7 +540,7 @@ static struct Surface *find_floor_from_list_interp(struct SurfaceNode *surfaceNo
 }
 
 /**
- * Version original (aritmetica entera exacta). Es la que usa toda la logica del juego.
+ * Original version (exact integer arithmetic). It is the one used by all of the game's logic.
  */
 static struct Surface *find_floor_from_list_exact(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z, f32 *pheight) {
     register struct Surface *surf;
@@ -615,8 +615,8 @@ static struct Surface *find_floor_from_list_exact(struct SurfaceNode *surfaceNod
 }
 
 /**
- * Solo las sombras de los cuadros interpolados (60 fps) usan la version en float con superficies moviles interpoladas
- * (gInterpolatingSurfaces); el resto del juego usa siempre la version entera original, igual que sin interpolacion.
+ * Only the shadows of the interpolated frames (60 fps) use the float version with interpolated moving surfaces
+ * (gInterpolatingSurfaces); the rest of the game always uses the original integer version, the same as without interpolation.
  */
 static struct Surface *find_floor_from_list(struct SurfaceNode *surfaceNode, s32 x, s32 y, s32 z, f32 *pheight) {
     if (gInterpolatingSurfaces) {

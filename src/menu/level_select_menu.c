@@ -136,20 +136,20 @@ s16 level_select_input_loop(void) {
 
 #ifdef TARGET_PSP
 extern void get_currently_playing_sound(u8 bankIndex, u8 *numPlayingSounds, u8 *arg2, u8 *soundId);
-/* Voz del titulo (Hello / Press Start to play). El juego original pide el sonido UNA sola vez; si la peticion se pierde (el audio
- * se procesa en el ME / en otro hilo) Mario se queda mudo. Aqui se vigila: unos ticks despues se mira si el banco de voces suena y,
- * si no, se repite la peticion (maximo 2 veces). Ademas, al volver al titulo despues del demo Mario repite "Press Start to play"
- * (PSP_TITLE_VOICE_AFTER_DEMO 0 = comportamiento original). Contadores para el log (VOX): [0] peticiones, [1] reintentos,
- * [2] confirmadas sonando, [3] ultima voz (1 = Hello, 2 = Press Start). */
+/* Title voice (Hello / Press Start to play). The original game requests the sound ONCE; if the request is lost (the audio
+ * is processed on the ME / in another thread) Mario stays mute. Here it is watched: a few ticks later it checks whether the voice bank is playing and,
+ * if not, the request is repeated (at most 2 times). Also, when returning to the title after the demo Mario repeats "Press Start to play"
+ * (PSP_TITLE_VOICE_AFTER_DEMO 0 = original behavior). Log counters (VOX): [0] requests, [1] retries,
+ * [2] confirmed playing, [3] last voice (1 = Hello, 2 = Press Start). */
 #ifndef PSP_TITLE_VOICE_AFTER_DEMO
 #define PSP_TITLE_VOICE_AFTER_DEMO 1
 #endif
 unsigned int gPspVox[4];
-static u32 sVoxBits = 0;     /* voz pedida que se esta vigilando (0 = ninguna) */
-static s16 sVoxAge = 0;      /* ticks desde la ultima peticion */
+static u32 sVoxBits = 0;     /* requested voice being watched (0 = none) */
+static s16 sVoxAge = 0;      /* ticks since the last request */
 static s16 sVoxTries = 0;    /* reintentos hechos */
-static u32 sVoxLastTick = 0; /* gGlobalTimer de la ultima llamada (para detectar que se volvio a entrar a la pantalla) */
-static s16 sVoxEntered = 0;  /* ya se entro al titulo al menos una vez */
+static u32 sVoxLastTick = 0; /* gGlobalTimer of the last call (to detect that the screen was entered again) */
+static s16 sVoxEntered = 0;  /* the title has already been entered at least once */
 
 static void psp_title_voice(u32 bits) {
     play_sound(bits, gDefaultSoundArgs);
@@ -173,7 +173,7 @@ static void psp_title_voice_watch(void) {
     get_currently_playing_sound(2, &n, &a, &id);
     if (n != 0) {
         gPspVox[2]++;
-        sVoxBits = 0; /* suena: listo */
+        sVoxBits = 0; /* plays: ready */
     } else if (sVoxTries < 2) {
         sVoxTries++;
         gPspVox[1]++;
@@ -190,7 +190,7 @@ int intro_default(void) {
 #ifndef VERSION_JP
 #ifdef TARGET_PSP
     {
-        /* gGlobalTimer salta mas de 2 entre llamadas = se acaba de (re)entrar a la pantalla del titulo */
+        /* gGlobalTimer jumps by more than 2 between calls = the title screen was just (re)entered */
         const int reentry = sVoxEntered && ((gGlobalTimer - sVoxLastTick) > 2);
         sVoxLastTick = gGlobalTimer;
         if (!sVoxEntered || reentry) {

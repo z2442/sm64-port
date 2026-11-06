@@ -675,9 +675,9 @@ void get_pos_from_transform_mtx(Vec3f dest, Mat4 objMtx, Mat4 camMtx) {
 
         "lv.q   C100, 48(%1)\n"     // obj translation
 
-        // BUG ORIGINAL: los resultados se escribian en S100..S102, o sea en la propia C100 (traslacion del objeto)
-        // antes de usarla, y todos los calculos siguientes salian corruptos (el objeto soltado aparecia en otro lugar).
-        // Ahora los temporales van a registros distintos: C200 (camara) y C210 (objeto).
+        // ORIGINAL BUG: the results were written to S100..S102, that is into C100 itself (the object's translation)
+        // before using it, and all the following calculations came out corrupted (the dropped object appeared somewhere else).
+        // Now the temporaries go to different registers: C200 (camera) and C210 (object).
         "vdot.t S200, C030, C000\n"   // camX
         "vdot.t S210, C100, C000\n"   // objX
         "vdot.t S201, C030, C010\n"   // camY
@@ -910,15 +910,15 @@ static const SplineCoeffs gSplineCoeff[5] = {
 };
 
 void spline_get_weights(Vec4f result, f32 t, UNUSED s32 c) {
-    /* los estados son 1..5; se limita por seguridad ante un indice fuera de la tabla */
+    /* the states are 1..5; it is limited for safety against an index outside the table */
     s32 sIdx = gSplineState - 1;
     if (sIdx < 0) sIdx = 0;
     if (sIdx > 4) sIdx = 4;
     const SplineCoeffs* sc = &gSplineCoeff[sIdx];
 
-    /* Horner en C escalar (peso_i = ((A_i*t + B_i)*t + C_i)*t + D_i). Se llama una vez por frame en la cutscene del vuelo de
-     * Mario, asi que no hace falta VFPU; evita depender de la alineacion de 16 bytes de la tabla y de la pila, que hacia
-     * crashear algunos emuladores (PPSSPP JIT) con una carga lv.q mal alineada. */
+    /* Scalar C Horner (weight_i = ((A_i*t + B_i)*t + C_i)*t + D_i). It is called once per frame in Mario's flight cutscene,
+     * so VFPU is not needed; it avoids depending on the 16-byte alignment of the table and the stack, which made
+     * some emulators (PPSSPP JIT) crash with a misaligned lv.q load. */
     for (int i = 0; i < 4; i++) {
         result[i] = ((sc->A[i] * t + sc->B[i]) * t + sc->C[i]) * t + sc->D[i];
     }
@@ -948,7 +948,7 @@ s32 anim_spline_poll(Vec3f result) {
     s32 hasEnded = FALSE;
 
     if (gSplineKeyframe == NULL) {
-        /* anim_spline_init no se ha llamado (p. ej. cutscene lanzada a medias): terminar en vez de leer memoria invalida */
+        /* anim_spline_init has not been called (e.g. a cutscene launched halfway): finish instead of reading invalid memory */
         vec3f_copy(result, gVec3fZero);
         return TRUE;
     }

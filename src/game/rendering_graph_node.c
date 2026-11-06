@@ -15,8 +15,8 @@
 extern struct Object *gMarioObject; /* object_list_processor.c */
 
 #ifdef TARGET_PSP
-/* 1 si la posicion del mundo (x, y, z) esta a menos de r unidades de Mario (o si todavia no hay Mario). Object Culling Vertical respeta
- * esta zona: lo que esta cerca de Mario se descarta igual que en el juego original. */
+/* 1 if the world position (x, y, z) is within r units of Mario (or if there is no Mario yet). Object Culling Vertical respects
+ * this zone: what is near Mario is discarded the same as in the original game. */
 static int psp_near_mario(const f32 *p, f32 r) {
     const f32 *m;
     f32 dx, dy, dz;
@@ -32,19 +32,19 @@ static int psp_near_mario(const f32 *p, f32 r) {
 #endif
 #ifdef TARGET_PSP
 #include "psp_options.h"
-extern s16 gMenuMode; /* ingame_menu.c: -1 = sin menu de pausa */
+extern s16 gMenuMode; /* ingame_menu.c: -1 = no pause menu */
 #include "model_ids.h"
-/* Hongo 1up (ver psp_billboard_pull): se acerca a la camara entre PSP_BB_PULL_MIN y PSP_BB_PULL_MAX unidades (K * distancia) sin cambiar su
- * tamano ni su posicion en pantalla. K = 0 lo apaga. */
+/* 1up mushroom (see psp_billboard_pull): it is brought closer to the camera between PSP_BB_PULL_MIN and PSP_BB_PULL_MAX units (K * distance) without changing its
+ * size or its position on screen. K = 0 turns it off. */
 #ifndef PSP_BB_PULL_K
 #define PSP_BB_PULL_K 0.03f
 #define PSP_BB_PULL_MIN 20.0f
 #define PSP_BB_PULL_MAX 60.0f
 #endif
-/* El 1up es un cuadro plano que mira a la camara con su borde de abajo al ras del piso: de frente a una ladera queda casi paralelo al
- * terreno y a la sombra, y el z-buffer de 16 bits de la PSP los mezcla (parpadeo que cambia con el angulo de la camara). Multiplicar toda la
- * matriz (vista) por s < 1 acerca el objeto a la camara a lo largo de su rayo: se ve exactamente igual (misma posicion y tamano en pantalla)
- * pero con menos profundidad, asi que queda por delante del piso y de la sombra. */
+/* The 1up is a flat quad facing the camera with its bottom edge flush with the floor: seen head-on against a slope it is almost parallel to the
+ * terrain and the shadow, and the PSP's 16-bit z-buffer mixes them (flicker that changes with the camera angle). Multiplying the whole
+ * (view) matrix by s < 1 brings the object closer to the camera along its ray: it looks exactly the same (same position and size on screen)
+ * but with less depth, so it ends up in front of the floor and the shadow. */
 static void psp_billboard_pull(Mat4 m) {
     const f32 d = -m[3][2];
     f32 dl, s;
@@ -189,10 +189,10 @@ LookAt lookAt;
 
 static Gfx *sPerspectivePos;
 static Mtx *sPerspectiveMtx;
-static Mtx *sPerspectiveMtxInterpolated; /* la que lleva la lista en el 1er cuadro (la real es sPerspectiveMtx) */
-static f32 sPspPerspNear = 100.0f;       /* near de la ultima proyeccion (PSP_F2_REPLAY) */
-/* Escala del plano lejano con la que se construyo la ultima proyeccion de la camara (1.0 = la original del juego). La lee gfx_pc.c para que la
- * niebla se calcule siempre con la proyeccion ORIGINAL y no cambie con "Far Distance" (ver gfx_pc.c, PSP_FOG_FAR_INDEPENDENT). */
+static Mtx *sPerspectiveMtxInterpolated; /* the one the list carries in the 1st frame (the real one is sPerspectiveMtx) */
+static f32 sPspPerspNear = 100.0f;       /* near of the last projection (PSP_F2_REPLAY) */
+/* Far plane scale with which the camera's last projection was built (1.0 = the game's original). Read by gfx_pc.c so that the
+ * fog is always computed with the ORIGINAL projection and does not change with "Far Distance" (see gfx_pc.c, PSP_FOG_FAR_INDEPENDENT). */
 float gPspPerspFarScaleUsed = 1.0f;
 
 struct {
@@ -201,22 +201,22 @@ struct {
     void *displayList;
 
 #ifdef TARGET_PSP
-    void *replay; /* matriz que debe llevar este objeto en el 2o cuadro si la escena se repite (NULL = dejar la del 1o) */
+    void *replay; /* matrix this object must carry in the 2nd frame if the scene is replayed (NULL = leave the 1st's) */
 #endif
 } gMtxTbl[6400];
 s32 gMtxTblSize;
 
 #ifdef TARGET_PSP
-/* Sombras (PSP_F2_REPLAY): su lista de dibujo interpolada tiene las alturas del suelo respecto a la posicion INTERPOLADA, asi que en el
- * 2o cuadro (que repite esa lista) la matriz debe llevar x/z reales pero la altura interpolada. Se guarda aqui por nodo de lista. */
+/* Shadows (PSP_F2_REPLAY): their interpolated draw list has the floor heights relative to the INTERPOLATED position, so in the
+ * 2nd frame (which replays that list) the matrix must carry real x/z but the interpolated height. It is stored here per list node. */
 static struct { void *node; void *mtx; } sReplayMtx[128];
 static int sReplayMtxCount;
 static void *sNextReplayMtx;
 #endif
 
 #ifdef TARGET_PSP
-/* PSP_F2_SKY: el cielo se crea dos veces por tick (estado real e interpolado). Si las dos versiones dibujan los mismos tiles, la
- * unica diferencia es su matriz ortografica: el 2o cuadro puede cambiar una por otra (gfx_pc.c). */
+/* PSP_F2_SKY: the sky is created twice per tick (real and interpolated state). If both versions draw the same tiles, the
+ * only difference is their orthographic matrix: the 2nd frame can swap one for the other (gfx_pc.c). */
 extern const void *gPspSkyOrtho;
 extern s32 gPspSkyBase;
 static const void *sSkyRealOrtho;
@@ -229,18 +229,18 @@ const float *psp_sky_real_ortho(void) { return sSkyMatch ? (const float *) sSkyR
 
 static Gfx *sViewportPos;
 static Vp sPrevViewport;
-static u8 sViewportDiffers; /* 1 si el viewport (scissor) interpolado no es el real */
+static u8 sViewportDiffers; /* 1 if the interpolated viewport (scissor) is not the real one */
 
 #ifdef TARGET_PSP
-/* ---- PSP_F2_REPLAY (etapa 2): lo que el 2o cuadro de un tick de 60 fps necesita saber de los parches de matrices ----
- * El 2o cuadro repite la escena del 1o y solo reescribe las matrices de cada objeto. gfx_pc.c lee la tabla gMtxTbl (ANTES de que
- * patch_interpolations() la vacie) y pregunta si el parche de proyeccion / viewport hace algo mas que cambiar matrices de objetos. */
+/* ---- PSP_F2_REPLAY (stage 2): what the 2nd frame of a 60 fps tick needs to know about the matrix patches ----
+ * The 2nd frame replays the 1st one's scene and only rewrites each object's matrices. gfx_pc.c reads the gMtxTbl table (BEFORE
+ * patch_interpolations() empties it) and asks whether the projection / viewport patch does anything more than change object matrices. */
 int psp_mtx_tbl_count(void) { return (int) gMtxTblSize; }
 Gfx *psp_mtx_tbl_pos(int i) { return gMtxTbl[i].pos; }
-/* Matriz (Mtx con GBI_FLOATS = 16 floats) para el 2o cuadro, o NULL si ese objeto debe quedarse como salio en el 1o (cielo...). */
+/* Matrix (Mtx with GBI_FLOATS = 16 floats) for the 2nd frame, or NULL if that object must stay as it came out in the 1st (sky...). */
 const float *psp_mtx_tbl_mtx(int i) { return (const float *) gMtxTbl[i].replay; }
 float psp_persp_near(void) { return (float) sPspPerspNear; }
-/* 1 si la proyeccion del 2o cuadro no es la misma que la del 1o (cambio de fov): no se puede repetir la escena tal cual */
+/* 1 if the 2nd frame's projection is not the same as the 1st's (fov change): the scene cannot be replayed as is */
 int psp_projection_patch_pending(void) {
     return sPerspectivePos != NULL && sPerspectiveMtxInterpolated != NULL &&
            memcmp(sPerspectiveMtx, sPerspectiveMtxInterpolated, sizeof(Mtx)) != 0;
@@ -293,14 +293,14 @@ void mtx_patch_interpolated(void) {
 static void *psp_replay_mtx_for(struct DisplayListNode *n) {
     int k;
     if (n->displayList == n->displayListInterpolated) {
-        return n->transform; /* objeto normal: en el 2o cuadro lleva su matriz real */
+        return n->transform; /* normal object: in the 2nd frame it carries its real matrix */
     }
     for (k = 0; k < sReplayMtxCount; k++) {
         if (sReplayMtx[k].node == n) {
             return sReplayMtx[k].mtx;
         }
     }
-    return NULL; /* lista distinta (cielo...) sin matriz propia: se queda como en el 1er cuadro */
+    return NULL; /* different list (sky...) without its own matrix: it stays as in the 1st frame */
 }
 #endif
 
@@ -450,14 +450,14 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
         Mtx *mtx = alloc_display_list(sizeof(*mtx));
         f32 fovInterpolated;
 
-#if defined(VERSION_EU) && !defined(TARGET_PSP) /* PSP: el 1.1 compensa el estirado vertical del modo PAL de la TV; la pantalla de la PSP no lo hace y todo salia estirado en vertical */
+#if defined(VERSION_EU) && !defined(TARGET_PSP) /* PSP: the 1.1 compensates for the vertical stretch of the TV's PAL mode; the PSP screen does not do that and everything came out stretched vertically */
         f32 aspect = ((f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height) * 1.1f;
 #else
         f32 aspect = (f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height;
 #endif
 
 #ifdef TARGET_PSP
-        /* menu de opciones (Far Distance): plano lejano de la camara alargado (nunca acortado). En pausa se deja el original. */
+        /* options menu (Far Distance): camera far plane lengthened (never shortened). On pause the original is kept. */
         const f32 farUse = node->far * (gMenuMode == -1 ? gPspFarScale : 1.0f);
         gPspPerspFarScaleUsed = (gMenuMode == -1 && gPspFarScale > 1.0f) ? (float) gPspFarScale : 1.0f;
 #else
@@ -1135,16 +1135,16 @@ static void geo_process_shadow(struct GraphNodeShadow *node) {
         extern u8 gInterpolatingSurfaces;
 #ifdef TARGET_PSP
         extern int gPspSixtyMode;
-        /* Objeto quieto (la posicion interpolada es IGUAL a la real) sobre un suelo que no se mueve (no es una plataforma de objeto): la sombra
-         * del cuadro interpolado es la misma que la del real, no hace falta calcularla otra vez. Es exacto, no una aproximacion. */
+        /* Still object (the interpolated position is EQUAL to the real one) over a floor that does not move (not an object platform): the shadow
+         * of the interpolated frame is the same as the real one, there is no need to compute it again. It is exact, not an approximation. */
         int psp_same = 0;
         if (gCurGraphNodeHeldObject == NULL && shadowPosInterpolated[0] == shadowPos[0] && shadowPosInterpolated[1] == shadowPos[1]
             && shadowPosInterpolated[2] == shadowPos[2]) {
             const struct Surface *fl = ((struct Object *) gCurGraphNodeObject)->oFloor;
             psp_same = (fl != NULL && fl->object == NULL);
         }
-        /* Con Object Distance > 100 % hay sombras de objetos MUY lejanos (que en la N64 ni existian: pasan de 4000 unidades). Cada sombra cuesta ~60 us
-         * (busca suelo y arma vertices) y a mas de 5500 unidades mide unos pocos pixeles: esas no se calculan. Con 100 % no cambia nada. */
+        /* With Object Distance > 100 % there are shadows of VERY distant objects (which did not even exist on the N64: they are beyond 4000 units). Each shadow costs ~60 us
+         * (finds the floor and builds vertices) and beyond 5500 units it measures a few pixels: those are not computed. At 100 % nothing changes. */
         const int psp_far = (gPspObjDistScale > 1.0f && !psp_near_mario(shadowPos, 5500.0f)) ? 1 : 0;
         if (gPspSixtyMode && !psp_same && !psp_far) {
 #endif
@@ -1167,8 +1167,8 @@ static void geo_process_shadow(struct GraphNodeShadow *node) {
         if (psp_far) {
             shadowListInterpolated = NULL;
         } else if (!gPspSixtyMode || psp_same) {
-            /* tick de 30 fps: no se dibuja el cuadro interpolado (patch_interpolations() deja las listas reales), asi que no se
-             * calcula la sombra interpolada (ahorra buscar suelo y construir los vertices otra vez por cada sombra) */
+            /* 30 fps tick: the interpolated frame is not drawn (patch_interpolations() leaves the real lists), so the
+             * interpolated shadow is not computed (saves finding the floor and building the vertices again for every shadow) */
             shadowListInterpolated = shadowList;
         }
 #endif
@@ -1263,7 +1263,7 @@ static int obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
     // given the distance from the object to the camera.
 
 #ifdef TARGET_PSP
-    const f32 vScreenEdge = hScreenEdge; // mitad de la altura visible a esta profundidad (sin el aspecto)
+    const f32 vScreenEdge = hScreenEdge; // half of the visible height at this depth (without the aspect)
 #endif
 #ifdef WIDESCREEN
     // This multiplication should really be performed on 4:3 as well,
@@ -1291,7 +1291,7 @@ static int obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
     //  If Mario were rendered with a depth over 65536 it would cause overflow
     //  when converting the transformation matrix to a fixed point matrix.
 #ifdef TARGET_PSP
-    /* con "Far Distance" > 100 % el limite se alarga igual (150 % = 30000, 300 % = 60000: sigue bajo 65536) */
+    /* with "Far Distance" > 100 % the limit is lengthened the same (150 % = 30000, 300 % = 60000: still under 65536) */
     if (matrix[3][2] < -20000.0f * (gMenuMode == -1 ? gPspFarScale : 1.0f) - cullingRadius) {
         return FALSE;
     }
@@ -1303,8 +1303,8 @@ static int obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
 
 #ifdef TARGET_PSP
     {
-        /* Mas alla del plano lejano de la camara no se dibuja nada (el GE lo recorta): ni se procesa el objeto. Margen de sobra de
-         * 1000 unidades por si el radio de culling del objeto se quedo corto. */
+        /* Beyond the camera's far plane nothing is drawn (the GE clips it): the object is not even processed. Margin to spare of
+         * 1000 units in case the object's culling radius was too short. */
         const f32 farLimit = gCurGraphNodeCamFrustum->far * (gMenuMode == -1 ? gPspFarScale : 1.0f) + cullingRadius + 1000.0f;
         if (-matrix[3][2] > farLimit && !psp_near) {
             return FALSE;
@@ -1322,10 +1322,10 @@ static int obj_is_in_view(struct GraphNodeObject *node, Mat4 matrix) {
 
 #ifdef TARGET_PSP
     if (gPspOptCullObj && !psp_near) {
-        /* Menu "Object Culling: Vertical". El juego original solo descarta por los lados (por eso los niveles verticales, como Tall Tall
-         * Mountain, dibujan todo lo que esta arriba y abajo de la pantalla). vScreenEdge es justo la mitad de la altura visible a esa
-         * profundidad (el fov del juego es vertical). Los objetos pueden ser mas altos que su radio
-         * (el origen suele estar en los pies), asi que el margen es generoso: 2 * radio + 400 unidades. */
+        /* "Object Culling: Vertical" menu. The original game only discards at the sides (that is why vertical levels, like Tall Tall
+         * Mountain, draw everything above and below the screen). vScreenEdge is exactly half the visible height at that
+         * depth (the game's fov is vertical). Objects can be taller than their radius
+         * (the origin is usually at the feet), so the margin is generous: 2 * radius + 400 units. */
         const f32 vEdge = vScreenEdge + 2.0f * cullingRadius + 400.0f;
         if (matrix[3][1] > vEdge || matrix[3][1] < -vEdge) {
             return FALSE;
@@ -1368,7 +1368,7 @@ static void geo_process_object(struct Object *node) {
                          gMatStackInterpolated[gMatStackIndex]);
             }
             {
-                /* copia escalar: no depende de la alineacion de 16 bytes que exigen las rutinas VFPU */
+                /* scalar copy: does not depend on the 16-byte alignment that the VFPU routines require */
                 s32 mi, mj;
                 for (mi = 0; mi < 4; mi++) {
                     for (mj = 0; mj < 4; mj++) {

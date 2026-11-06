@@ -1,6 +1,6 @@
-/* Cargador minimo del port. Al lanzar un juego, la PSP carga el EBOOT.PBP completo de un modo lento (con el juego entero, 14,5 MB, pasaban
- * ~27 s hasta ver algo). Por eso el EBOOT.PBP es solo este cargador (unos KB) y el juego (SM64.PRX, en la misma carpeta) se carga desde
- * aqui con sceKernelLoadModule, que es mucho mas rapido. No hace nada mas: arranca el juego y se queda dormido (sin usar CPU). */
+/* Minimal loader of the port. When launching a game, the PSP loads the whole EBOOT.PBP in a slow way (with the entire game, 14.5 MB, it took
+ * ~27 s until anything was seen). That is why the EBOOT.PBP is just this loader (a few KB) and the game (SM64.PRX, in the same folder) is loaded from
+ * here with sceKernelLoadModule, which is much faster. It does nothing else: it starts the game and goes to sleep (using no CPU). */
 #include <pspkernel.h>
 #include <pspdebug.h>
 #include <stdio.h>
@@ -9,7 +9,7 @@
 PSP_MODULE_INFO("SM64LAUNCH", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER);
 PSP_MAIN_THREAD_STACK_SIZE_KB(16);
-PSP_HEAP_SIZE_KB(16); /* el juego reserva casi toda la memoria libre: este cargador no debe quitarle nada */
+PSP_HEAP_SIZE_KB(16); /* the game reserves almost all the free memory: this loader must not take anything from it */
 
 static void fail(const char *what, int code) {
     pspDebugScreenInit();
@@ -56,6 +56,6 @@ int main(int argc, char **argv) {
         fail("sceKernelStartModule", r);
         return 0;
     }
-    sceKernelSleepThread(); /* el juego corre en sus propios hilos y gestiona HOME / salida */
+    sceKernelSleepThread(); /* the game runs in its own threads and manages HOME / exit */
     return 0;
 }

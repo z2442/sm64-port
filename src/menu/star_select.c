@@ -361,7 +361,7 @@ void print_act_selector_strings(void) {
 #if defined(VERSION_EU) && !defined(TARGET_PSP)
         print_menu_generic_string(143 - sVisibleStars * 15 + i * 30 , 38, starNumbers);
 #else
-        /* PSP: sin la compresion PAL 1,1 del 3D (rendering_graph_node.c) las estrellas quedan como en US, asi que los numeros usan la separacion de US */
+        /* PSP: without the PAL 1.1 compression of the 3D (rendering_graph_node.c) the stars end up as in US, so the numbers use the US spacing */
         print_menu_generic_string(i * 34 - sVisibleStars * 17 + 139, 38, starNumbers);
 #endif
     }

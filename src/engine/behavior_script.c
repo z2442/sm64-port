@@ -16,7 +16,7 @@
 #include "graph_node.h"
 #include "surface_collision.h"
 #ifdef TARGET_PSP
-extern float gPspObjDistScale; /* game/psp_options.c: multiplica la distancia de dibujado de los objetos (>= 1.0) */
+extern float gPspObjDistScale; /* game/psp_options.c: multiplies the draw distance of objects (>= 1.0) */
 #endif
 
 // Macros for retrieving arguments from behavior scripts.
@@ -995,7 +995,7 @@ void cur_obj_update(void) {
         if (!(objFlags & OBJ_FLAG_ACTIVE_FROM_AFAR)) {
             // If the object has a render distance, check if it should be shown.
 #ifdef TARGET_PSP
-            /* menu de opciones (psp_options.c): distancia de objetos (100 % = la original del juego, o mas). */
+            /* options menu (psp_options.c): object distance (100 % = the game's original, or more). */
             if (distanceFromMario > gCurrentObject->oDrawingDistance * gPspObjDistScale) {
 #else
             if (distanceFromMario > gCurrentObject->oDrawingDistance) {

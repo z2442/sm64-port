@@ -23,8 +23,8 @@ static void *psp_tex_buffer_start = NULL;
 static void *psp_tex_buffer_max = NULL;
 static unsigned int psp_tex_number = 0;
 unsigned int psp_tex_bound = 0;
-/* Cuantas veces se ha vaciado/reiniciado el almacen de texturas. gfx_scegu.c lo usa para saber si una lista de dibujo grabada sigue
- * apuntando a texturas que existen (si se vacia el almacen, las posiciones de VRAM se reutilizan). */
+/* How many times the texture store has been emptied/restarted. gfx_scegu.c uses it to know whether a recorded draw list still
+ * points to textures that exist (if the store is emptied, the VRAM positions are reused). */
 unsigned int gPspTexClears = 0;
 
 static inline unsigned int getMemorySize(int width, int height, unsigned int psm) {
@@ -181,9 +181,9 @@ unsigned int texman_create(void) {
 }
 
 void texman_upload_swizzle(int width, int height, unsigned int type, const void *buffer) {
-    /* El swizzle trabaja en bloques de 16 bytes x 8 filas. Si la textura es mas
-       chica (ej. 16x4 de los interruptores) no se escribe nada y queda basura:
-       en ese caso se sube sin swizzle. */
+    /* Swizzle works in blocks of 16 bytes x 8 rows. If the texture is
+        smaller (e.g. the 16x4 of the switches) nothing is written and garbage is left:
+        in that case it is uploaded without swizzle. */
     if ((getTexWidthBytes(width, type) % 16) != 0 || (height % 8) != 0 || height < 8) {
         texman_upload(width, height, type, buffer);
         return;

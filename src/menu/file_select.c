@@ -342,9 +342,9 @@ s32 check_clicked_button(s16 x, s16 y, f32 depth) {
 }
 
 #ifdef TARGET_PSP
-/* PSP: los botones en miniatura de un submenu (score/copy/erase/sound) se crean en el cuadro del click, con el boton clicado aun sin moverse, y
- * se veian por encima de su cara durante un cuadro antes de que el giro empezara a taparlos (y otro cuadro mas si solo se retrasaba un cuadro).
- * No se dibujan mientras el boton gira; bhv_menu_button_loop los muestra otra vez cuando el boton esta por llegar a pantalla completa. */
+/* PSP: the miniature buttons of a submenu (score/copy/erase/sound) are created in the click's frame, with the clicked button still unmoved, and
+ * were seen on top of its face for one frame before the spin started to cover them (and one more frame if it was only delayed by one frame).
+ * They are not drawn while the button spins; bhv_menu_button_loop shows them again when the button is about to reach full screen. */
 static void psp_hide_submenu(struct Object *parent) {
     s32 i, lo, hi;
     if (parent == sMainMenuButtons[MENU_BUTTON_SCORE]) {
@@ -549,8 +549,8 @@ void bhv_menu_button_loop(void) {
     if (!(gCurrentObject->header.gfx.node.flags & GRAPH_RENDER_ACTIVE) && gCurrentObject->oTimer >= 1
         && (gCurrentObject->parentObj->oMenuButtonState == MENU_BUTTON_STATE_FULLSCREEN
             || gCurrentObject->parentObj->oMenuButtonTimer >= 10)) {
-        /* ver psp_hide_submenu: se vuelve a mostrar con el historial del cuadro anterior (su posicion aun sin actualizar), para que la
-         * interpolacion a 60 fps lo mueva igual que al boton y no aparezca un cuadro "por encima" */
+        /* see psp_hide_submenu: it is shown again with the previous frame's history (its position not yet updated), so that
+         * the 60 fps interpolation moves it the same as the button and no frame appears "on top" */
         struct GraphNodeObject *gfx = &gCurrentObject->header.gfx;
         gfx->node.flags |= GRAPH_RENDER_ACTIVE;
         vec3f_copy(gfx->prevPos, gfx->pos);
@@ -2769,7 +2769,7 @@ static void print_file_select_strings(void) {
     UNUSED s32 unused2;
 
 #if defined(VERSION_EU) && defined(TARGET_PSP)
-    gPspEuMenuX = 1.1f; /* ver ingame_menu.c: textos alineados con los botones 3D sin el aspecto x1,1 de PAL */
+    gPspEuMenuX = 1.1f; /* see ingame_menu.c: texts aligned with the 3D buttons without the PAL x1.1 aspect */
 #endif
     create_dl_ortho_matrix_menu_hack();
     switch (sSelectedButtonID) {

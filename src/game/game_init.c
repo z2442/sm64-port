@@ -80,14 +80,14 @@ int gProcessAudio = TRUE;
 int gDoDither = FALSE;
 int gDoAA = FALSE;
 #ifdef TARGET_PSP
-u8 gRenderFPS = FALSE; /* tambien lo cambia el menu de opciones (psp_options.c) */
+u8 gRenderFPS = FALSE; /* also changed by the options menu (psp_options.c) */
 #else
 static u8 gRenderFPS = FALSE;
 #endif
 
 #ifdef TARGET_PSP
-/* Cuadros realmente presentados en pantalla (los cuenta gfx_pc.c): con 60 fps dinamicos cada tick de logica puede dibujar
- * 1 o 2 cuadros, asi que el contador cuenta cuadros dibujados y no ticks. */
+/* Frames actually presented on screen (counted by gfx_pc.c): with dynamic 60 fps each logic tick can draw
+ * 1 or 2 frames, so the counter counts drawn frames and not ticks. */
 extern unsigned int gPspPresented;
 static unsigned int sLastPresented = 0;
 #endif
@@ -103,17 +103,17 @@ static void calculate_frameTime_from_OSTime(OSTime diff) {
 }
 
 #ifdef TARGET_PSP
-/* 1 mientras el contador de FPS esta en pantalla: gfx_pc.c escribe ms0:/sm64_profile.txt SOLO en ese tiempo. */
+/* 1 while the FPS counter is on screen: gfx_pc.c writes ms0:/sm64_profile.txt ONLY during that time. */
 int gPspFpsCounterOn = 0;
-int gPspFpsLogOff = 0; /* 1 = contador de FPS sin registro (menu: "FPS Counter") */
-/* estado del registro para mostrarlo junto al contador: 0 = apagado, 1 = escribiendo bien, 2 = error al escribir */
+int gPspFpsLogOff = 0; /* 1 = FPS counter without log (menu: "FPS Counter") */
+/* log state to show next to the counter: 0 = off, 1 = writing fine, 2 = write error */
 extern int gPspLogStatus;
 #endif
 
 static void render_fps(void) {
 #ifdef TARGET_PSP
-    psp_options_poll(); /* 1a vez: carga sm64_options.txt */
-    /* Sin atajos de botones (L+R, R+B, R+Z, L...): el contador de FPS se activa desde el menu de opciones. */
+    psp_options_poll(); /* 1st time: loads sm64_options.txt */
+    /* No button shortcuts (L+R, R+B, R+Z, L...): the FPS counter is activated from the options menu. */
     gPspFpsCounterOn = gRenderFPS && !gPspFpsLogOff;
 #else
     // Toggle rendering framerate with the L button.
@@ -149,7 +149,7 @@ static void render_fps(void) {
 
     if (gRenderFPS) {
 #ifdef TARGET_PSP
-        /* "LOG": se esta escribiendo sm64_profile.txt; "ERR": el ultimo intento de escribir fallo */
+        /* "LOG": sm64_profile.txt is being written; "ERR": the last write attempt failed */
         print_text_fmt_int(FPS_COUNTER_X_POS, FPS_COUNTER_Y_POS,
                            gPspLogStatus == 2 ? "ERR FPS %d" : (gPspLogStatus == 1 ? "LOG FPS %d" : "FPS %d"), gFPS);
 #else
@@ -351,6 +351,9 @@ void init_render_image(void) {
 
 /** Ends the master display list. */
 void end_master_display_list(void) {
+#ifdef TARGET_PSP
+    psp_options_home_notice(); /* HOME with the TV active: buzz + notice (drawn here, in the frame's list, not with print_text) */
+#endif
     draw_screen_borders();
     if (gShowProfiler) {
         draw_profiler();
@@ -742,8 +745,8 @@ void game_loop_one_iteration(void) {
         {
             LPROF_BEGIN(lp_a);
 #ifdef TARGET_PSP
-            /* recoge el audio que el ME sintetizo mientras se dibujaba el tick anterior; desde aqui hasta audio_psp_tick_end
-             * el ME esta parado y solo la CPU principal toca el estado del audio */
+            /* collects the audio the ME synthesized while the previous tick was being drawn; from here until audio_psp_tick_end
+             * the ME is stopped and only the main CPU touches the audio state */
             audio_psp_tick_begin();
 #endif
             audio_game_loop_tick();
@@ -760,7 +763,7 @@ void game_loop_one_iteration(void) {
         }
         levelCommandAddr = level_script_execute(levelCommandAddr);
 #ifdef TARGET_PSP
-        audio_psp_tick_end(); /* la logica del tick termino: el ME sintetiza el audio mientras la CPU emite el dibujo */
+        audio_psp_tick_end(); /* the tick's logic finished: the ME synthesizes the audio while the CPU emits the drawing */
 #endif
         display_and_vsync();
 

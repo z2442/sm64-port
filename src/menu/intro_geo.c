@@ -73,7 +73,7 @@ s8 gameOverBackgroundTable[] = {
 s8 gameOverBackgroundFlipOrder[] = { 0x00, 0x01, 0x02, 0x03, 0x07, 0x0B,
                                      0x0a, 0x09, 0x08, 0x04, 0x05, 0x06 };
 
-/* 60 fps: escala del logo del titulo (el primer cuadro usa la escala interpolada, el segundo la real) */
+/* 60 fps: scale of the title logo (the first frame uses the interpolated scale, the second the real one) */
 static Gfx *sIntroScalePos;
 static Vec3f sIntroScale;
 
@@ -147,12 +147,12 @@ Gfx *geo_title_screen(s32 sp50, struct GraphNode *sp54, UNUSED void *context) {
 }
 
 
-/* PSP 16:9: el renderer encoge las proyecciones 2D (0..320 x 0..240) a una caja 4:3 centrada. En vez de
- * estirar el fondo para llenar los 16:9 (los cuadros salian ensanchados), se dibujan columnas extra de
- * cuadros de 80x80 a cada lado de la caja: la columna izquierda extra copia el estado de la columna 0 de su
- * fila y la derecha el de la columna 3 (la vecina). Asi el orden de cambio de Game Over a Super Mario 64
- * (esquina sup. izq. -> derecha -> abajo -> izquierda -> fila del medio) se ve igual que en la N64 y las
- * columnas extra solo acompanan a su vecina. */
+/* PSP 16:9: the renderer shrinks the 2D projections (0..320 x 0..240) into a centered 4:3 box. Instead of
+ * stretching the background to fill the 16:9 (the squares came out widened), extra columns of
+ * 80x80 squares are drawn on each side of the box: the extra left column copies the state of its row's
+ * column 0 and the right one that of column 3 (the neighbor). This way the order of the change from Game Over to Super Mario 64
+ * (top left corner -> right -> bottom -> left -> middle row) looks the same as on the N64 and the
+ * extra columns only accompany their neighbor. */
 #ifdef WIDESCREEN
 #define INTRO_BG_EXTRA_TILES 6
 #else
@@ -182,7 +182,7 @@ static Gfx *intro_backdrop_tile(s32 index, s8 *backgroundTable, f32 offsetX, f32
     return displayList;
 }
 
-/* Agrega las columnas extra del fondo (solo PSP 16:9). */
+/* Adds the extra background columns (PSP 16:9 only). */
 static Gfx *intro_backdrop_extra(Gfx *dl, s8 *backgroundTable) {
 #ifdef WIDESCREEN
     s32 row;

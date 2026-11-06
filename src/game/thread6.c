@@ -7,7 +7,7 @@
 
 #ifdef VERSION_SH
 #if defined(TARGET_PSP)
-/* PSP: la consola no tiene vibracion, asi que las funciones del Rumble Pak (version Shindou) no hacen nada. */
+/* PSP: the console has no vibration, so the Rumble Pak functions (Shindou version) do nothing. */
 s32 gRumblePakTimer;
 
 void init_rumble_pak_scheduler_queue(void) { }
@@ -303,5 +303,5 @@ void rumble_thread_update_vi(void) {
     osSendMesg(&gRumbleThreadVIMesgQueue, (OSMesg) 0x56525443, OS_MESG_NOBLOCK);
 }
 
-#endif /* TARGET_PSP */
+#endif
 #endif

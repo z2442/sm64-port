@@ -60,8 +60,8 @@ static struct {
 } sPrevSnowVertices[140 / 5];
 static s16 sPrevSnowParticleCount;
 static u32 sPrevSnowTimestamp;
-/* TRUE si este tick se genero la lista de nieve y falta cambiar sus vertices por los reales. Se usa una bandera (y no
- * comparar gGlobalTimer) porque el parche se aplica antes o despues del incremento de gGlobalTimer segun el modo (30/60 fps). */
+/* TRUE if this tick generated the snow list and its vertices still have to be swapped for the real ones. A flag is used (and not
+ * comparing gGlobalTimer) because the patch is applied before or after the gGlobalTimer increment depending on the mode (30/60 fps). */
 static u8 sSnowPatchPending;
 
 #ifdef TARGET_PSP

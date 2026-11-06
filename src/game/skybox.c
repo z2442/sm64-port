@@ -72,7 +72,7 @@ struct Skybox {
 struct Skybox sSkyBoxInfo[2];
 
 #ifdef TARGET_PSP
-/* PSP_F2_SKY (ver rendering_graph_node.c): matriz ortografica y tiles (fila/columna base) de la ULTIMA lista de cielo creada. */
+/* PSP_F2_SKY (see rendering_graph_node.c): orthographic matrix and tiles (base row/column) of the LAST sky list created. */
 const void *gPspSkyOrtho;
 s32 gPspSkyBase = -1;
 #endif
@@ -141,7 +141,7 @@ u8 sSkyboxColors[][3] = {
  */
 #define SKYBOX_ROWS (8)
 
-/// Columnas de tiles dibujadas en 16:9 (ancho visible ~423 unidades / 160 + margen)
+// Tile columns drawn in 16:9 (visible width ~423 units / 160 + margin)
 #define SKYBOX_DRAW_COLS (4)
 
 
@@ -279,9 +279,9 @@ static Vtx *make_skybox_rect_xy(s16 x, s16 y, s8 colorIndex) {
 }
 
 /**
- * Version 16:9: dibuja 3 filas x SKYBOX_DRAW_COLS columnas, empezando una columna antes que la original
- * para cubrir los ~52 unidades extra que se ven a cada lado. La columna de imagen se envuelve en las
- * 8 columnas reales (SKYBOX_WIDTH / TILE_WIDTH); la posicion en el mundo usa la columna sin envolver.
+ * 16:9 version: draws 3 rows x SKYBOX_DRAW_COLS columns, starting one column before the original
+ * to cover the ~52 extra units seen on each side. The image column wraps around the
+ * 8 real columns (SKYBOX_WIDTH / TILE_WIDTH); the world position uses the unwrapped column.
  */
 void draw_skybox_tile_grid(Gfx **dlist, s8 background, s8 player, s8 colorIndex) {
     s32 row;
@@ -290,7 +290,7 @@ void draw_skybox_tile_grid(Gfx **dlist, s8 background, s8 player, s8 colorIndex)
     const f32 extraLeft = (visibleWidth - SCREEN_WIDTH) / 2.0f;                         // ~52 en 16:9
     s32 baseCol = (s32) floorf(((f32) sSkyBoxInfo[player].scaledX - extraLeft) / SKYBOX_TILE_WIDTH);
     s32 baseRow = sSkyBoxInfo[player].upperLeftTile / SKYBOX_COLS;
-    const s32 imgCols = SKYBOX_WIDTH / SKYBOX_TILE_WIDTH; // 8 columnas distintas
+    const s32 imgCols = SKYBOX_WIDTH / SKYBOX_TILE_WIDTH; // 8 distinct columns
 #ifdef TARGET_PSP
     gPspSkyBase = (baseRow << 16) | (baseCol & 0xFFFF) | ((s32) colorIndex << 28);
 #endif
@@ -342,9 +342,9 @@ void *create_skybox_ortho_matrix(s8 player) {
     f32 top = sSkyBoxInfo[player].scaledY;
     Mtx *mtx = alloc_display_list(sizeof(*mtx));
 
-    /* WIDESCREEN/PSP: ya no se recorta el rango. gfx_pc.c compensa el aspecto de las proyecciones ortograficas
-     * (ancho visible = 320 / k = 423 unidades en 16:9, con las proporciones correctas), asi que el cielo ya no se
-     * estira. Por eso hay que dibujar columnas de tiles extra (ver draw_skybox_tile_grid). */
+    /* WIDESCREEN/PSP: the range is no longer cropped. gfx_pc.c compensates the aspect of the orthographic projections
+     * (visible width = 320 / k = 423 units in 16:9, with the correct proportions), so the sky is no longer
+     * stretched. That is why extra tile columns must be drawn (see draw_skybox_tile_grid). */
 
     if (mtx != NULL) {
         guOrtho(mtx, left, right, bottom, top, 0.0f, 3.0f, 1.0f);

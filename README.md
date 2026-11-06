@@ -46,6 +46,8 @@ and the PSP port by [z2442](https://github.com/z2442/sm64-port).
 The only thing you install on the PC is Docker Desktop. Everything else (compiler, Python, libraries) lives inside a Docker container
 that the build script creates for you.
 
+**PSP-1000 (24 MB of RAM):** the game is meant to fit in a PSP-1000's memory, and it boots and runs in PPSSPP set to a 24 MB model with roughly 2 MB of heap to spare. It has **not been tested on a real PSP-1000** yet, so treat it as experimental there. TV output is not available on a PSP-1000.
+
 ### Supported versions
 
 | Version | File name(s) you must provide | SHA-1 of the ROM | Status |
@@ -185,6 +187,28 @@ The game is the pair of files **`EBOOT.PBP`** and **`SM64.PRX`** inside **`build
 > Your PSP needs **custom firmware** (ARK-4, PRO, ME, …) to run homebrew. This port was developed and tested on a PSP with **ARK-4 at 333 MHz**.
 > On a **PSP Go**, copy the folder to the internal storage's `PSP\GAME` folder instead.
 
+### Optional: TV output (experimental)
+
+The game can send its picture to a TV through the PSP's video cable. It only works on a **PSP-2000 / 3000** (not on a PSP-1000; the PSP Go has not been considered) and uses a small helper module that is already **inside `SM64.PRX`** (the game writes it to the save folder and loads it when needed), so there is nothing extra to copy. Open **Options → Graphics → TV Settings** (a sub-page that only opens while a video cable is connected; without the cable the row is grey, shows *No cable* and, if you unplug the cable while inside, the menu takes you back to Graphics) and set **TV Output** to **240p**, **480i** or **480p** (**480p** needs a *component* cable; **240p** and **480i** also work with a composite/AV cable, and **480i** is the one to use with an AV-only TV). The change is applied **right away**, without restarting the game (it waits about half a second after you stop changing it). The game reads the real cable state with a second small read-only helper module (also inside `SM64.PRX`), and **the TV is only used while a video cable is plugged in**: with TV Output selected, the bottom of the menu shows **No cable / Composite cable / Component cable** (plus the measured refresh rate of the TV mode). If the cable is not plugged in the picture stays on the PSP screen (also at start-up; your TV Output setting is kept), and when you plug the cable in the TV turns on **by itself** in the chosen mode; if you unplug it, the picture goes back to the PSP screen. **The cable is mandatory:** without a detected cable the row cannot be moved to a TV mode (it plays the "can't move" buzz and is greyed out while it is Off); you can always go back to Off. If that helper cannot load on your firmware, the game cannot know about the cable and falls back to the old behaviour (assumes a component cable; **L** reconnects by hand). The row stays **grey** (it shows the reason, e.g. "PSP-1000" or "Safe mode", and plays the "can't move" buzz if you try to change it) if the console is a PSP-1000, if the helper could not be loaded, or if you started the game holding **L**.
+
+Related options and tools (all on the same Graphics page, except TV Output / TV Aspect / TV Width / TV Height / TV Vertical Shift / Reset TV Settings, which live in the **TV Settings** sub-page; *Reset to Defaults* on the Graphics page does not touch the TV settings):
+
+- **TV Aspect**: which view the game draws. *4:3* is the original N64 view (a narrower picture, 362×272 internally, with the original 3D projection) and *16:9* is the widescreen view (480×272). In both cases the picture fills the whole video frame and the **TV decides how it is shown, so set your TV to its matching picture mode: 4:3 for *4:3*, 16:9 / wide / full for *16:9*.** The change is applied right away. In *4:3* the whole 3D scene (the world, the file select and star select menus, Mario's head) uses the original 4:3 projection, so everything keeps the proportions of the N64 instead of looking squeezed.
+- **With TV Output *Off*** the rest of the TV Settings page (TV Aspect, TV Width, TV Height, TV Vertical Shift and Reset TV Settings) is greyed out and does nothing, and the guide frame is not drawn: there is no TV picture to adjust. In every options page the cursor skips greyed-out rows (except "TV Settings" in Graphics, which can still be selected so "No cable" is shown at the bottom; pressing it then plays the buzz); if everything that is left in that direction is grey (as here) it does not move and Lakitu's "camera can't move" buzz plays.
+- **TV Width** and **TV Height**: *60%* to *100%* in steps of *1%* (default *100%*), set separately because TVs rarely cut the same amount horizontally and vertically, and because with different values you can also correct a picture that looks slightly squashed or stretched (lower *TV Width* a few points against *TV Height* if the picture looks too tall-and-thin or too wide, and the other way round). Many TVs cut off the edges of the picture (overscan), so part of the game (the HUD, for example) can end up off screen. While the **TV Settings** page is open a white frame is drawn on the very edge of the real picture (the full 16:9 width in the *16:9* aspect): lower *TV Width* until the left and right lines are fully visible and *TV Height* until the top and bottom ones are (holding the D-pad repeats). The rest of the video frame is left black. It is applied right away, without re-initialising the TV output, and works in every TV mode and in both aspects. A `tv_area` line from an older settings file is read as both values.
+- **TV Vertical Shift**: *Up 60* to *Down 60* (*0* by default), in lines of the 480-line video signal. It moves the picture up or down inside the video frame, for TVs that leave an empty band at the top or the bottom (the guide frame moves with the picture). The picture cannot leave the video frame, so it needs room: with *TV Height* at *100%* there is nothing to move; lower *TV Height* a little first.
+- **480p test**: after you choose 480p the game waits **10 seconds** for you to press **A** ("A: keep 480p" shows at the bottom of the menu). Only 480p asks, because many TVs and AV cables cannot show it; 240p and 480i switch right away with no question. If you do not confirm (for example because your TV cannot show 480p, or you cannot see the picture), it goes back by itself to the previous mode. **B** cancels at once. While the test runs the rest of the menu does nothing.
+- **Reconnect the cable**: if you unplug the video cable and plug it in again, select **TV Output** and press **L** to send the picture to the TV again.
+
+How it works, and its limits:
+
+- **Sound with the video cable**: the AV cable uses the same jack as headphones, so the PSP sends the sound through it and mutes its own speakers. With a video cable connected and *TV Output* set to *Off*, the game asks the system (`sceAudioRoutingSetMode`) to play the sound through the PSP speakers again; as soon as TV Output is turned on, the cable is removed or the game exits, the normal automatic mode is restored. With headphones (no video cable detected) nothing is changed. I could not test it on real hardware: if the speakers stay silent, please report it.
+- **HOME button with TV output on**: while a TV mode is active the HOME button does nothing. The firmware's exit dialog is drawn garbled on the TV and leaving the game with the TV signal still on makes the PSP fail, so HOME is disabled on purpose; pressing it plays Lakitu's "camera can't move" buzz and shows *Turn TV Output Off to exit* at the bottom of the screen for a few seconds. To leave the game, first set *TV Output* to *Off* in the options menu; with the PSP screen HOME is the normal firmware one again. This relies on `sceImposeSetHomePopup`; I could not test it on real hardware with ARK, so if the old dialog still appears with the TV on, please report it.
+- The game is still drawn at 480×272 and the result is scaled to the TV with a bilinear filter, (the widescreen view in *16:9*, or the 4:3 view, 362×272, in *4:3*). It is not a native 480p render. **240p** uses the same video signal as 480i (the one that has been seen working on a real TV), but both fields carry the same 240 lines, so you get a stable 240-line picture without interlacing (asking the DVE for a raw 320×240 mode did not engage the TV on a real PSP-3000: the picture stayed on the PSP screen). **480i** is 720×480 interlaced (two fields of 240 lines, as in the OoT port) and is the TV-friendly high resolution; unlike the old single-buffer path it is no longer forced down to 30 fps; the game does not know which field your TV shows first, so if the picture looks very slightly shifted up/down compared with 480p that is why.
+- To be able to switch without restarting, on a PSP-2000 / 3000 the game loads the helper and switches the video memory to 4 MB **every time it starts** (as the OoT port does), even if TV Output is *Off*. With TV Output *Off* the game is drawn the same way as before. In **480i** and **480p** there is room for only one output buffer, so there can be a tear line when the picture changes. 240p uses three buffers and does not have this problem.
+- **This is experimental and has not been verified on a real TV yet.** It could only be tested in an emulator with the cable detection faked. If you try it, please report what you see.
+- Safety net: if the screen stays black, restart the game **holding L** (that skips the helper and the 4 MB switch, so the game uses the PSP's own screen as before; the setting is not changed). Also, if TV was turned on and the game did not get to about 5 seconds of play with it, the next launch goes back to the PSP's screen and sets TV Output to *Off* by itself.
+
 ### In PPSSPP (PC / Android)
 
 Open PPSSPP and use **Load…** to pick `EBOOT.PBP` (keep `SM64.PRX` next to it), or drag the file onto the PPSSPP window.
@@ -223,7 +247,7 @@ You can change all of these in the Options menu.
 **Pages**
 
 - **Graphics** — FPS Limit (30 / 60), Frame Pacing (*Keep FPS* / *Keep Speed*), Object Distance and Far Distance (100 %–300 %),
-  Object Culling (*Original* / *Vertical*), FPS Counter, Show Sound CPU, Reset to Defaults.
+  Object Culling (*Original* / *Vertical*), FPS Counter, Show Sound CPU, **TV Settings** (sub-page, needs a video cable: see section 3: TV Output (*Off* / *240p* / *480i* / *480p*; applied right away; only 480p asks you to confirm), TV Aspect (*4:3* / *16:9*), TV Width and TV Height (*60%* to *100%*), TV Vertical Shift, Reset TV Settings), Reset to Defaults.
 - **Audio** — Music Volume and Effects Volume, from 0 to 100 (100 is the game's original loudness), and Sound Mode: Stereo, Mono or Headset. Sound Mode is the same setting as the one in the file-select screen (it is saved in the save file, so changing it in either place changes both).
 - **Controls** — choose a button and press **✕**; the screen says "Press a button" — press the PSP button you want (it waits about 5 seconds).
   If that button was already used by another action, the two are swapped. Also Stick Deadzone and Reset to Defaults.
@@ -236,6 +260,7 @@ Everything is stored on the Memory Stick in `PSP\SAVEDATA\SM64PORT\`:
 |---|---|
 | `sm64_save_file.bin` | Your game progress (stars, coins…) |
 | `sm64config.txt` | All your settings (graphics, audio, controls) as plain text |
+| `freeze.txt` | Only after a freeze: a small report of what the game was doing (see Troubleshooting) |
 
 `sm64config.txt` can be opened with Notepad. Each line is `name = value`. To start from scratch, delete the file (or use *Reset to Defaults*).
 
@@ -275,6 +300,12 @@ In Docker Desktop → Settings → Resources you can give it more CPUs.
 
 **The game does not appear in the XMB**
 Check the paths are exactly `PSP\GAME\SM64\EBOOT.PBP` and `PSP\GAME\SM64\SM64.PRX` (both files, same folder) and that your PSP has custom firmware. If you see a "Loading the game…" screen with an error, `SM64.PRX` is missing or in another folder. Re-copy the file if it is corrupt.
+
+**The screen stays black after turning on TV Output**
+Start the game again **holding L**: that skips the TV helper and uses the PSP's own screen. If TV was turned on and did not last about 5 seconds, the game also switches TV Output back to *Off* by itself on the next launch.
+
+**The game freezes**
+If the game stops drawing frames for about 4 seconds, a small watchdog writes `freeze.txt` in `PSP\SAVEDATA\SM64PORT\` (and rewrites it every 4 s while the freeze lasts, up to 12 s). It lists where the main thread was, what each thread is waiting on, the GPU and audio-processor state, the level / Mario action and the battery level and voltage. If the game recovers by itself it adds a line saying so. Attach the file to your issue. If the whole console locks up so hard that no code runs, no file can be written: in that case the *absence* of `freeze.txt` is itself useful information.
 
 **Anything else**
 Open an *Issue* on the repository's GitHub page and include the last 20–30 lines of the build output.
@@ -332,7 +363,7 @@ sm64
 ├── include: header files
 ├── levels: level scripts, geo layout, and display lists
 ├── lib: SDK library code
-├── psp: PSP icon, background and sound for the EBOOT, PSP-specific textures
+├── psp: PSP icon, background and sound for the EBOOT, PSP-specific textures, `dvemgr` (the TV-output helper module)
 ├── rsp: audio and Fast3D RSP assembly code
 ├── sound: sequences, sound samples, and sound banks
 ├── src: C source code for game
@@ -356,11 +387,31 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 
 ## 8. Credits
 
+**The game and the decompilation**
+
 - **Nintendo** — Super Mario 64 (all rights belong to them).
-- **n64decomp/sm64** — the decompilation this all stands on.
-- **sm64-port** — the portable (PC) version of the decompilation.
-- **z2442** and contributors — the original PSP port this repository forks.
-- Everyone who contributed to the PSP project (Discord: <https://discord.gg/5w4B69>).
+- **n64decomp/sm64** and all its contributors — the decompilation this all stands on.
+- **sm64-port** — the portable (PC) version of the decompilation. Its `enhancements/60fps.patch` is where the frame-interpolation system used for 60 fps comes from (interpolated object matrices, HUD, dialog boxes, paintings, snow and bubble particles, moving platforms); this repository adapts it to the PSP.
+- **Emill and MaikelChan** — the Fast3D-in-C renderer in `src/pc/gfx/` (its license is in `src/pc/gfx/LICENSE.txt`), which the PSP graphics layer is built on.
+- **queueRAM** (sm64tools), **David Benepe** (n64graphics) and **Silicon Graphics** (IDO compiler) — tools bundled in `tools/`, each under its own license.
+
+**The PSP port**
+
+- **Hayden Kowalchuk (HaydenKow)** — the original PSP port (2020): per the Git history, the first PSP graphics backend (sceGu), controls, texture manager and PSP build system that everything else here grew from.
+- **z2442** — continued the PSP port (VFPU vertex transform and clipping, audio on the Media Engine) and owns the repository this one forks.
+- **demmis98** — PSP optimizations and fixes in z2442's repository (VFPU work, Boos, Bob-omb explosions, cannons, screen transitions).
+- **z2442's Ocarina of Time port (oot-PSP) and Daedalus** — the TV-output helper module (`psp/dvemgr`) is adapted from the one in the OoT port, which in turn follows the video-out method used by the Daedalus N64 emulator for the PSP.
+- **ghurone / Sonic-R-PSP** — the ideas of the cached vertex arena and of letting the GE do the lateral clipping, and the compiler-flag hint, come from their Sonic R port for the PSP.
+- Everyone else who contributed to the PSP project (Discord: <https://discord.gg/5w4B69>) and everyone listed in this repository's Git history (`git shortlog -sn`).
+
+**This fork**
+
+- **Edwintendo** — maintainer of this fork: direction, testing on real PSP hardware and in PPSSPP, and the decisions about what stays.
+- **Claude (Anthropic)** — AI assistant that wrote or helped write most of this fork's code changes: the 60 fps adaptation and frame pacing, the rendering and GE optimizations, the options menu, the JP/EU/SH version support and the documentation.
+
+**Tools used**
+
+- **pspdev** (PSPSDK and the PSP toolchain) to build, and **PPSSPP** to test.
 
 The game's own data (models, textures, music, sounds) is **not** distributed here: it is extracted from the ROM that you provide.
-The repository does include a few Nintendo-derived files that the PSP needs to show the game in its menu (`psp/EBOOT/`: icon, background picture and sound) and a handful of PSP-specific textures (`psp/textures/`). They are not covered by this project's license and belong to their owners; if you are a rights holder and want them removed, open an issue.
+The repository does include a few Nintendo-derived files that the PSP needs to show the game in its menu (`psp/EBOOT/`: icon, background picture and sound). They are not covered by this project's license and belong to their owners; if you are a rights holder and want them removed, open an issue.

@@ -52,31 +52,31 @@
 
 #define WARP_NODE_CREDITS_MIN 0xF8
 
-/* Contador de tiempos en pantalla (en decimas de ms, promedio de 30 ticks). Quitar esta linea para desactivarlo */
+/* On-screen timing counter (in tenths of ms, average of 30 ticks). Remove this line to disable it */
 /* DESACTIVADO: #define SM64_PROFILE_OVERLAY */
 
-/* En la N64 cada cambio de escena de los creditos (21 cargas de nivel) deja la pantalla en negro ~0.65 s
- * mientras carga desde el cartucho; la musica sigue sonando en tiempo real durante ese tiempo. En la PSP la
- * carga es casi instantanea, asi que el video terminaba ~14 s antes que la musica.
+/* On the N64 each scene change of the credits (21 level loads) leaves the screen black for ~0.65 s
+ * while it loads from the cartridge; the music keeps playing in real time during that time. On the PSP the
+ * load is almost instantaneous, so the video ended ~14 s before the music.
  *
- * Se reproduce esa duracion total, pero medida contra el RELOJ DE LA MUSICA (muestras reproducidas): se mantiene la
- * pantalla en negro solo el tiempo necesario para que cada escena empiece cuando le toca segun la musica. Si la
- * PSP va con lag (video mas lento), la pausa se acorta sola. La musica de los creditos empieza en
- * mario_actions_cutscene.c (credits_music_started) y la secuencia dura 16032 ticks a 106 bpm hasta el
- * ritardando final; la musica entera dura 16706 ticks = 6000 frames y termina cuando el pastel llega al 100%. */
-#define CREDITS_LOAD_HOLD_FRAMES 20 /* respaldo si no hay reloj */
+ * That total duration is played back, but measured against the MUSIC CLOCK (samples played): the screen is kept black
+ * only for as long as needed so that each scene starts when the music says it should. If the
+ * PSP lags (slower video), the pause shortens by itself. The credits music starts in
+ * mario_actions_cutscene.c (credits_music_started) and the sequence lasts 16032 ticks at 106 bpm until the
+ * final ritardando; the whole music lasts 16706 ticks = 6000 frames and ends when the cake reaches 100%. */
+#define CREDITS_LOAD_HOLD_FRAMES 20 /* fallback if there is no clock */
 
 #if defined(TARGET_PSP)
-/* Reloj de la musica (frames de audio a 32 kHz realmente reproducidos), definido en audio_psp.c */
+/* Music clock (audio frames at 32 kHz actually played), defined in audio_psp.c */
 extern unsigned int audio_psp_played_frames(void);
 extern unsigned int audio_psp_play_position_frames(void);
-/* Calibracion: la secuencia termina en el frame 6000 (a 30 fps) y en el juego base el pastel llega al 100% justo
- * cuando acaba la musica: escena final (Mario saludando) = 6000 - 496 (300 saludo + 60 espera + 60 fundido +
- * 60 carga del final... + 75 fundido del pastel, contando el SLEEP del nivel ending) ~= 5504.
+/* Calibration: the sequence ends at frame 6000 (at 30 fps) and in the base game the cake reaches 100% right
+ * when the music ends: final scene (Mario waving) = 6000 - 496 (300 wave + 60 wait + 60 fade +
+ * 60 ending load... + 75 cake fade, counting the ending level's SLEEP) ~= 5504.
  * 5504 = 804 + 20 * 222 + 21 * CREDITS_STALL_FRAMES  ->  CREDITS_STALL_FRAMES = 12.4 */
-#define CREDITS_STALL_FRAMES 12.4f       /* pausa de carga por escena, en frames a 30 fps */
-#define CREDITS_FIRST_TRIGGER_FRAME 742  /* frames desde el inicio de la musica hasta el primer fundido */
-#define CREDITS_SCENE_FRAMES 222         /* frames de video por escena de los creditos */
+#define CREDITS_STALL_FRAMES 12.4f       /* load pause per scene, in frames at 30 fps */
+#define CREDITS_FIRST_TRIGGER_FRAME 742  /* frames from the start of the music to the first fade */
+#define CREDITS_SCENE_FRAMES 222         /* video frames per credits scene */
 static unsigned int sCreditsMusicStart = 0;
 static s32 sCreditsMusicValid = 0;
 static s32 sCreditsLoadIndex = 0;
@@ -94,7 +94,7 @@ static s32 credits_load_hold_frames(s32 fadeFrames) {
     }
     sCreditsLoadIndex++;
     {
-        /* Tiempo de la MUSICA (no del reloj): 32000 muestras/s -> 30 fps de juego */
+        /* MUSIC time (not the clock's): 32000 samples/s -> 30 game fps */
         const f32 nowF = (f32) (s32) (audio_psp_played_frames() - sCreditsMusicStart) * 30.0f / 32000.0f;
         const f32 target = (f32) (CREDITS_FIRST_TRIGGER_FRAME + 60 + 2)
                            + (f32) (sCreditsLoadIndex - 1) * (f32) CREDITS_SCENE_FRAMES
@@ -113,8 +113,8 @@ static s32 credits_load_hold_frames(s32 fadeFrames) {
     }
 }
 
-/* Antes aqui se dibujaba en pantalla la depuracion de la pausa de los creditos (I, H, N, T, M). Ya no se usa: no se dibuja nada.
- * (sDbgHold / sDbgNow / sDbgTarget se siguen calculando por si hace falta volver a mirarlos con un depurador.) */
+/* The credits pause debug (I, H, N, T, M) used to be drawn on screen here. It is no longer used: nothing is drawn.
+ * (sDbgHold / sDbgNow / sDbgTarget are still computed in case they need to be looked at again with a debugger.) */
 static void credits_debug_print(void) {
 }
 #else
@@ -809,8 +809,8 @@ s16 level_trigger_warp(struct MarioState *m, s32 warpOp) {
                     sDelayedWarpOp = WARP_OP_GAME_OVER;
                 }
 #ifdef TARGET_PSP
-                // PSP: la risa de Bowser (~1.4 s) se cortaba un poco al reiniciarse el audio con la carga del nivel (en la N64 la carga daba
-                // margen extra). Se espera un poco mas (64 fotogramas en vez de 48).
+                // PSP: Bowser's laugh (~1.4 s) got cut a little when the audio restarted with the level load (on the N64 the load gave
+                // extra margin). It waits a bit longer (64 frames instead of 48).
                 sDelayedWarpTimer = 64;
 #else
                 sDelayedWarpTimer = 48;
@@ -835,8 +835,8 @@ s16 level_trigger_warp(struct MarioState *m, s32 warpOp) {
 
             case WARP_OP_UNKNOWN_01: // enter totwc
 #ifdef TARGET_PSP
-                // PSP: el nivel carga casi al instante y el reinicio de audio de la carga cortaba el sonido de estrella (dura ~2.4 s) al
-                // segundo. Con las pinturas la N64 espera 74 fotogramas (~2.5 s) con ese mismo sonido; aqui se espera lo equivalente.
+                // PSP: the level loads almost instantly and the audio restart of the load cut the star sound (lasts ~2.4 s) at the
+                // second. With paintings the N64 waits 74 frames (~2.5 s) with that same sound; here the equivalent is waited.
                 sDelayedWarpTimer = 70;
 #else
                 sDelayedWarpTimer = 30;
@@ -1050,9 +1050,9 @@ s32 play_mode_normal(void) {
 #if defined(TARGET_PSP) && defined(SM64_PROFILE_OVERLAY)
     {
         extern int gPspProf[5]; /* gfx_pc.c */
-        extern s16 sTextLabelsCount; /* print.c: etiquetas pendientes de dibujar (maximo 52) */
-        /* Solo dentro de un nivel real que se esta dibujando (no en menus/carga) y con holgura en la tabla de etiquetas,
-         * para que nunca desborde sTextLabels[52] ni agote el pool de efectos. */
+        extern s16 sTextLabelsCount; /* print.c: labels pending to be drawn (maximum 52) */
+        /* Only inside a real level that is being drawn (not in menus/loading) and with room in the label table,
+         * so that it never overflows sTextLabels[52] nor exhausts the effects pool. */
         if (gCurrentArea != NULL && !gWarpTransition.pauseRendering && gCurrLevelNum != LEVEL_NONE
             && gCurrLevelNum != LEVEL_UNKNOWN_1 && gCurrLevelNum != LEVEL_UNKNOWN_2 && gCurrLevelNum != LEVEL_UNKNOWN_3
             && sTextLabelsCount < 30) {
@@ -1431,10 +1431,10 @@ s32 lvl_play_the_end_screen_sound(UNUSED s16 arg0, UNUSED s32 arg1) {
 }
 
 #ifdef TARGET_PSP
-/* Una vez por tick (lo llama gfx_psp_update_mode): 1 mientras hay un cambio de nivel / area o una transicion de warp en curso, y unos
- * ticks despues. En ese tiempo el juego dibuja en modo normal (1 cuadro por tick, sin interpolar ni repetir la lista): al cambiar de
- * nivel se reutiliza la memoria, las tablas de matrices y los punteros de la escena anterior, y es justo donde un cuadro 2 que repite
- * listas viejas puede colgar al GE. */
+/* Once per tick (called by gfx_psp_update_mode): 1 while a level / area change or a warp transition is in progress, and a few
+ * ticks afterwards. During that time the game draws in normal mode (1 frame per tick, without interpolating or replaying the list): when changing
+ * level the memory, the matrix tables and the pointers of the previous scene are reused, and that is exactly where a frame 2 that replays
+ * old lists can hang the GE. */
 int psp_warp_busy(void) {
     static s16 sPrevLevel = -1;
     static s16 sPrevArea = -1;

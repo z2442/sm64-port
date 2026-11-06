@@ -2378,7 +2378,7 @@ static void end_peach_cutscene_star_dance(struct MarioState *m) {
             sequence_player_unlower(SEQ_PLAYER_LEVEL, 60);
 #endif
             play_cutscene_music(SEQUENCE_ARGS(15, SEQ_EVENT_CUTSCENE_CREDITS));
-            credits_music_started(); /* marca el instante real en que empieza la musica de los creditos */
+            credits_music_started(); /* marks the real instant at which the credits music starts */
             break;
 
         case 142:

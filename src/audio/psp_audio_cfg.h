@@ -1,11 +1,11 @@
 #ifndef PSP_AUDIO_CFG_H
 #define PSP_AUDIO_CFG_H
 
-/* Notas simultaneas del sintetizador (la N64 original usa 16). Cuando se agotan, una nota nueva roba una vieja o se pierde (efectos que
- * no suenan con la musica densa). Solo cuentan las notas ACTIVAS. El ME sintetiza en paralelo, pero medido en el registro (parche 36):
- * hasta ~23 notas la CPU casi nunca espera al ME (MEWMS < 4 ms por ventana de 30 ticks); a partir de 24 la espera se multiplica
- * (10-19 ms por ventana). Por eso el tope es 22 (margen bajo ese codo). Maximo 32 (sSampleDmas tiene 4 entradas por nota).
- * 16 = comportamiento original. */
+/* Simultaneous synthesizer notes (the original N64 uses 16). When they run out, a new note steals an old one or is lost (effects that
+ * do not sound with dense music). Only ACTIVE notes count. The ME synthesizes in parallel, but measured in the log (patch 36):
+ * up to ~23 notes the CPU almost never waits for the ME (MEWMS < 4 ms per 30-tick window); from 24 on the wait multiplies
+ * (10-19 ms per window). That is why the cap is 22 (margin below that knee). Maximum 32 (sSampleDmas has 4 entries per note).
+ * 16 = original behavior. */
 #ifndef PSP_AUDIO_NOTES
 #if defined(TARGET_PSP) && !defined(VERSION_EU) && !defined(VERSION_JP)
 #define PSP_AUDIO_NOTES 22
@@ -18,8 +18,8 @@
 #error PSP_AUDIO_NOTES: maximo 32 (sSampleDmas[0x60])
 #endif
 
-/* Memoria extra del heap de audio (bytes) para las notas y buffers de DMA/comandos de mas (por nota: 3 buffers de DMA de 1296 bytes + 1 de 1440
- * + 20 * 4 comandos de 8 bytes * 2). Con 16 notas el heap original de la N64 va justo. */
+/* Extra audio heap memory (bytes) for the extra notes and DMA/command buffers (per note: 3 DMA buffers of 1296 bytes + 1 of 1440
+ * + 20 * 4 commands of 8 bytes * 2). With 16 notes the N64's original heap is just enough. */
 #ifndef PSP_AUDIO_HEAP_EXTRA
 #if PSP_AUDIO_NOTES > 16
 #define PSP_AUDIO_HEAP_EXTRA 0x18000

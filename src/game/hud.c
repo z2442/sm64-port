@@ -60,10 +60,10 @@ static struct CameraHUD sCameraHUD = { CAM_STATUS_NONE };
 static u32 sPowerMeterLastRenderTimestamp;
 static s16 sPowerMeterLastY;
 static Gfx *sPowerMeterDisplayListPos;
-static f32 sPowerMeterRenderedY; /* Y con la que salio el medidor en el 1er cuadro (interpolada) */
+static f32 sPowerMeterRenderedY; /* And with which the meter came out in the 1st frame (interpolated) */
 
 #ifdef TARGET_PSP
-/* PSP_F2_REPLAY: 1 si el 2o cuadro necesita una Y distinta a la del 1o (entonces hay que re-emitir la escena) */
+/* PSP_F2_REPLAY: 1 if the 2nd frame needs a different Y from the 1st's (then the scene must be re-emitted) */
 int psp_hud_patch_pending(void) {
     return sPowerMeterDisplayListPos != NULL && sPowerMeterRenderedY != (f32) sPowerMeterHUD.y;
 }

@@ -127,10 +127,10 @@ f64 kth_root(f64 d, s32 k) {
 
 #ifdef VERSION_EU
 #ifdef TARGET_PSP
-/* PSP: kth_root() hace hasta 64 pasos de Newton en doble precision (en la PSP los doubles son por software) y esta tabla
- * pide 6144 raices: ~1,3 s de congelamiento en CADA reinicio de audio (arranque, menu, cada nivel...). La tabla solo depende de
- * 'len' y las matrices son globales, asi que solo se rehace si cambia. Y la raiz se calcula con pow(), que da exactamente los
- * mismos valores (probado: las 14336 entradas de los k posibles coinciden bit a bit una vez pasadas a f32). */
+/* PSP: kth_root() does up to 64 Newton steps in double precision (on the PSP doubles are done in software) and this table
+ * asks for 6144 roots: ~1.3 s of freeze on EVERY audio reset (boot, menu, every level...). The table only depends on
+ * 'len' and the matrices are global, so it is only rebuilt when it changes. And the root is computed with pow(), which gives exactly the
+ * same values (tested: all 14336 entries for the possible k values match bit for bit once converted to f32). */
 #include <math.h>
 static f64 kth_root_fast(f64 d, s32 k) {
     return pow(d, 1.0 / k);

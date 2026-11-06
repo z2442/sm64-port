@@ -206,7 +206,7 @@ void unload_object(struct Object *obj) {
  * infinite loop.
  */
 #ifdef TARGET_PSP
-/* objetos libres de la reserva (ver psp_obj_near en psp_options.h) */
+/* free objects in the pool (see psp_obj_near in psp_options.h) */
 int psp_objects_free(void) {
     int n = 0;
     const struct ObjectNode *p = gFreeObjectList.next;
@@ -229,11 +229,11 @@ float gPspSpawnScale = 1.0f;
 float gPspSpawnScaleLo = 1.0f;
 int gPspFreeMin = 9999;
 
-/* Distancia de los generadores segun los objetos libres (una vez por tick). Va de la original (x1.0) a la que pide Object Distance de forma continua:
- *   importantes (chomp, goombas, canones...): x1.0 con 30 libres o menos ... Object Distance completa con 70 o mas;
- *   poca prioridad (monedas):                 x1.0 con 80 libres o menos ... completa con 130 o mas.
- * Asi, cuando la reserva se queda justa, lo primero que se descarta es lo MAS LEJANO, y las monedas antes que lo importante. Baja rapido (para no
- * quedarse sin objetos) y sube despacio (para que no oscile). */
+/* Spawner distance according to the free objects (once per tick). It goes continuously from the original (x1.0) to what Object Distance asks for:
+ * important ones (chomp, goombas, cannons...): x1.0 with 30 free or fewer ... full Object Distance with 70 or more;
+ * low priority (coins):                        x1.0 with 80 free or fewer ... full with 130 or more.
+ * This way, when the pool gets tight, the first thing dropped is what is FARTHEST, and coins before the important things. It goes down fast (so as not to
+ * run out of objects) and up slowly (so it does not oscillate). */
 extern float gPspObjDistScale; /* psp_options.c */
 static float psp_scale_follow(float cur, int f, int lo, int hi) {
     const float t = (f <= lo) ? 0.0f : (f >= hi) ? 1.0f : (float) (f - lo) / (float) (hi - lo);

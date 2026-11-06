@@ -12,6 +12,7 @@
 
 #include "audio_api.h"
 #include "../psp_me.h"
+#include "../psp_watchdog.h"
 
 #define PSP_AUDIO_CHANNELS 2
 #define PSP_AUDIO_FREQUENCY 32000
@@ -22,11 +23,11 @@
 #define PSP_AUDIO_TARGET_FRAMES 3072
 #define PSP_AUDIO_OUTPUT_THREAD_PRIORITY 0x1E
 #define PSP_AUDIO_PRODUCER_THREAD_PRIORITY 0x20
-/* Con el ME, el hilo principal manda el audio (ver audio_psp_tick_begin/end): nivel del anillo que se busca justo despues de
- * recoger un trabajo, y estimacion de lo que se consume hasta el siguiente tick (30 Hz = ~1067 muestras). */
+/* With the ME, the main thread sends the audio (see audio_psp_tick_begin/end): ring level to aim for right after
+ * collecting a job, and estimate of what is consumed until the next tick (30 Hz = ~1067 samples). */
 #define PSP_AUDIO_ME_TARGET_FRAMES 2560
-#define PSP_AUDIO_ME_DRAIN_FRAMES 1100 /* consumo minimo supuesto entre dos ticks (30 Hz); si los ticks tardan mas se usa lo medido */
-#define PSP_AUDIO_ME_DRAIN_MAX_US 250000 /* tope de la estimacion del intervalo entre ticks (4 s de carga no deben pedir 4 s de audio) */
+#define PSP_AUDIO_ME_DRAIN_FRAMES 1100 /* assumed minimum consumption between two ticks (30 Hz); if ticks take longer the measured value is used */
+#define PSP_AUDIO_ME_DRAIN_MAX_US 250000 /* cap of the tick interval estimate (a 4 s load must not ask for 4 s of audio) */
 
 #ifdef VERSION_EU
 #define PSP_AUDIO_SAMPLES_HIGH 656
@@ -55,18 +56,18 @@ static volatile uint32_t sAudioReadPos;
 static volatile uint32_t sAudioWritePos;
 static volatile bool sAudioRunning;
 static volatile bool sAudioStarted;
-static volatile uint32_t sAudioPlayedFrames; /* frames de musica realmente reproducidos (reloj de la musica) */
+static volatile uint32_t sAudioPlayedFrames; /* music frames actually played (music clock) */
 static SceUID sAudioOutputThreadId = -1;
 static SceUID sAudioProducerThreadId = -1;
 static bool sAudioChannelReady;
-static volatile bool sAudioMeDriven; /* true: el ME sintetiza y el hilo principal lo coordina; false: lo hace el hilo productor en la CPU */
-static int sMeJobBlocks;             /* bloques del trabajo en curso en el ME (0 = ninguno) */
-static unsigned int sTickBeginT;     /* hora (us) del ultimo audio_psp_tick_begin */
-static unsigned int sTickIntervalEst; /* estimacion (us) de lo que tardara el tick siguiente: sube de golpe, baja despacio */
+static volatile bool sAudioMeDriven; /* true: the ME synthesizes and the main thread coordinates it; false: the producer thread does it on the CPU */
+static int sMeJobBlocks;             /* blocks of the job in progress on the ME (0 = none) */
+static unsigned int sTickBeginT;     /* time (us) of the last audio_psp_tick_begin */
+static unsigned int sTickIntervalEst; /* estimate (us) of how long the next tick will take: goes up at once, comes down slowly */
 static uint32_t sMeJobFrames[PSP_ME_JOB_MAX];
-unsigned int gPspNoteMax; /* mayor numero de notas del sintetizador en uso visto al empezar un tick (se pone a 0 al imprimir) */
+unsigned int gPspNoteMax; /* highest number of synthesizer notes in use seen at the start of a tick (reset to 0 when printed) */
 extern int psp_audio_active_notes(void);
-unsigned int gPspAudUnder;           /* veces que el anillo se vacio y la salida tuvo que sonar en silencio (cortes de audio) */
+unsigned int gPspAudUnder;           /* times the ring emptied and the output had to play silence (audio dropouts) */
 
 static inline void audio_psp_sync(void) {
     __asm__ volatile("sync" ::: "memory");
@@ -131,7 +132,7 @@ static void audio_psp_dequeue_output(int16_t *output) {
     sAudioPlayedFrames += PSP_AUDIO_OUTPUT_FRAMES;
 }
 
-/* Reloj de la musica: frames (a 32 kHz) ya reproducidos, y posicion donde sonara lo que se genere ahora. */
+/* Music clock: frames (at 32 kHz) already played, and position where what is generated now will sound. */
 uint32_t audio_psp_played_frames(void) {
     return sAudioPlayedFrames;
 }
@@ -179,9 +180,9 @@ static int audio_psp_output_thread(SceSize args, void *argp) {
     return 0;
 }
 
-unsigned int gPspAudCpuUs, gPspAudCpuN; /* sintesis de audio hecha en la CPU principal (fallback sin ME): us y llamadas */
+unsigned int gPspAudCpuUs, gPspAudCpuN; /* audio synthesis done on the main CPU (fallback without ME): us and calls */
 
-/* Patron de tamanos de bloque: la N64 genera 2 llamadas por frame de juego (60 por segundo), es decir 32000/60 = 533.33 muestras
+/* Block size pattern: the N64 makes 2 calls per game frame (60 per second), that is 32000/60 = 533.33 samples
  * de promedio: patron 528, 528, 544. */
 static uint32_t audio_psp_next_block_frames(void) {
 #ifdef VERSION_EU
@@ -195,20 +196,20 @@ static uint32_t audio_psp_next_block_frames(void) {
 #endif
 }
 
-/* Inicio de cada tick del juego (ANTES de que la logica toque el audio): recoge el trabajo del ME. Con el ME, la sintesis corre
- * en el otro nucleo mientras la CPU principal dibuja; entre audio_psp_tick_end y la siguiente llamada a esta funcion el juego no
- * toca el estado del audio, asi las dos cachas no se pisan. Antes el ME sintetizaba EN PARALELO con la logica: las dos CPU
- * escribian las mismas lineas de cache (contadores de peticiones de sonido, banderas de pausa...) y se perdian escrituras
- * (sonidos que no suenan, musica que no se detiene al pausar). */
+/* Start of each game tick (BEFORE the logic touches the audio): collects the ME's job. With the ME, synthesis runs
+ * on the other core while the main CPU draws; between audio_psp_tick_end and the next call to this function the game does not
+ * touch the audio state, so the two caches do not overwrite each other. Before, the ME synthesized IN PARALLEL with the logic: the two CPUs
+ * wrote the same cache lines (sound request counters, pause flags...) and writes were lost
+ * (sounds that do not play, music that does not stop on pause). */
 void audio_psp_tick_begin(void) {
     {
-        /* Mide lo que dura el tick (tiempo real entre dos llamadas). En zonas pesadas el tick pasa de 33 ms a 60-100 ms (camara lenta):
-         * la salida consume 32 muestras por ms pase lo que pase, y con un reparto pensado para 33 ms el anillo se vaciaba (cortes). */
+        /* Measures how long the tick lasts (real time between two calls). In heavy areas the tick goes from 33 ms to 60-100 ms (slow motion):
+         * the output consumes 32 samples per ms no matter what, and with a split designed for 33 ms the ring emptied (dropouts). */
         const unsigned int now = sceKernelGetSystemTimeLow();
         const unsigned int dt = sTickBeginT ? (now - sTickBeginT) : 0;
         sTickBeginT = now;
         if (dt > PSP_AUDIO_ME_DRAIN_MAX_US) {
-            /* pausa / carga: no se aprende de ella */
+            /* pause / load: not learned from */
         } else if (dt > sTickIntervalEst) {
             sTickIntervalEst = dt;
         } else {
@@ -221,14 +222,14 @@ void audio_psp_tick_begin(void) {
     {
         const int r = psp_me_job_wait();
         if (r == PSP_ME_WAIT_BUSY) {
-            return; /* ME lento: no se toca el audio ni se manda otro trabajo; se vuelve a mirar en el tick siguiente */
+            return; /* slow ME: the audio is not touched and no other job is sent; it is looked at again on the next tick */
         }
         if (r == PSP_ME_WAIT_STALE) {
-            sMeJobBlocks = 0; /* termino tarde: ese audio ya no sirve, pero el ME vuelve a estar libre */
+            sMeJobBlocks = 0; /* finished late: that audio is no longer useful, but the ME is free again */
             return;
         }
         if (r != PSP_ME_WAIT_DONE) {
-            /* el ME fallo: el hilo productor retoma la sintesis en la CPU */
+            /* the ME failed: the producer thread takes synthesis back on the CPU */
             sMeJobBlocks = 0;
             sAudioMeDriven = false;
             return;
@@ -244,7 +245,7 @@ void audio_psp_tick_begin(void) {
     }
     sMeJobBlocks = 0;
     {
-        /* el ME esta parado: se pueden contar las notas en uso (diagnostico) */
+        /* the ME is stopped: the notes in use can be counted (diagnostic) */
         const unsigned int n = (unsigned int)psp_audio_active_notes();
         if (n > gPspNoteMax) {
             gPspNoteMax = n;
@@ -252,7 +253,7 @@ void audio_psp_tick_begin(void) {
     }
 }
 
-/* Fin de la logica del tick: calcula cuantos bloques hacen falta para mantener el anillo y se los manda al ME (no espera). */
+/* End of the tick's logic: computes how many blocks are needed to keep the ring up and sends them to the ME (does not wait). */
 void audio_psp_tick_end(void) {
     int need, blocks, i;
 
@@ -260,9 +261,9 @@ void audio_psp_tick_end(void) {
         return;
     }
     {
-        /* muestras que saldran mientras llega el trabajo (hasta el proximo tick): lo medido, con un minimo de 1100 (tick de 30 Hz) */
+        /* samples that will play out while the job arrives (until the next tick): the measured value, with a minimum of 1100 (30 Hz tick) */
         int drain = (int)((sTickIntervalEst * 32U) / 1000U);
-        drain += drain / 16; /* ~6 %: el reloj de audio va algo por delante del de la CPU */
+        drain += drain / 16; /* ~6 %: the audio clock runs somewhat ahead of the CPU's */
         if (drain < (int)PSP_AUDIO_ME_DRAIN_FRAMES) {
             drain = (int)PSP_AUDIO_ME_DRAIN_FRAMES;
         }
@@ -281,7 +282,7 @@ void audio_psp_tick_end(void) {
     if (psp_me_job_start(sAudioGenerate, sMeJobFrames, blocks)) {
         sMeJobBlocks = blocks;
     } else {
-        sAudioMeDriven = false; /* el ME no esta listo: sintesis en la CPU */
+        sAudioMeDriven = false; /* the ME is not ready: synthesis on the CPU */
     }
 }
 
@@ -293,17 +294,17 @@ static int audio_psp_producer_thread(SceSize args, void *argp) {
     while (sAudioRunning) {
         uint32_t buffered = audio_psp_buffered_frames();
 
-        /* tras reanudar la consola el ME vuelve a estar listo: se le devuelve el audio aqui, entre dos sintesis de este hilo, para que nunca
-         * trabajen la CPU y el ME a la vez sobre el estado del audio (el trabajo siguiente lo manda el hilo principal en audio_psp_tick_end) */
+        /* after the console resumes the ME is ready again: the audio is given back to it here, between two syntheses of this thread, so that the CPU and the ME never
+         * work at the same time on the audio state (the next job is sent by the main thread in audio_psp_tick_end) */
         if (!sAudioMeDriven && sMeJobBlocks <= 0 && psp_me_take_resumed()) {
             sAudioMeDriven = true;
         }
         if (sAudioMeDriven) {
-            sceKernelDelayThread(4000); /* con el ME el audio lo manda el hilo principal; este hilo solo vigila */
+            sceKernelDelayThread(4000); /* with the ME the audio is sent by the main thread; this thread only watches */
         } else if (gProcessAudio && (buffered < PSP_AUDIO_TARGET_FRAMES) &&
             (audio_psp_free_frames() >= PSP_AUDIO_SAMPLES_HIGH)) {
             const uint32_t frames = audio_psp_next_block_frames();
-            /* sin ME: la sintesis corre en la CPU principal y le roba tiempo al juego (se cuenta para el log) */
+            /* without ME: synthesis runs on the main CPU and steals time from the game (counted for the log) */
             const unsigned int t_cpu0 = sceKernelGetSystemTimeLow();
             audio_psp_generate_cpu(sAudioGenerate, frames);
             gPspAudCpuUs += sceKernelGetSystemTimeLow() - t_cpu0;
@@ -372,6 +373,7 @@ bool audio_psp_start(void) {
         return false;
     }
     sAudioOutputThreadId = thread_id;
+    psp_watchdog_register("audio output", thread_id);
 
     thread_id = sceKernelCreateThread("SM64 PSP AudioGen", audio_psp_producer_thread,
                                      PSP_AUDIO_PRODUCER_THREAD_PRIORITY, 0x20000,
@@ -387,6 +389,7 @@ bool audio_psp_start(void) {
         return false;
     }
     sAudioProducerThreadId = thread_id;
+    psp_watchdog_register("audio generator", thread_id);
     return true;
 }
 
