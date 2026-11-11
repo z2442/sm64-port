@@ -116,7 +116,13 @@ const LevelScript level_intro_entry_4[] = {
 const LevelScript script_intro_L1[] = {
     STOP_MUSIC(/*fadeOutTime*/ 0x00BE),
     TRANSITION(/*transType*/ WARP_TRANSITION_FADE_INTO_COLOR, /*time*/ 16, /*color*/ 0xFF, 0xFF, 0xFF),
+#ifdef TARGET_PSP
+           // PSP: al pulsar START suena el sonido de estrella (~2.4 s) y el menu reinicia el audio al cargarse. En la N64 la carga del menu
+           // le daba tiempo; aqui es casi instantanea y se cortaba a ~0.6 s. Se alarga la pantalla en blanco (42 fotogramas en total, ~1.4 s).
+    SLEEP(/*frames*/ 40),
+#else
     SLEEP(/*frames*/ 16),
+#endif
     CLEAR_LEVEL(),
     SLEEP(/*frames*/ 2),
     SET_REG(/*value*/ 16),

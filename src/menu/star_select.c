@@ -358,9 +358,10 @@ void print_act_selector_strings(void) {
     // Print the numbers above each star.
     for (i = 1; i <= sVisibleStars; i++) {
         starNumbers[0] = i;
-#ifdef VERSION_EU
+#if defined(VERSION_EU) && !defined(TARGET_PSP)
         print_menu_generic_string(143 - sVisibleStars * 15 + i * 30 , 38, starNumbers);
 #else
+        /* PSP: without the PAL 1.1 compression of the 3D (rendering_graph_node.c) the stars end up as in US, so the numbers use the US spacing */
         print_menu_generic_string(i * 34 - sVisibleStars * 17 + 139, 38, starNumbers);
 #endif
     }

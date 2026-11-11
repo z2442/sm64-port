@@ -5,6 +5,11 @@
 #include "data.h"
 #include "seqplayer.h"
 
+#ifdef TARGET_PSP
+extern float gPspVolMusic; /* psp_options.c: 0.0 a 1.0 */
+extern float gPspVolSfx;
+#endif
+
 #ifdef VERSION_JP
 #define US_FLOAT2(x) x##.0
 #else
@@ -62,6 +67,13 @@ static void sequence_channel_process_sound(struct SequenceChannel *seqChannel) {
     if (seqChannel->seqPlayer->muted && (seqChannel->muteBehavior & MUTE_BEHAVIOR_SOFTEN) != 0) {
         channelVolume *= seqChannel->seqPlayer->muteVolumeScale;
     }
+
+#ifdef TARGET_PSP
+    /* Options menu (Audio) volumes: player 2 is the sound effects; players 0 and 1 are the music (level music and
+     * secondary music / fanfares). 1.0 = the game's original volume. The variables are written by the CPU and read by the ME (the audio job is sent
+     * with the cache written back to memory). */
+    channelVolume *= (seqChannel->seqPlayer == &gSequencePlayers[2]) ? gPspVolSfx : gPspVolMusic;
+#endif
 
     panFromChannel = seqChannel->pan * seqChannel->panChannelWeight;
     panLayerWeight = US_FLOAT(1.0) - seqChannel->panChannelWeight;

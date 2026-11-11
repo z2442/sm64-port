@@ -23,6 +23,9 @@ static void *psp_tex_buffer_start = NULL;
 static void *psp_tex_buffer_max = NULL;
 static unsigned int psp_tex_number = 0;
 unsigned int psp_tex_bound = 0;
+/* How many times the texture store has been emptied/restarted. gfx_scegu.c uses it to know whether a recorded draw list still
+ * points to textures that exist (if the store is emptied, the VRAM positions are reused). */
+unsigned int gPspTexClears = 0;
 
 static inline unsigned int getMemorySize(int width, int height, unsigned int psm) {
     switch (psm) {
@@ -106,6 +109,7 @@ int texman_inited(void) {
 }
 
 void texman_reset(void *buf, unsigned int size) {
+    gPspTexClears++;
     memset(textures, 0, sizeof(textures));
     psp_tex_number = 0;
     psp_tex_buffer = psp_tex_buffer_start = buf;
@@ -118,6 +122,7 @@ void texman_reset(void *buf, unsigned int size) {
 }
 
 void texman_clear(void) {
+    gPspTexClears++;
     memset(textures, 0, sizeof(textures));
     psp_tex_number = 0;
     psp_tex_buffer = psp_tex_buffer_start;
@@ -176,6 +181,13 @@ unsigned int texman_create(void) {
 }
 
 void texman_upload_swizzle(int width, int height, unsigned int type, const void *buffer) {
+    /* Swizzle works in blocks of 16 bytes x 8 rows. If the texture is
+        smaller (e.g. the 16x4 of the switches) nothing is written and garbage is left:
+        in that case it is uploaded without swizzle. */
+    if ((getTexWidthBytes(width, type) % 16) != 0 || (height % 8) != 0 || height < 8) {
+        texman_upload(width, height, type, buffer);
+        return;
+    }
     struct PSP_Texture *current = texman_reserve_memory(width, height, type);
     sceKernelDcacheWritebackRange(buffer, getMemorySize(width, height, type));
     current->width = width;

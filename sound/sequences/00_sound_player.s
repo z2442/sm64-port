@@ -7,7 +7,7 @@ seq_setmutebhv 0x60
 seq_setmutescale 0
 seq_setvol 127
 seq_settempo 120
-seq_initchannels 0x3ff
+seq_initchannels 0xffff
 seq_startchannel 0, .channel0
 seq_startchannel 1, .channel1
 seq_startchannel 2, .channel2
@@ -18,6 +18,13 @@ seq_startchannel 6, .channel6
 seq_startchannel 7, .channel7
 seq_startchannel 8, .channel38
 seq_startchannel 9, .channel59
+# --- PSP: canales extra (2o sonido simultaneo de algunos bancos). Deben coincidir con sPspSfxExtraChannel en src/audio/external.c ---
+seq_startchannel 10, .channel38
+seq_startchannel 11, .channel4
+seq_startchannel 12, .channel59
+seq_startchannel 13, .channel6
+seq_startchannel 14, .channel38
+seq_startchannel 15, .channel59
 .seq_loop:
 seq_delay 20000
 seq_jump .seq_loop

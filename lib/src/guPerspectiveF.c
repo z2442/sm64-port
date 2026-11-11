@@ -33,6 +33,19 @@ void guPerspectiveF(float mf[4][4], u16 *perspNorm, float fovy, float aspect, fl
 void guPerspective(Mtx *m, u16 *perspNorm, float fovy, float aspect, float near, float far,
                    float scale) {
     float mat[4][4];
+#ifdef TARGET_PSP
+    {
+        /* La vista del juego mide gPspGameW x 272 (480 = 16:9, 362 = 4:3 de la TV): el aspecto de la proyeccion es el de la vista, no uno fijo de 16:9.
+         * 480 -> 1 / 0.75555 (como antes); 4:3 -> 1 (la proyeccion original de la N64). */
+        extern int gPspGameW; /* gfx_scegu.c */
+        float wide = (float) gPspGameW * (0.75f / 272.0f);
+        if (wide > 0.995f && wide < 1.005f) {
+            wide = 1.0f;
+        }
+        guPerspectiveF(mat, perspNorm, fovy, aspect * wide, near, far, scale);
+    }
+#else
     guPerspectiveF(mat, perspNorm, fovy, aspect*(1.0f/0.75555555555f), near, far, scale);
+#endif
     guMtxF2L(mat, m);
 }

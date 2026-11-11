@@ -205,6 +205,55 @@ void unload_object(struct Object *obj) {
  * an unimportant object if necessary. If this is not possible, hang using an
  * infinite loop.
  */
+#ifdef TARGET_PSP
+/* free objects in the pool (see psp_obj_near in psp_options.h) */
+int psp_objects_free(void) {
+    int n = 0;
+    const struct ObjectNode *p = gFreeObjectList.next;
+    while (p != NULL && n < 1000) {
+        n++;
+        p = p->next;
+    }
+    return n;
+}
+
+int psp_spawn_headroom(int n) {
+    return psp_objects_free() - n >= 40;
+}
+
+int psp_spawn_headroom_lo(int n) {
+    return psp_objects_free() - n >= 100;
+}
+
+float gPspSpawnScale = 1.0f;
+float gPspSpawnScaleLo = 1.0f;
+int gPspFreeMin = 9999;
+
+/* Spawner distance according to the free objects (once per tick). It goes continuously from the original (x1.0) to what Object Distance asks for:
+ * important ones (chomp, goombas, cannons...): x1.0 with 30 free or fewer ... full Object Distance with 70 or more;
+ * low priority (coins):                        x1.0 with 80 free or fewer ... full with 130 or more.
+ * This way, when the pool gets tight, the first thing dropped is what is FARTHEST, and coins before the important things. It goes down fast (so as not to
+ * run out of objects) and up slowly (so it does not oscillate). */
+extern float gPspObjDistScale; /* psp_options.c */
+static float psp_scale_follow(float cur, int f, int lo, int hi) {
+    const float t = (f <= lo) ? 0.0f : (f >= hi) ? 1.0f : (float) (f - lo) / (float) (hi - lo);
+    const float tgt = 1.0f + (gPspObjDistScale - 1.0f) * t;
+    float d = tgt - cur;
+    if (d < -0.10f) d = -0.10f;
+    if (d > 0.02f) d = 0.02f;
+    return cur + d;
+}
+
+void psp_pool_update(void) {
+    const int f = psp_objects_free();
+    gPspSpawnScale = psp_scale_follow(gPspSpawnScale, f, 30, 70);
+    gPspSpawnScaleLo = psp_scale_follow(gPspSpawnScaleLo, f, 80, 130);
+    if (f < gPspFreeMin) {
+        gPspFreeMin = f;
+    }
+}
+#endif
+
 struct Object *allocate_object(struct ObjectNode *objList) {
     s32 i;
     struct Object *obj = try_allocate_object(objList, &gFreeObjectList);

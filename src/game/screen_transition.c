@@ -16,6 +16,25 @@
 u8 sTransitionColorFadeCount[4] = { 0 };
 u16 sTransitionTextureFadeCount[2] = { 0 };
 
+/* 60 fps: positions in the draw list where the circle/star vertices are loaded; the first frame uses the
+ * interpolated ones and patch_screen_transition_interpolated() swaps them for the real ones for the second. */
+static Gfx *sScreenTransitionVerticesPos[2];
+static Vtx *sScreenTransitionVertices;
+
+#ifdef TARGET_PSP
+int psp_transition_patch_pending(void) { return sScreenTransitionVerticesPos[0] != NULL; }
+#endif
+
+void patch_screen_transition_interpolated(void) {
+    if (sScreenTransitionVerticesPos[0] != NULL) {
+        gSPVertex(sScreenTransitionVerticesPos[0], VIRTUAL_TO_PHYSICAL(sScreenTransitionVertices), 8, 0);
+        gSPVertex(sScreenTransitionVerticesPos[1], VIRTUAL_TO_PHYSICAL(sScreenTransitionVertices), 4, 0);
+        sScreenTransitionVerticesPos[0] = NULL;
+        sScreenTransitionVerticesPos[1] = NULL;
+        sScreenTransitionVertices = NULL;
+    }
+}
+
 s32 set_and_reset_transition_fade_timer(s8 fadeTimer, u8 transTime) {
     s32 reset = FALSE;
 
@@ -85,9 +104,11 @@ s32 render_fade_transition_into_color(s8 fadeTimer, u8 transTime, struct WarpTra
     return dl_transition_color(fadeTimer, transTime, transData, alpha);
 }
 
-s16 calc_tex_transition_radius(s8 fadeTimer, s8 transTime, struct WarpTransitionData *transData) {
+/* interpolationFraction: 1.0 = real state of this tick, 0.5 = midpoint between the previous tick and this one */
+s16 calc_tex_transition_radius(s8 fadeTimer, f32 interpolationFraction, s8 transTime, struct WarpTransitionData *transData) {
     f32 texRadius = transData->endTexRadius - transData->startTexRadius;
-    f32 radiusTime = sTransitionColorFadeCount[fadeTimer] * texRadius / (f32)(transTime - 1);
+    f32 radiusTime = (sTransitionColorFadeCount[fadeTimer] == 0 ? 0 :
+                      sTransitionColorFadeCount[fadeTimer] - 1 + interpolationFraction) * texRadius / (f32)(transTime - 1);
     f32 result = transData->startTexRadius + radiusTime;
 
     return (s16)(result + 0.5);;
@@ -171,15 +192,20 @@ s32 render_textured_transition(s8 fadeTimer, s8 transTime, struct WarpTransition
     u16 texTransPos = convert_tex_transition_angle_to_pos(transData);
     s16 centerTransX = center_tex_transition_x(transData, texTransTime, texTransPos);
     s16 centerTransY = center_tex_transition_y(transData, texTransTime, texTransPos);
-    s16 texTransRadius = calc_tex_transition_radius(fadeTimer, transTime, transData);
+    s16 texTransRadius = calc_tex_transition_radius(fadeTimer, 1.0f, transTime, transData);
+    s16 texTransRadiusInterpolated = calc_tex_transition_radius(fadeTimer, 0.5f, transTime, transData);
     Vtx *verts = alloc_display_list(8 * sizeof(*verts));
+    Vtx *vertsInterpolated = alloc_display_list(8 * sizeof(*vertsInterpolated));
 
-    if (verts != NULL) {
+    if (verts != NULL && vertsInterpolated != NULL) {
         load_tex_transition_vertex(verts, fadeTimer, transData, centerTransX, centerTransY, texTransRadius, transTexType);
+        load_tex_transition_vertex(vertsInterpolated, fadeTimer, transData, centerTransX, centerTransY, texTransRadiusInterpolated, transTexType);
+        sScreenTransitionVertices = verts;
         gSPDisplayList(gDisplayListHead++, dl_proj_mtx_fullscreen)
         gDPSetCombineMode(gDisplayListHead++, G_CC_SHADE, G_CC_SHADE);
         gDPSetRenderMode(gDisplayListHead++, G_RM_AA_OPA_SURF, G_RM_AA_OPA_SURF2);
-        gSPVertex(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(verts), 8, 0);
+        sScreenTransitionVerticesPos[0] = gDisplayListHead;
+        gSPVertex(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(vertsInterpolated), 8, 0);
         gSPDisplayList(gDisplayListHead++, dl_transition_draw_filled_region);
         gDPPipeSync(gDisplayListHead++);
         //gDPSetCombineMode(gDisplayListHead++, G_CC_MODULATEIDECALA, G_CC_MODULATEIDECALA);
@@ -198,7 +224,8 @@ s32 render_textured_transition(s8 fadeTimer, s8 transTime, struct WarpTransition
             break;
         }
         gSPTexture(gDisplayListHead++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-        gSPVertex(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(verts), 4, 0);
+        sScreenTransitionVerticesPos[1] = gDisplayListHead;
+        gSPVertex(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(vertsInterpolated), 4, 0);
         gSPDisplayList(gDisplayListHead++, dl_draw_quad_verts_0123);
         gSPTexture(gDisplayListHead++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF);
         gSPDisplayList(gDisplayListHead++, dl_screen_transition_end);
@@ -246,10 +273,10 @@ int render_screen_transition(s8 fadeTimer, s8 transType, u8 transTime, struct Wa
 Gfx *render_cannon_circle_base(void) {
 #ifdef WIDESCREEN
     Vtx *verts = alloc_display_list(8 * sizeof(*verts));
-    Gfx *dlist = alloc_display_list(20 * sizeof(*dlist));
+    Gfx *dlist = alloc_display_list(28 * sizeof(*dlist));
 #else
     Vtx *verts = alloc_display_list(4 * sizeof(*verts));
-    Gfx *dlist = alloc_display_list(16 * sizeof(*dlist));
+    Gfx *dlist = alloc_display_list(24 * sizeof(*dlist));
 #endif
     Gfx *g = dlist;
 
@@ -269,7 +296,11 @@ Gfx *render_cannon_circle_base(void) {
 
         gSPDisplayList(g++, dl_proj_mtx_fullscreen);
         //gDPSetCombineMode(g++, G_CC_MODULATEIDECALA, G_CC_MODULATEIDECALA);
-        gDPSetCombineMode(gDisplayListHead++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
+        /* The cannon circle is black (black vertices in the original). With MODULATEIA_PRIM the color comes from
+         * PRIM, which used to not be set here and was left with the one from the last transition (white at the start of the game).
+         * Also the combine was being written to gDisplayListHead instead of to this list. */
+        gDPSetPrimColor(g++, 0, 0, 0, 0, 0, 255);
+        gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
         gDPSetTextureFilter(g++, G_TF_BILERP);
         gDPLoadTextureBlock(g++, sTextureTransitionID[TEX_TRANS_CIRCLE], G_IM_FMT_IA, G_IM_SIZ_8b, 32, 64, 0,
             G_TX_WRAP | G_TX_MIRROR, G_TX_WRAP | G_TX_MIRROR, 5, 6, G_TX_NOLOD, G_TX_NOLOD);

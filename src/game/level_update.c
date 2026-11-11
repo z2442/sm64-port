@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include "pc/psp_lprof.h"
 
 #include "sm64.h"
 #include "seq_ids.h"
@@ -28,6 +29,7 @@
 #include "level_table.h"
 #include "course_table.h"
 #include "thread6.h"
+#include "print.h"
 
 #define PLAY_MODE_NORMAL 0
 #define PLAY_MODE_PAUSED 2
@@ -49,6 +51,83 @@
 #define WARP_NODE_CREDITS_END 0xFA
 
 #define WARP_NODE_CREDITS_MIN 0xF8
+
+/* On-screen timing counter (in tenths of ms, average of 30 ticks). Remove this line to disable it */
+/* DESACTIVADO: #define SM64_PROFILE_OVERLAY */
+
+/* On the N64 each scene change of the credits (21 level loads) leaves the screen black for ~0.65 s
+ * while it loads from the cartridge; the music keeps playing in real time during that time. On the PSP the
+ * load is almost instantaneous, so the video ended ~14 s before the music.
+ *
+ * That total duration is played back, but measured against the MUSIC CLOCK (samples played): the screen is kept black
+ * only for as long as needed so that each scene starts when the music says it should. If the
+ * PSP lags (slower video), the pause shortens by itself. The credits music starts in
+ * mario_actions_cutscene.c (credits_music_started) and the sequence lasts 16032 ticks at 106 bpm until the
+ * final ritardando; the whole music lasts 16706 ticks = 6000 frames and ends when the cake reaches 100%. */
+#define CREDITS_LOAD_HOLD_FRAMES 20 /* fallback if there is no clock */
+
+#if defined(TARGET_PSP)
+/* Music clock (audio frames at 32 kHz actually played), defined in audio_psp.c */
+extern unsigned int audio_psp_played_frames(void);
+extern unsigned int audio_psp_play_position_frames(void);
+/* Calibration: the sequence ends at frame 6000 (at 30 fps) and in the base game the cake reaches 100% right
+ * when the music ends: final scene (Mario waving) = 6000 - 496 (300 wave + 60 wait + 60 fade +
+ * 60 ending load... + 75 cake fade, counting the ending level's SLEEP) ~= 5504.
+ * 5504 = 804 + 20 * 222 + 21 * CREDITS_STALL_FRAMES  ->  CREDITS_STALL_FRAMES = 12.4 */
+#define CREDITS_STALL_FRAMES 12.4f       /* load pause per scene, in frames at 30 fps */
+#define CREDITS_FIRST_TRIGGER_FRAME 742  /* frames from the start of the music to the first fade */
+#define CREDITS_SCENE_FRAMES 222         /* video frames per credits scene */
+static unsigned int sCreditsMusicStart = 0;
+static s32 sCreditsMusicValid = 0;
+static s32 sCreditsLoadIndex = 0;
+static s32 sDbgHold = 0, sDbgNow = 0, sDbgTarget = 0;
+
+void credits_music_started(void) {
+    sCreditsMusicStart = audio_psp_play_position_frames();
+    sCreditsMusicValid = 1;
+    sCreditsLoadIndex = 0;
+}
+
+static s32 credits_load_hold_frames(s32 fadeFrames) {
+    if (!sCreditsMusicValid) {
+        return CREDITS_LOAD_HOLD_FRAMES;
+    }
+    sCreditsLoadIndex++;
+    {
+        /* MUSIC time (not the clock's): 32000 samples/s -> 30 game fps */
+        const f32 nowF = (f32) (s32) (audio_psp_played_frames() - sCreditsMusicStart) * 30.0f / 32000.0f;
+        const f32 target = (f32) (CREDITS_FIRST_TRIGGER_FRAME + 60 + 2)
+                           + (f32) (sCreditsLoadIndex - 1) * (f32) CREDITS_SCENE_FRAMES
+                           + (f32) sCreditsLoadIndex * CREDITS_STALL_FRAMES;
+        s32 hold = (s32) (target - nowF - (f32) fadeFrames - 2.0f + 0.5f);
+        sDbgNow = (s32) nowF;
+        sDbgTarget = (s32) target;
+        sDbgHold = hold;
+        if (hold < 0) {
+            hold = 0;
+        }
+        if (hold > 120) {
+            hold = 120;
+        }
+        return hold;
+    }
+}
+
+/* The credits pause debug (I, H, N, T, M) used to be drawn on screen here. It is no longer used: nothing is drawn.
+ * (sDbgHold / sDbgNow / sDbgTarget are still computed in case they need to be looked at again with a debugger.) */
+static void credits_debug_print(void) {
+}
+#else
+static void credits_debug_print(void) {
+}
+
+void credits_music_started(void) {
+}
+
+static s32 credits_load_hold_frames(UNUSED s32 fadeFrames) {
+    return CREDITS_LOAD_HOLD_FRAMES;
+}
+#endif
 
 #ifdef VERSION_JP
 const char *credits01[] = { "1GAME DIRECTOR", "SHIGERU MIYAMOTO" };
@@ -729,7 +808,13 @@ s16 level_trigger_warp(struct MarioState *m, s32 warpOp) {
                 if (m->numLives == 0) {
                     sDelayedWarpOp = WARP_OP_GAME_OVER;
                 }
+#ifdef TARGET_PSP
+                // PSP: Bowser's laugh (~1.4 s) got cut a little when the audio restarted with the level load (on the N64 the load gave
+                // extra margin). It waits a bit longer (64 frames instead of 48).
+                sDelayedWarpTimer = 64;
+#else
                 sDelayedWarpTimer = 48;
+#endif
                 sSourceWarpNodeId = WARP_NODE_DEATH;
                 play_transition(WARP_TRANSITION_FADE_INTO_BOWSER, 0x30, 0x00, 0x00, 0x00);
                 play_sound(SOUND_MENU_BOWSER_LAUGH, gDefaultSoundArgs);
@@ -749,7 +834,13 @@ s16 level_trigger_warp(struct MarioState *m, s32 warpOp) {
                 break;
 
             case WARP_OP_UNKNOWN_01: // enter totwc
+#ifdef TARGET_PSP
+                // PSP: the level loads almost instantly and the audio restart of the load cut the star sound (lasts ~2.4 s) at the
+                // second. With paintings the N64 waits 74 frames (~2.5 s) with that same sound; here the equivalent is waited.
+                sDelayedWarpTimer = 70;
+#else
                 sDelayedWarpTimer = 30;
+#endif
                 sSourceWarpNodeId = WARP_NODE_F2;
                 play_transition(WARP_TRANSITION_FADE_INTO_COLOR, 0x1E, 0xFF, 0xFF, 0xFF);
 #ifndef VERSION_JP
@@ -792,10 +883,10 @@ s16 level_trigger_warp(struct MarioState *m, s32 warpOp) {
 
             case WARP_OP_CREDITS_NEXT:
                 if (gCurrCreditsEntry == &sCreditsSequence[0]) {
-                    sDelayedWarpTimer = 60;
+                    sDelayedWarpTimer = 60 + credits_load_hold_frames(60);
                     play_transition(WARP_TRANSITION_FADE_INTO_COLOR, 0x3C, 0x00, 0x00, 0x00);
                 } else {
-                    sDelayedWarpTimer = 20;
+                    sDelayedWarpTimer = 20 + credits_load_hold_frames(20);
                     play_transition(WARP_TRANSITION_FADE_INTO_COLOR, 0x14, 0x00, 0x00, 0x00);
                 }
                 val04 = FALSE;
@@ -956,6 +1047,23 @@ void basic_update(UNUSED s16 *arg) {
 }
 
 s32 play_mode_normal(void) {
+#if defined(TARGET_PSP) && defined(SM64_PROFILE_OVERLAY)
+    {
+        extern int gPspProf[5]; /* gfx_pc.c */
+        extern s16 sTextLabelsCount; /* print.c: labels pending to be drawn (maximum 52) */
+        /* Only inside a real level that is being drawn (not in menus/loading) and with room in the label table,
+         * so that it never overflows sTextLabels[52] nor exhausts the effects pool. */
+        if (gCurrentArea != NULL && !gWarpTransition.pauseRendering && gCurrLevelNum != LEVEL_NONE
+            && gCurrLevelNum != LEVEL_UNKNOWN_1 && gCurrLevelNum != LEVEL_UNKNOWN_2 && gCurrLevelNum != LEVEL_UNKNOWN_3
+            && sTextLabelsCount < 30) {
+            print_text_fmt_int(20, 110, "LOG %d", gPspProf[0]);
+            print_text_fmt_int(20, 95, "GFX %d", gPspProf[1]);
+            print_text_fmt_int(20, 80, "GE %d", gPspProf[2]);
+            print_text_fmt_int(20, 65, "SLP %d", gPspProf[3]);
+            print_text_fmt_int(20, 50, "MAX %d", gPspProf[4]);
+        }
+    }
+#endif
     if (gCurrDemoInput != NULL) {
         print_intro_text();
         if (gPlayer1Controller->buttonPressed & END_DEMO) {
@@ -1231,9 +1339,12 @@ s32 lvl_init_or_update(s16 initOrUpdate, UNUSED s32 unused) {
         case 0:
             result = init_level();
             break;
-        case 1:
+        case 1: {
+            LPROF_BEGIN(lp_u);
             result = update_level();
+            LPROF_END(lp_u, LP_UPD);
             break;
+        }
     }
 
     return result;
@@ -1318,3 +1429,28 @@ s32 lvl_play_the_end_screen_sound(UNUSED s16 arg0, UNUSED s32 arg1) {
     play_sound(SOUND_MENU_THANK_YOU_PLAYING_MY_GAME, gDefaultSoundArgs);
     return 1;
 }
+
+#ifdef TARGET_PSP
+/* Once per tick (called by gfx_psp_update_mode): 1 while a level / area change or a warp transition is in progress, and a few
+ * ticks afterwards. During that time the game draws in normal mode (1 frame per tick, without interpolating or replaying the list): when changing
+ * level the memory, the matrix tables and the pointers of the previous scene are reused, and that is exactly where a frame 2 that replays
+ * old lists can hang the GE. */
+int psp_warp_busy(void) {
+    static s16 sPrevLevel = -1;
+    static s16 sPrevArea = -1;
+    static int sHold = 0;
+    if (gCurrLevelNum != sPrevLevel || gCurrAreaIndex != sPrevArea) {
+        sPrevLevel = gCurrLevelNum;
+        sPrevArea = gCurrAreaIndex;
+        sHold = 10;
+    }
+    if (gWarpTransition.isActive || sDelayedWarpOp != WARP_OP_NONE) {
+        sHold = 10;
+    }
+    if (sHold > 0) {
+        sHold--;
+        return 1;
+    }
+    return 0;
+}
+#endif

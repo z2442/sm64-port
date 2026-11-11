@@ -1,4 +1,5 @@
 #include <PR/ultratypes.h>
+#include "pc/psp_lprof.h"
 
 #include "sm64.h"
 #include "area.h"
@@ -1704,7 +1705,15 @@ void func_sh_8025574C(void) {
 /**
  * Main function for executing Mario's behavior.
  */
+static s32 execute_mario_action_impl(UNUSED struct Object *o);
 s32 execute_mario_action(UNUSED struct Object *o) {
+    LPROF_BEGIN(lp_mar);
+    s32 r = execute_mario_action_impl(o);
+    LPROF_END(lp_mar, LP_MAR);
+    return r;
+}
+
+static s32 execute_mario_action_impl(UNUSED struct Object *o) {
     s32 inLoop = TRUE;
 
     if (gMarioState->action) {

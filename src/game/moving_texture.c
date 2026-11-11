@@ -311,9 +311,9 @@ Gfx *geo_wdw_set_initial_water_level(s32 callContext, UNUSED struct GraphNode *n
         gWdwWaterLevelSet = 0;
     } else if (callContext == GEO_CONTEXT_RENDER && gEnvironmentRegions != NULL
                && gWdwWaterLevelSet == 0) {
-        if (gPaintingMarioYEntry <= 1382.4) {
+        if (gPaintingMarioYEntry <= 1382.4f) {
             wdwWaterHeight = 31;
-        } else if (gPaintingMarioYEntry >= 1600.0) {
+        } else if (gPaintingMarioYEntry >= 1600.0f) {
             wdwWaterHeight = 2816;
         } else {
             wdwWaterHeight = 1024;
@@ -353,8 +353,8 @@ Gfx *geo_movtex_pause_control(s32 callContext, UNUSED struct GraphNode *node, UN
  */
 void movtex_make_quad_vertex(Vtx *verts, s32 index, s16 x, s16 y, s16 z, s16 rot, s16 rotOffset,
                              f32 scale, u8 alpha) {
-    s16 s = 32.0 * (32.0 * scale - 1.0) * sins(rot + rotOffset);
-    s16 t = 32.0 * (32.0 * scale - 1.0) * coss(rot + rotOffset);
+    s16 s = 32.0f * (32.0f * scale - 1.0f) * sins(rot + rotOffset);
+    s16 t = 32.0f * (32.0f * scale - 1.0f) * coss(rot + rotOffset);
 
     if (gMovtexVtxColor == MOVTEX_VTX_COLOR_YELLOW) {
         make_vertex(verts, index, x, y, z, s, t, 255, 255, 0, alpha);
@@ -645,7 +645,7 @@ Gfx *geo_movtex_draw_water_regions(s32 callContext, struct GraphNode *node, UNUS
         }
         asGenerated = (struct GraphNodeGenerated *) node;
         if (asGenerated->parameter == JRB_MOVTEX_INTIAL_MIST) {
-            if (gLakituState.goalPos[1] < 1024.0) { // if camera under water
+            if (gLakituState.goalPos[1] < 1024.0f) { // if camera under water
                 return NULL;
             }
             if (save_file_get_star_flags(gCurrSaveFileNum - 1, 2) & 1) { // first level in JRB complete

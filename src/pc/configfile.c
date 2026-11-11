@@ -12,6 +12,9 @@ extern int isspace(int c);
 
 #include "configfile.h"
 #include "fs_utils.h"
+#if defined(TARGET_PSP)
+#include "../game/psp_options.h"
+#endif
 
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 
@@ -71,6 +74,20 @@ static const struct ConfigOption options[] = {
     {.name = "key_stickright", .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickRight},
     {.name = "deadzone",       .type = CONFIG_TYPE_UINT, .uintValue = &configDeadzone},
 };
+
+#if defined(TARGET_PSP)
+
+/* On the PSP all settings (graphics, audio and controls) live in a single text file read and written by psp_options.c;
+ * the configKey* variables above are used by controller_psp.c. */
+void configfile_load(const char *filename) {
+    psp_options_load_file(filename);
+}
+
+void configfile_save(const char *filename) {
+    psp_options_save_file(filename);
+}
+
+#else
 
 // Reads an entire line from a file (excluding the newline character) and returns an allocated string
 // Returns NULL if no lines could be read from the file
@@ -264,3 +281,5 @@ void configfile_save(const char *filename) {
 
     fclose(file);
 }
+
+#endif

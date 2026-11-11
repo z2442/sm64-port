@@ -1,12 +1,13 @@
 #include <ultra64.h>
 
 #include "buffers.h"
+#include "audio/psp_audio_cfg.h"
 
 ALIGNED8 u8 gDecompressionHeap[0xD000];
 #if defined(VERSION_EU) || defined(VERSION_SH)
 ALIGNED16 u8 gAudioHeap[DOUBLE_SIZE_ON_64_BIT(0x31200) - 0x3800];
 #else
-ALIGNED16 u8 gAudioHeap[DOUBLE_SIZE_ON_64_BIT(0x31200)];
+ALIGNED16 u8 gAudioHeap[DOUBLE_SIZE_ON_64_BIT(0x31200 + PSP_AUDIO_HEAP_EXTRA)];
 #endif
 
 ALIGNED8 u8 gIdleThreadStack[0x800];

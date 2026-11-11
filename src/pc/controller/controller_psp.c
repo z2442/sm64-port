@@ -7,6 +7,12 @@
 #include "controller_api.h"
 #include "../configfile.h"
 
+/* PSP physical state from the last sampling (read by the options menu to navigate and to assign buttons without depending on the mapping).
+ * Stick: -128..127, up and right positive. */
+unsigned int gPspRawButtons;
+int gPspRawStickX;
+int gPspRawStickY;
+
 static void controller_psp_init(void) {
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
@@ -30,6 +36,10 @@ static void controller_psp_read(OSContPad *pad) {
 
     if (!sceCtrlPeekBufferPositive(&data, 1))
         return;
+
+    gPspRawButtons = data.Buttons;
+    gPspRawStickX = (int) data.Lx - 128;
+    gPspRawStickY = 127 - (int) data.Ly;
 
     const char stickH = data.Lx+0x80;
     const char stickV = 0xff-(data.Ly+0x80);

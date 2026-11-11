@@ -126,11 +126,30 @@ f64 kth_root(f64 d, s32 k) {
 #endif
 
 #ifdef VERSION_EU
+#ifdef TARGET_PSP
+/* PSP: kth_root() does up to 64 Newton steps in double precision (on the PSP doubles are done in software) and this table
+ * asks for 6144 roots: ~1.3 s of freeze on EVERY audio reset (boot, menu, every level...). The table only depends on
+ * 'len' and the matrices are global, so it is only rebuilt when it changes. And the root is computed with pow(), which gives exactly the
+ * same values (tested: all 14336 entries for the possible k values match bit for bit once converted to f32). */
+#include <math.h>
+static f64 kth_root_fast(f64 d, s32 k) {
+    return pow(d, 1.0 / k);
+}
+#define kth_root kth_root_fast
+#endif
+
 void build_vol_rampings_table(s32 UNUSED unused, s32 len) {
     s32 i;
     s32 step;
     s32 d;
     s32 k = len / 8;
+#ifdef TARGET_PSP
+    static s32 sBuiltLen = -1;
+    if (len == sBuiltLen) {
+        return;
+    }
+    sBuiltLen = len;
+#endif
 
     for (step = 0, i = 0; i < 0x400; step += 32, i++) {
         d = step;
@@ -146,6 +165,9 @@ void build_vol_rampings_table(s32 UNUSED unused, s32 len) {
         gRightVolRampings[2][i] = kth_root(1.0 / d, k + 1) * 65536.0;
     }
 }
+#ifdef TARGET_PSP
+#undef kth_root
+#endif
 #endif
 
 void reset_bank_and_seq_load_status(void) {

@@ -67,10 +67,10 @@ void make_vertex(Vtx *vtx, s32 n, f32 x, f32 y, f32 z, s16 tx, s16 ty, u8 r, u8 
  */
 s16 round_float(f32 num) {
     // Note that double literals are used here, rather than float literals.
-    if (num >= 0.0) {
-        return num + 0.5;
+    if (num >= 0.0f) {
+        return num + 0.5f;
     } else {
-        return num - 0.5;
+        return num - 0.5f;
     }
 }
 
@@ -156,7 +156,7 @@ Gfx *geo_exec_flying_carpet_create(s32 callContext, struct GraphNode *node, UNUS
             col = n % 3;
 
             x = sp64[n * 4 + 0];
-            y = round_float(sins(sFlyingCarpetRippleTimer + (row << 12) + (col << 14)) * 20.0);
+            y = round_float(sins(sFlyingCarpetRippleTimer + (row << 12) + (col << 14)) * 20.0f);
             z = sp64[n * 4 + 1];
             tx = sp64[n * 4 + 2];
             ty = sp64[n * 4 + 3];
@@ -180,7 +180,7 @@ Gfx *geo_exec_flying_carpet_create(s32 callContext, struct GraphNode *node, UNUS
         curGraphNodeObject = (struct Object *) gCurGraphNodeObject;
         if (gMarioObject->platform == curGraphNodeObject) {
             gFlyingCarpetState = FLYING_CARPET_MOVING_WITH_MARIO;
-        } else if (curGraphNodeObject->oForwardVel != 0.0) {
+        } else if (curGraphNodeObject->oForwardVel != 0.0f) {
             gFlyingCarpetState = FLYING_CARPET_MOVING_WITHOUT_MARIO;
         } else {
             gFlyingCarpetState = FLYING_CARPET_IDLE;

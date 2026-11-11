@@ -11,11 +11,18 @@
 #define SEQUENCE_LAYERS 64
 #else
 #define SEQUENCE_PLAYERS 3
+#if defined(TARGET_PSP) && !defined(VERSION_JP)
+/* The 6 extra channels of the effects player (see PSP_SFX_EXTRA in external.c) come out of this same pool: with 32 the music
+ * could run out of channels. 48 and 64 are the EU version's values. */
+#define SEQUENCE_CHANNELS 48
+#define SEQUENCE_LAYERS 64
+#else
 #define SEQUENCE_CHANNELS 32
 #ifdef VERSION_JP
 #define SEQUENCE_LAYERS 48
 #else
 #define SEQUENCE_LAYERS 52
+#endif
 #endif
 #endif
 

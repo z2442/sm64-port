@@ -1,4 +1,5 @@
 #include <PR/ultratypes.h>
+#include <math.h>
 
 #include "area.h"
 #include "engine/math_util.h"
@@ -70,6 +71,12 @@ struct Skybox {
 
 struct Skybox sSkyBoxInfo[2];
 
+#ifdef TARGET_PSP
+/* PSP_F2_SKY (see rendering_graph_node.c): orthographic matrix and tiles (base row/column) of the LAST sky list created. */
+const void *gPspSkyOrtho;
+s32 gPspSkyBase = -1;
+#endif
+
 typedef const u8 *const SkyboxTexture[80];
 
 extern SkyboxTexture bbh_skybox_ptrlist;
@@ -134,6 +141,9 @@ u8 sSkyboxColors[][3] = {
  */
 #define SKYBOX_ROWS (8)
 
+// Tile columns drawn in 16:9 (visible width ~423 units / 160 + margin)
+#define SKYBOX_DRAW_COLS (4)
+
 
 /**
  * Convert the camera's yaw into an x position into the scaled skybox image.
@@ -154,7 +164,7 @@ calculate_skybox_scaled_x(s8 player, f32 fov) {
     f32 yaw = sSkyBoxInfo[player].yaw;
 
     //! double literals are used instead of floats
-    f32 yawScaled = SCREEN_WIDTH * 360.0 * yaw / (fov * 65536.0);
+    f32 yawScaled = SCREEN_WIDTH * 360.0f * yaw / (fov * 65536.0f);
 
 #ifdef BETTER_SKYBOX_POSITION_PRECISION
     f32 scaledX = yawScaled;
@@ -164,7 +174,7 @@ calculate_skybox_scaled_x(s8 player, f32 fov) {
     }
 #else
     // Round the scaled yaw. Since yaw is a u16, it doesn't need to check for < 0
-    s32 scaledX = yawScaled + 0.5;
+    s32 scaledX = yawScaled + 0.5f;
 
     if (scaledX > SKYBOX_WIDTH) {
         scaledX -= scaledX / SKYBOX_WIDTH * SKYBOX_WIDTH;
@@ -187,10 +197,10 @@ s32
 #endif
 calculate_skybox_scaled_y(s8 player, UNUSED f32 fov) {
     // Convert pitch to degrees. Pitch is bounded between -90 (looking down) and 90 (looking up).
-    f32 pitchInDegrees = (f32) sSkyBoxInfo[player].pitch * 360.0 / 65535.0;
+    f32 pitchInDegrees = (f32) sSkyBoxInfo[player].pitch * 360.0f / 65535.0f;
 
     // Scale by 360 / fov
-    f32 degreesToScale = 360.0f * pitchInDegrees / 90.0;
+    f32 degreesToScale = 360.0f * pitchInDegrees / 90.0f;
 
 #ifdef BETTER_SKYBOX_POSITION_PRECISION
     f32 scaledY = degreesToScale + 5 * SKYBOX_TILE_HEIGHT;
@@ -252,10 +262,64 @@ Vtx *make_skybox_rect(s32 tileIndex, s8 colorIndex) {
  * The row and column are converted into an index into the skybox's tile list, which is then drawn in
  * world space so that the tiles will rotate with the camera.
  */
+#ifdef WIDESCREEN
+static Vtx *make_skybox_rect_xy(s16 x, s16 y, s8 colorIndex) {
+    Vtx *verts = alloc_display_list(4 * sizeof(*verts));
+    if (verts != NULL) {
+        make_vertex(verts, 0, x, y, -1, 0, 0, sSkyboxColors[colorIndex][0], sSkyboxColors[colorIndex][1],
+                    sSkyboxColors[colorIndex][2], 255);
+        make_vertex(verts, 1, x, y - SKYBOX_TILE_HEIGHT, -1, 0, 31 << 5, sSkyboxColors[colorIndex][0],
+                    sSkyboxColors[colorIndex][1], sSkyboxColors[colorIndex][2], 255);
+        make_vertex(verts, 2, x + SKYBOX_TILE_WIDTH, y - SKYBOX_TILE_HEIGHT, -1, 31 << 5, 31 << 5,
+                    sSkyboxColors[colorIndex][0], sSkyboxColors[colorIndex][1], sSkyboxColors[colorIndex][2], 255);
+        make_vertex(verts, 3, x + SKYBOX_TILE_WIDTH, y, -1, 31 << 5, 0, sSkyboxColors[colorIndex][0],
+                    sSkyboxColors[colorIndex][1], sSkyboxColors[colorIndex][2], 255);
+    }
+    return verts;
+}
+
+/**
+ * 16:9 version: draws 3 rows x SKYBOX_DRAW_COLS columns, starting one column before the original
+ * to cover the ~52 extra units seen on each side. The image column wraps around the
+ * 8 real columns (SKYBOX_WIDTH / TILE_WIDTH); the world position uses the unwrapped column.
+ */
+void draw_skybox_tile_grid(Gfx **dlist, s8 background, s8 player, s8 colorIndex) {
+    s32 row;
+    s32 col;
+    const f32 visibleWidth = SCREEN_WIDTH * GFX_DIMENSIONS_ASPECT_RATIO * 0.75f;       // unidades visibles
+    const f32 extraLeft = (visibleWidth - SCREEN_WIDTH) / 2.0f;                         // ~52 en 16:9
+    s32 baseCol = (s32) floorf(((f32) sSkyBoxInfo[player].scaledX - extraLeft) / SKYBOX_TILE_WIDTH);
+    s32 baseRow = sSkyBoxInfo[player].upperLeftTile / SKYBOX_COLS;
+    const s32 imgCols = SKYBOX_WIDTH / SKYBOX_TILE_WIDTH; // 8 distinct columns
+#ifdef TARGET_PSP
+    gPspSkyBase = (baseRow << 16) | (baseCol & 0xFFFF) | ((s32) colorIndex << 28);
+#endif
+
+    for (row = 0; row < 3; row++) {
+        for (col = 0; col < SKYBOX_DRAW_COLS; col++) {
+            s32 worldCol = baseCol + col;
+            s32 imgCol = ((worldCol % imgCols) + imgCols) % imgCols;
+            s32 tileRow = baseRow + row;
+            s32 tileIndex = tileRow * SKYBOX_COLS + imgCol;
+            const u8 *const texture =
+                (*(SkyboxTexture *) segmented_to_virtual(sSkyboxTextures[background]))[tileIndex];
+            Vtx *vertices = make_skybox_rect_xy((s16) (worldCol * SKYBOX_TILE_WIDTH),
+                                                (s16) (SKYBOX_HEIGHT - tileRow * SKYBOX_TILE_HEIGHT), colorIndex);
+
+            gLoadBlockTexture((*dlist)++, 32, 32, G_IM_FMT_RGBA, texture);
+            gSPVertex((*dlist)++, VIRTUAL_TO_PHYSICAL(vertices), 4, 0);
+            gSPDisplayList((*dlist)++, dl_draw_quad_verts_0123);
+        }
+    }
+}
+#else
 void draw_skybox_tile_grid(Gfx **dlist, s8 background, s8 player, s8 colorIndex) {
     s32 row;
     s32 col;
 
+#ifdef TARGET_PSP
+    gPspSkyBase = sSkyBoxInfo[player].upperLeftTile | ((s32) colorIndex << 28);
+#endif
     for (row = 0; row < 3; row++) {
         for (col = 0; col < 3; col++) {
             s32 tileIndex = sSkyBoxInfo[player].upperLeftTile + row * SKYBOX_COLS + col;
@@ -269,6 +333,7 @@ void draw_skybox_tile_grid(Gfx **dlist, s8 background, s8 player, s8 colorIndex)
         }
     }
 }
+#endif
 
 void *create_skybox_ortho_matrix(s8 player) {
     f32 left = sSkyBoxInfo[player].scaledX;
@@ -277,15 +342,9 @@ void *create_skybox_ortho_matrix(s8 player) {
     f32 top = sSkyBoxInfo[player].scaledY;
     Mtx *mtx = alloc_display_list(sizeof(*mtx));
 
-#ifdef WIDESCREEN
-    f32 half_width = (4.0f / 3.0f) / GFX_DIMENSIONS_ASPECT_RATIO * SCREEN_WIDTH / 2;
-    f32 center = (sSkyBoxInfo[player].scaledX + SCREEN_WIDTH / 2);
-    if (half_width < SCREEN_WIDTH / 2) {
-        // A wider screen than 4:3
-        left = center - half_width;
-        right = center + half_width;
-    }
-#endif
+    /* WIDESCREEN/PSP: the range is no longer cropped. gfx_pc.c compensates the aspect of the orthographic projections
+     * (visible width = 320 / k = 423 units in 16:9, with the correct proportions), so the sky is no longer
+     * stretched. That is why extra tile columns must be drawn (see draw_skybox_tile_grid). */
 
     if (mtx != NULL) {
         guOrtho(mtx, left, right, bottom, top, 0.0f, 3.0f, 1.0f);
@@ -299,7 +358,11 @@ void *create_skybox_ortho_matrix(s8 player) {
  * Creates the skybox's display list, then draws the 3x3 grid of tiles.
  */
 Gfx *init_skybox_display_list(s8 player, s8 background, s8 colorIndex) {
+    #ifdef WIDESCREEN
+    s32 dlCommandCount = 5 + (3 * SKYBOX_DRAW_COLS) * 7; // 5 for the start and end, plus 3xN skybox tiles
+#else
     s32 dlCommandCount = 5 + (3 * 3) * 7; // 5 for the start and end, plus 9 skybox tiles
+#endif
     void *skybox = alloc_display_list(dlCommandCount * sizeof(Gfx));
     Gfx *dlist = skybox;
 
@@ -307,6 +370,9 @@ Gfx *init_skybox_display_list(s8 player, s8 background, s8 colorIndex) {
         return NULL;
     } else {
         Mtx *ortho = create_skybox_ortho_matrix(player);
+#ifdef TARGET_PSP
+        gPspSkyOrtho = ortho;
+#endif
 
         gSPDisplayList(dlist++, dl_skybox_begin);
         gSPMatrix(dlist++, VIRTUAL_TO_PHYSICAL(ortho), G_MTX_PROJECTION | G_MTX_MUL | G_MTX_NOPUSH);
