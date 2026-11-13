@@ -357,6 +357,7 @@ make TARGET_PSP=1 VERSION=us pbp        # build/us_psp/mario64/{EBOOT.PBP,SM64.P
 - **z2442のOcarina of Time移植(oot-PSP)とDaedalus** — TV出力の補助モジュール(`psp/dvemgr`)はOoT移植のものを取り入れており、それはN64エミュレータDaedalusのPSP向け映像出力方式に基づいています。
 - **ghurone / Sonic-R-PSP** — 頂点アリーナのキャッシュ、横方向クリッピングをGEに任せる発想、コンパイラフラグに関するヒントは、PSP向けSonic R移植に由来します。
 - **beckerd([psp_mk64_portable](https://github.com/beckerd/psp_mk64_portable))と JustKidding23([Ocarina-of-Time-PSP](https://github.com/JustKidding23/Ocarina-of-Time-PSP)、[z2442/oot-PSP](https://github.com/z2442/oot-PSP)ベース)** — ゲームデータを同梱せず、初回起動時にPSP上でプレイヤー自身のROMから生成するというアイデアは、これらの2つのPSP移植(マリオカート64とゼルダの伝説 時のオカリナ)に由来します。このリポジトリのインストーラー(`psp/installer/`)は別個の実装で、テンプレートとマニフェストから `SM64.PRX` を再構築します。
+- **sm64coopdx / sm64ex-coop** — マルチプレイヤーの同期設計の参考(このリリースでは無効)、およびこの移植に合わせて調整したルイージ関連アセット(モデルとテクスチャ、HUDの顔アイコン、サウンドバンク、ボイスサンプル)の出典。ルイージのボイスは同プロジェクトでAndrat氏のクレジットとなっています。sm64coopdxはsm64ex-coop(djoslinと貢献者)とDynOS(PeachyPeach)を基にしています。これらのアセットはそれぞれの作者に帰属します。
 - **Claude(Anthropic)** — この移植の後期のコード変更の大半を書いた、または共同で書いたAIアシスタント:60 fps対応とフレームペーシング、描画とGEの最適化、オプションメニュー、JP/EU/SH版への対応、ドキュメント。
 - PSPプロジェクトに貢献した他のすべての方々、およびこのリポジトリのGit履歴に名前のある全員(`git shortlog -sn`)。
 
