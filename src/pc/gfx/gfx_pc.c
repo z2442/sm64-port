@@ -1168,6 +1168,14 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, co
     }
     if (gfx_texture_cache.pool_pos == sizeof(gfx_texture_cache.pool) / sizeof(struct TextureHashmapNode)) {
         // Pool is full. We just invalidate everything and start over.
+#if defined(TARGET_PSP)
+        /* The cache nodes are all dropped, so the texture store must restart together with them: otherwise every node created from now on
+         * asks for a new texture slot while the old ones stay allocated, and the slot counter of the texture manager (512 entries)
+         * runs past its table. */
+        gfx_scegu_sync_all();
+        texman_clear();
+        sPcTexClr++;
+#endif
         gfx_texture_cache.pool_pos = 0;
         memset(gfx_texture_cache.pool, 0, sizeof(gfx_texture_cache.pool));
         node = &gfx_texture_cache.hashmap[hash];
@@ -1846,10 +1854,34 @@ static float gfx_fog_ndc_to_dist(float ndc) {
     return d < 1.0f ? 1.0f : d;
 }
 
+/* ---- Fog clamp planes ----
+ * The fog factor F of a vertex is limited to 0..255 and the GE interpolates that limited value in screen space. Unlimited, F is linear in 1/w and
+ * that interpolation is exact (1/w is linear on screen); the limit breaks it: a big floor triangle with one vertex before the fog start (F = 0 only
+ * because of the limit; its real value is very negative) and another far away got fog from its near vertex on, with hard edges against the
+ * neighbors ("wedges" that the real per-pixel fog does not have; measured on a JRB capture: F = 79 instead of 0 on the floor near the camera).
+ * Fix: a triangle that crosses the distance where F reaches 0 (or 255) is cut there in clip space (gfx_tri_fog_split). Each piece is then
+ * entirely on one side of the limit: its F values are the real ones and the interpolation is exact. */
+#ifndef PSP_FOG_CLAMP_SPLIT
+#define PSP_FOG_CLAMP_SPLIT 1
+#endif
+static float sFogWLo = 0.0f, sFogWHi = 0.0f; /* w (distance) where F = 0 and where F = 255 */
+static int sFogSplitOn = 0;
+
 static void gfx_update_fog_range(void) {
     float n = 3600.0f, f = 32000.0f;
+    sFogSplitOn = 0;
     if (sFogB != 0.0f && rsp.fog_mul != 0) {
         float mul = (float)rsp.fog_mul, off = (float)rsp.fog_offset;
+#if PSP_FOG_CLAMP_SPLIT
+        if (rsp.fog_mul > 0) {
+            const float wlo = gfx_fog_ndc_to_dist((0.0f - off) / mul);
+            const float whi = gfx_fog_ndc_to_dist((255.0f - off) / mul);
+            if (wlo > 1.0f && wlo < 1.0e5f && whi > wlo) {
+                sFogWLo = wlo; sFogWHi = (whi < 1.0e5f) ? whi : 1.0e6f;
+                sFogSplitOn = 1;
+            }
+        }
+#endif
         /* N64 fog is hyperbolic in distance (it builds up early) and the GE's is linear.
          * The exact start is kept and the end is chosen so that both coincide when the
          * N64 fog reaches PSP_FOG_MATCH (0..1). Lower = denser/closer fog. */
@@ -1945,6 +1977,12 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
     // For a modified GBI where fixed point values are replaced with floats
     memcpy(matrix, addr, sizeof(matrix));
 #endif
+
+    if (rsp.modelview_matrix_stack_size == 0) {
+        /* Empty stack (only possible with a malformed display list): start from an identity matrix so the stack indexes below never go before the array. */
+        memcpy(rsp.modelview_matrix_stack[0], identity_matrix, sizeof(matrix));
+        rsp.modelview_matrix_stack_size = 1;
+    }
 
     if (parameters & G_MTX_PROJECTION) {
         if (parameters & G_MTX_LOAD) {
@@ -2090,6 +2128,7 @@ static void gfx_sp_pop_matrix(uint32_t count) {
         }
     }
     if (rsp.modelview_matrix_stack_size > 0) {
+        rsp.lights_changed = 1; /* the lights are kept relative to the current matrix: after a pop it is the parent's again */
         if (MTXVAR & 1) {
             sMPPend = 1;
         } else {
@@ -2593,6 +2632,61 @@ static __attribute__((noinline)) bool gfx_tri_lod_cold(struct LoadedVertex *v1, 
     return false;
 }
 
+#if PSP_FOG_CLAMP_SPLIT
+/* Cuts the triangle with the plane w = wp (w = clip-space w = distance) into the part with w > wp and the part with w < wp, and hands each piece to
+ * the next plane (and finally to gfx_tri_core). The cut vertices are interpolated in clip space (exact) and get w = wp exactly. */
+static void gfx_fog_split_rec(struct LoadedVertex *a, struct LoadedVertex *b, struct LoadedVertex *c, int plane) {
+    if (plane >= 2) {
+        gfx_tri_core(a, b, c, 1, 0.0f);
+        return;
+    }
+    const float wp = plane == 0 ? sFogWLo : sFogWHi;
+    struct LoadedVertex *vin[3] = { a, b, c };
+    const float d[3] = { a->_w - wp, b->_w - wp, c->_w - wp };
+    if (!((d[0] > 0.0f || d[1] > 0.0f || d[2] > 0.0f) && (d[0] < 0.0f || d[1] < 0.0f || d[2] < 0.0f))) {
+        gfx_fog_split_rec(a, b, c, plane + 1); /* does not cross this plane */
+        return;
+    }
+    struct LoadedVertex cut[2];
+    struct LoadedVertex *pos[4], *neg[4];
+    int np = 0, nn = 0, nc = 0;
+    for (int i = 0; i < 3; i++) {
+        struct LoadedVertex *cur = vin[i], *nxt = vin[(i + 1) % 3];
+        const float dc = d[i], dn = d[(i + 1) % 3];
+        if (dc > 0.0f) {
+            pos[np++] = cur;
+        } else if (dc < 0.0f) {
+            neg[nn++] = cur;
+        } else {
+            pos[np++] = cur; neg[nn++] = cur;
+        }
+        if ((dc > 0.0f && dn < 0.0f) || (dc < 0.0f && dn > 0.0f)) {
+            struct LoadedVertex *o = &cut[nc++];
+            gfx_clip_interpolate_vert(o, cur, nxt, dc / (dc - dn));
+            o->_w = wp;
+            o->w = a->w;
+            o->clip_rej = 0;
+            if (o->_x < -o->_w * sRejXY) o->clip_rej |= X_POS;
+            if (o->_x > o->_w * sRejXY) o->clip_rej |= X_NEG;
+            if (o->_y < -o->_w * sRejXY) o->clip_rej |= Y_POS;
+            if (o->_y > o->_w * sRejXY) o->clip_rej |= Y_NEG;
+            if (o->_z < -o->_w) o->clip_rej |= Z_POS;
+            if (o->_z > o->_w) o->clip_rej |= Z_NEG;
+            pos[np++] = o; neg[nn++] = o;
+        }
+    }
+    for (int k = 1; k + 1 < np; k++) gfx_fog_split_rec(pos[0], pos[k], pos[k + 1], plane + 1);
+    for (int k = 1; k + 1 < nn; k++) gfx_fog_split_rec(neg[0], neg[k], neg[k + 1], plane + 1);
+}
+
+static __attribute__((noinline)) void gfx_tri_fog_split(struct LoadedVertex *v1, struct LoadedVertex *v2, struct LoadedVertex *v3) {
+    if (buf_vbo_num_tris + 24 >= MAX_BUFFERED) {
+        gfx_flush(); /* the pieces (and their clipping) need room in the buffer */
+    }
+    gfx_fog_split_rec(v1, v2, v3, 0);
+}
+#endif
+
 /* Early discard of a triangle (all off screen or back-facing). It is the 1st part of gfx_tri_core, pulled out into an inline function:
  * this way the ~70 % of triangles that are discarded do not pay for the gfx_tri_core call (big stack, many saved registers). */
 static inline __attribute__((always_inline)) bool gfx_tri_culled(const struct LoadedVertex *v1, const struct LoadedVertex *v2,
@@ -2973,6 +3067,18 @@ static inline __attribute__((always_inline)) void gfx_tri_core_body(struct Loade
             return;
         }
     }
+
+#if PSP_FOG_CLAMP_SPLIT
+    if (fog_mode && !sub && sFogSplitOn && comb->vertex_color_source[0] != CC_LOD && comb->vertex_color_source[1] != CC_LOD) {
+        const float qa = v1->_w, qb = v2->_w, qc = v3->_w;
+        const float mn = qa < qb ? (qa < qc ? qa : qc) : (qb < qc ? qb : qc);
+        const float mx = qa > qb ? (qa > qc ? qa : qc) : (qb > qc ? qb : qc);
+        if ((mn < sFogWLo && mx > sFogWLo) || (mn < sFogWHi && mx > sFogWHi)) {
+            gfx_tri_fog_split(v1, v2, v3);
+            return;
+        }
+    }
+#endif
 
     /* Most common case (level geometry, most objects): the output color is the shade color as is, and there is no need to
      * go through gfx_get_vertex_color's switch for each vertex. */
@@ -3365,7 +3471,7 @@ static void gfx_dp_load_block(uint8_t tile, UNUSED uint32_t uls, UNUSED uint32_t
     SUPPORT_CHECK(ult == 0);
     
     // The lrs field rather seems to be number of pixels to load
-    uint32_t word_size_shift;
+    uint32_t word_size_shift = 0;
     switch (rdp.texture_to_load.siz) {
         case G_IM_SIZ_4b:
             word_size_shift = 0; // Or -1? It's unused in SM64 anyway.
@@ -3395,7 +3501,7 @@ static void gfx_dp_load_tile(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
     SUPPORT_CHECK(uls == 0);
     SUPPORT_CHECK(ult == 0);
 
-    uint32_t word_size_shift;
+    uint32_t word_size_shift = 0;
     switch (rdp.texture_to_load.siz) {
         case G_IM_SIZ_4b:
             word_size_shift = 0;
@@ -4255,6 +4361,7 @@ unsigned int total_t0, total_t1;
  * gPspProf[0]=LOG logic+object graph, [1]=GFX list emulation (CPU), [2]=GE wait for the GPU,
  * [3]=SLP sync wait (slack), [4]=MAX longest work tick (without waiting) in the window. */
 int gPspProf[5];
+extern int psp_opt_fps_cap(void);
 extern int gPspOptFpsCap, gPspOptKeepSpeed, gPspClockWant, gPspOptCullObj;
 extern float gPspObjDistScale, gPspFarScale; /* game/psp_options.c */
 extern int psp_objects_free(void);              /* game/spawn_object.c */
@@ -4769,8 +4876,9 @@ static void prof_log_window(void) {
 #define PSP60_WALL_SHIFT 3        /* window of the real time per tick average (~8 ticks) */
 #define PSP60_EXTRA_US 1000U      /* estimate of the cost of the 2nd frame's matrix patch (added on 1-frame ticks) */
 #define PSP60_IGNORE_US 50000U    /* larger samples (level load, HOME menu...) do not count */
-#define PSP60_DOWN_SHIFT 3        /* si empeora, reacciona en ~8 ticks */
-#define PSP60_UP_SHIFT 3          /* same when going up: this way p matches the real fraction of ticks that fit */
+#define PSP60_TICK_FIT_US 41000U  /* "Keep Speed": a 60 fps tick fits if it lasted less than this (between 2 vblanks = 33 ms and 3 = 50 ms) */
+#define PSP60_DOWN_SHIFT 4        /* si empeora, reacciona en ~8 ticks */
+#define PSP60_UP_SHIFT 4          /* same when going up: this way p matches the real fraction of ticks that fit */
 
 /* gfx_psp.c really defines it; this weak definition only avoids the link error if gfx_psp.c is the old version. */
 int gPspSixtyMode __attribute__((weak)) = 0;
@@ -4826,11 +4934,16 @@ void gfx_psp_update_mode(void) {
             sDbgTk++; sDbgA += a; if (a > PSP60_BUDGET_US) sDbgOver++;
             if (gPspSixtyMode) {
                 /* 60 fps tick: fits if the real time (moving average) does not exceed ~2 vblanks */
+                /* The presentation is locked to the vblank, so a 2-frame tick lasts 2 vblanks (33 ms) if it fits and 3 (50 ms) if it does not: each one is
+                 * judged on its own REAL time (no moving average, which made the verdict all-or-nothing and the mode jump between 30 and 60). The fraction
+                 * of ticks that fit (sFitRate) then settles at the in-between values: 1/3 of them fit -> 40 fps, 1/2 -> 45 fps... */
                 if (w != 0U) {
                     if (w > PSP60_WALL_CLAMP_US) w = PSP60_WALL_CLAMP_US;
                     sWallEma += ((int) w - sWallEma) >> PSP60_WALL_SHIFT;
+                    fit = w <= PSP60_TICK_FIT_US ? 1 : -1;
+                } else {
+                    fit = 0;
                 }
-                fit = sWallEma <= (int) PSP60_WALL_OK_US ? 1 : -1;
             } else {
                 /* 30 fps tick: there is no real time to look at (always ~33 ms); it is estimated whether it would fit at 60 fps. It only counts if it clearly fits
                  * or clearly does not fit (the estimate carries PSP60_EXTRA_US, pessimistic because the 2nd frame is repeated almost for free). */
@@ -4848,11 +4961,18 @@ void gfx_psp_update_mode(void) {
     /* the extremes are rounded so as not to stay at 59 / 31 fps because of the average's tail */
     {
         unsigned int p = (unsigned int) sFitRate;
+        if (gPspOptKeepSpeed && p < 940U) {
+            /* A 2-frame tick that does not fit delays the game, and in between values the heavy ticks are not the ones that get the 2nd frame: asking for a
+             * little less than the measured fraction leaves room, so the speed of the game stays (the image goes a bit under the possible fps). */
+            p = p * (1000U + p) / 2000U;
+        } else if (gPspOptKeepSpeed) {
+            p = 1000U;
+        }
         {
             /* Options menu (game/psp_options.c): fraction of ticks with 2 frames that corresponds to the fps limit (30 -> 0, 45 -> 1/2,
              * 60 -> all). "Keep FPS": always that fraction (if it does not fit, the game runs slower); "Keep Speed": at most that fraction and only
              * the ticks that fit (like the dynamic mode from before). */
-            const unsigned int cap = (unsigned int) ((gPspOptFpsCap - 30) * 1000 / 30);
+            const unsigned int cap = (unsigned int) ((psp_opt_fps_cap() - 30) * 1000 / 30);
             if (!gPspOptKeepSpeed || p > cap) p = cap;
         }
         if (p >= 960U) p = 1000U;

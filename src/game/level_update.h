@@ -129,4 +129,10 @@ s32 lvl_set_current_level(UNUSED s16 arg0, s32 levelNum);
 s32 lvl_play_the_end_screen_sound(UNUSED s16 arg0, UNUSED s32 arg1);
 void basic_update(UNUSED s16 *arg);
 
+#ifdef TARGET_PSP
+s32 psp_live_pause(void);       /* multiplayer: the pause menu does not stop the game (another player is linked) */
+void psp_close_pause_menu(void); /* ingame_menu.c */
+void psp_options_abort(void);    /* psp_options.c */
+#endif
+
 #endif // LEVEL_UPDATE_H

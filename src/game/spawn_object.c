@@ -254,6 +254,35 @@ void psp_pool_update(void) {
 }
 #endif
 
+#ifdef TARGET_PSP
+/* Last resort when the object pool is full and nothing is marked as unimportant: the active object that is farthest from Mario (never Mario
+ * itself nor the object that is running), or NULL if there is none. */
+static struct Object *psp_find_farthest_object(void) {
+    struct Object *best = NULL;
+    f32 bestDist = -1.0f;
+    s32 i;
+
+    for (i = 0; i < NUM_OBJ_LISTS; i++) {
+        struct ObjectNode *list = &gObjectLists[i];
+        struct ObjectNode *node = list->next;
+
+        while (node != list) {
+            struct Object *candidate = (struct Object *) node;
+
+            node = node->next;
+            if (candidate == gMarioObject || candidate == gCurrentObject || !(candidate->activeFlags & ACTIVE_FLAG_ACTIVE)) {
+                continue;
+            }
+            if (candidate->oDistanceToMario > bestDist) {
+                bestDist = candidate->oDistanceToMario;
+                best = candidate;
+            }
+        }
+    }
+    return best;
+}
+#endif
+
 struct Object *allocate_object(struct ObjectNode *objList) {
     s32 i;
     struct Object *obj = try_allocate_object(objList, &gFreeObjectList);
@@ -267,6 +296,13 @@ struct Object *allocate_object(struct ObjectNode *objList) {
 
         // If no unimportant object exists, then the object pool is exhausted.
         if (unimportantObj == NULL) {
+#ifdef TARGET_PSP
+            // The original game locks up here forever. On the PSP (where the active distance can be raised) the farthest active object
+            // that is not Mario or the one running right now is unloaded instead, so the game goes on.
+            unimportantObj = psp_find_farthest_object();
+        }
+        if (unimportantObj == NULL) {
+#endif
             // We've met with a terrible fate.
             while (TRUE) {
             }

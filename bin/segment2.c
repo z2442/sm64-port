@@ -208,6 +208,11 @@ ALIGNED8 static const u8 texture_hud_char_mario_head[] = {
 #include "textures/segment2/segment2.05A00.rgba16.inc.c"
 };
 
+// PSP multiplayer: Luigi's head for the HUD (lives, camera) of the player that plays as Luigi (from sm64coopdx)
+ALIGNED8 const u8 texture_hud_char_luigi_head[] = {
+#include "textures/segment2/custom_luigi_head.rgba16.inc.c"
+};
+
 ALIGNED8 static const u8 texture_hud_char_star[] = {
 #include "textures/segment2/segment2.05C00.rgba16.inc.c"
 };

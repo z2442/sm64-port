@@ -435,6 +435,8 @@ static void geo_process_ortho_projection(struct GraphNodeOrthoProjection *node) 
 /**
  * Process a perspective projection node.
  */
+f32 gPspPerspFov; /* vertical field of view of the last scene drawn (multiplayer name tag, game/psp_options.c) */
+
 static void geo_process_perspective(struct GraphNodePerspective *node) {
     if (node->fnNode.func != NULL) {
         {
@@ -447,6 +449,7 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
     if (node->fnNode.node.children != NULL) {
         u16 perspNorm;
         Mtx *mtxInterpolated = alloc_display_list(sizeof(*mtxInterpolated));
+        gPspPerspFov = node->fov;
         Mtx *mtx = alloc_display_list(sizeof(*mtx));
         f32 fovInterpolated;
 

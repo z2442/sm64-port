@@ -80,13 +80,88 @@ __attribute__((noinline, aligned(4))) void meLibOnExternalInterrupt(void) {
     meLibHalt();
 }
 
-/* libme-core suspend hooks: its system event handler calls them in kernel mode during sleep/wake. Here the hardware is NOT
- * touched (the ME reset is done later, with the console awake, in psp_me_power_event(0)): the call is only counted. */
+/* Sleep backstop. libme-core's system event handler calls these two hooks in kernel mode, inside the system's own suspend / resume sequence (which WAITS for them).
+ * The normal way of stopping the ME is psp_me_power_event(1), from the power callback thread; but the system does not wait for that thread: if it has not finished
+ * (it also closes the video and the WLAN) or it was frozen before it got to the ME, the console would go to sleep with the ME still running our loop, and the system
+ * cannot turn it back on like that. meLibOnSleep checks it and, if needed, finishes the job itself (a few microseconds when the ME is idle).
+ * It runs inside the system's sequence, so it makes NO system calls (no timers, no file access, no logging): the waits are counted in loop turns (each one reads the
+ * ME's uncached state) and the facts are kept in the variables below, to be written to the power log after waking up.
+ * The ME IS put into hardware reset here (see the end of meLibOnSleep) and stays there during the sleep; it is released later, with the console awake, in psp_me_power_event(0). */
+#define PSP_ME_SYS_JOB_LOOPS 300000   /* ~100 ms: the job in progress */
+#define PSP_ME_SYS_HALT_LOOPS 500000  /* ~150-250 ms: the halt after the stop order */
+static volatile unsigned int sPspMeSysSleepCalls;  /* diagnostic: times the system suspend sequence called the hook */
+static volatile int sPspMeSysSleepState = -1;      /* diagnostic: ME state when the system started to sleep */
+static volatile int sPspMeSysSleepAct;             /* diagnostic: 0 = nothing to do, 1 = the hook stopped it, 2 = it could not (timeout) */
+static volatile unsigned int sPspMeSysSleepLoops;  /* diagnostic: loop turns spent waiting in the hook */
+static volatile int sPspMeWakeState = -1;          /* diagnostic: ME state when the system finished waking up */
+static volatile bool sPspMeDcachePending;          /* the hook stopped the ME: the first thing that reads what it wrote must drop the old cache lines (see psp_me_cache_sync) */
+
 __attribute__((noinline, aligned(4))) void meLibOnSleep(void) {
+    uint32_t st = sPspMeState;
+    unsigned int loops = 0;
+    sPspMeSysSleepCalls++;
+    sPspMeSysSleepState = (int) st;
+    sPspMeSysSleepAct = 0;
+    sPspMeSysSleepLoops = 0;
+    if (sPspMeBootStarted && sPspMeBootResult >= 0 && (st == PSP_ME_STATE_IDLE || st == PSP_ME_STATE_GENERATE_AUDIO || st == PSP_ME_STATE_STOP)) {
+        /* the ME is still running our loop: no more jobs, wait for the one in progress (the ME only looks at the stop order between jobs), order the stop and wait for it */
+        sPspMeSuspended = true;
+        while (sPspMeState == PSP_ME_STATE_GENERATE_AUDIO && loops < PSP_ME_SYS_JOB_LOOPS) {
+            meLibSync();
+            loops++;
+        }
+        if (sPspMeState == PSP_ME_STATE_IDLE) {
+            sPspMeState = PSP_ME_STATE_STOP;
+            meLibSync();
+        }
+        loops = 0;
+        while (sPspMeState != PSP_ME_STATE_HALTED && sPspMeState != PSP_ME_STATE_FAULT && loops < PSP_ME_SYS_HALT_LOOPS) {
+            meLibSync();
+            loops++;
+        }
+        sPspMeSysSleepLoops = loops;
+        if (sPspMeState == PSP_ME_STATE_HALTED) {
+            /* the same preparation psp_me_power_event(1) does once the ME is halted (it is harmless if both run) */
+            sPspMeProgress = 0;
+            sPspMeState = PSP_ME_STATE_BOOTING;
+            meLibSync();
+            sPspMeResumeArmed = true;
+            sPspMeInitialized = false;
+            sPspMeSysSleepAct = 1;
+        } else {
+            sPspMeSysSleepAct = 2;
+        }
+        sPspMeDcachePending = true; /* (the cache is dropped later, outside this sequence) */
+    }
+    if (sPspMeBootStarted && sPspMeBootResult >= 0) {
+        /* Hold the ME in hardware reset for the whole sleep, as libme-core's own default sleep hook does (HW_SYS_RESET_ENABLE = 0x14, the same value
+         * meLibReset pulses). Halted is not enough: a halted ME is still out of reset and clocked, and after a LONG sleep (the console really powers
+         * the chip down, the ME's memory is lost) it wakes up running from a reset vector whose code is gone, which hangs the whole resume (the console
+         * lights up and shows nothing). Short sleeps keep the state, which is why only those woke up. One register write: no system calls, still safe here.
+         * The reset is released later, with the console awake, by psp_me_power_event(0) (meLibReset copies the boot code again and pulses it). */
+        HW_SYS_RESET_ENABLE = 0x14;
+        meLibSync();
+        sPspMeProgress = 0;
+        sPspMeState = PSP_ME_STATE_BOOTING;
+        sPspMeSuspended = true;
+        sPspMeResumeArmed = true;
+        sPspMeInitialized = false;
+        sPspMeDcachePending = true;
+        sPspMeSysSleepAct |= 4; /* the ME is held in reset now */
+    }
+}
+
+/* The ME wrote the audio state while the main CPU may still hold old lines of it in its cache: after the hook stopped it, the first call that comes through here drops them. */
+static void psp_me_cache_sync(void) {
+    if (sPspMeDcachePending) {
+        sPspMeDcachePending = false;
+        sceKernelDcacheWritebackInvalidateAll();
+    }
 }
 
 __attribute__((noinline, aligned(4))) void meLibOnWake(void) {
     sPspMeWakeCalls++;
+    sPspMeWakeState = (int) sPspMeState;
 }
 
 /* Runs in kernel mode (via kcall): copies the ME boot code to its memory again and hardware-resets it (meLibReset),
@@ -213,6 +288,11 @@ int psp_me_debug(int which) {
         case 6: return (int) gPspMeResumeOk;
         case 7: return (int) gPspMeResumeFail;
         case 8: return (int) sPspMeWakeCalls;
+        case 20: return (int) sPspMeSysSleepCalls;
+        case 21: return sPspMeSysSleepState;
+        case 22: return sPspMeSysSleepAct;
+        case 23: return (int) sPspMeSysSleepLoops;
+        case 24: return sPspMeWakeState;
         case 12: return (int) sPspMePwrN0;
         case 13: return (int) sPspMePwrN1;
         case 14: case 15: case 16: case 17: case 18: case 19: return (int) sPspMePwrFlags[which - 14];
@@ -232,6 +312,7 @@ bool psp_me_is_active(void) {
 bool psp_me_job_start(int16_t *samples, const uint32_t *frames, int count) {
     int i;
 
+    psp_me_cache_sync();
     if (sPspMeSuspended || !sPspMeInitialized || (sPspMeState != PSP_ME_STATE_IDLE) || (samples == NULL) || (frames == NULL) || (count <= 0)
         || (count > PSP_ME_JOB_MAX)) {
         return false;
@@ -261,6 +342,7 @@ int psp_me_job_wait(void) {
     uint32_t polls = 0;
     uint32_t t0;
 
+    psp_me_cache_sync();
     if (!sPspMeInitialized) {
         return PSP_ME_WAIT_DEAD;
     }
@@ -430,16 +512,30 @@ void psp_me_shutdown(void) {
     if (!sPspMeBootStarted || (sPspMeBootResult < 0)) {
         return;
     }
-    if (sPspMeState == PSP_ME_STATE_HALTED) {
+    /* No more jobs from now on (the main thread keeps running while the exit callback shuts everything down). */
+    sPspMeSuspended = true;
+    if (sPspMeState == PSP_ME_STATE_HALTED || sPspMeResumeArmed) {
+        /* Already halted (by a suspend or by a fault): nothing is running on the ME. */
         sPspMeInitialized = false;
         return;
     }
+    sceKernelDelayThread(3000); /* a psp_me_job_start that already passed its check finishes publishing the job */
 
-    sPspMeState = PSP_ME_STATE_STOP;
-    meLibSync();
+    /* The ME only looks at the stop order between two jobs: a job that finishes after STOP was written overwrites it with IDLE and the order is lost
+     * (the ME would then keep running our loop after the game exits, which the system does not survive). So the job in progress is waited for first and
+     * STOP is written again if the state goes back to IDLE while waiting for the halt. */
     start = sceKernelGetSystemTimeLow();
-    while ((sPspMeState != PSP_ME_STATE_HALTED) &&
-           ((sceKernelGetSystemTimeLow() - start) < PSP_ME_READY_TIMEOUT_US)) {
+    while ((sPspMeState == PSP_ME_STATE_GENERATE_AUDIO) && ((sceKernelGetSystemTimeLow() - start) < 400000)) {
+        meLibSync();
+        sceKernelDelayThread(PSP_ME_POLL_US);
+    }
+    start = sceKernelGetSystemTimeLow();
+    while ((sPspMeState != PSP_ME_STATE_HALTED) && (sPspMeState != PSP_ME_STATE_FAULT) &&
+           ((sceKernelGetSystemTimeLow() - start) < 500000)) {
+        if (sPspMeState != PSP_ME_STATE_STOP && sPspMeState != PSP_ME_STATE_GENERATE_AUDIO) {
+            sPspMeState = PSP_ME_STATE_STOP;
+        }
+        meLibSync();
         sceKernelDelayThread(PSP_ME_POLL_US);
     }
     sPspMeInitialized = false;

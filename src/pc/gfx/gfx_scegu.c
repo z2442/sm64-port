@@ -18,6 +18,7 @@
 #include <pspimpose.h>
 #include <pspge.h>
 #include <pspgu.h>
+#include <pspctrl.h>
 #include <psputils.h>
 #include <pspgum.h>
 #include <intraFont.h>
@@ -30,6 +31,9 @@ extern unsigned int texman_get_bound(void); /* psp_texture_manager.c */
 #include "../psp_dve.h"
 #include "../psp_watchdog.h"
 #include "gfx_pc.h"
+#include "../fs_utils.h"
+#include "level_table.h"
+extern s16 gCurrLevelNum; /* game/level_update.c */
 
 /* Deferred flush of the vertex arena (PSP_WB_DEFER): the vertices of each batch are written to RAM (sceKernelDcacheWritebackRange) only once
  * per notice to the GE, not once per batch. The GE only reads the list up to the "stall" it was last given, so what matters is that EVERYTHING
@@ -464,6 +468,13 @@ static unsigned int sTvProbT0;   /* time (us) when the 480p test started; 0 = no
 static int sTvProbBack = PSP_TV_OFF; /* mode it goes back to if not confirmed */
 static int sTvRevert = -1;       /* mode it went back to by itself (the menu reads it once); -1 = nothing */
 static int sTvReconnect, sTvRefresh, sTvAreaDirty;
+static volatile int sTvSuspendReq; /* the power callback asks the game thread to leave the TV output before the console goes to sleep */
+static volatile int sTvResumeReq;  /* the power callback tells the game thread that the console woke up (see gfx_scegu_start_frame) */
+static int sTvAutoHold;            /* frames to wait before the cable watcher turns the TV on by itself (after waking up the DVE needs a moment) */
+static int sTvAutoFails;           /* failed automatic attempts in a row; after TV_AUTO_TRIES it stops trying until the cable is plugged in again */
+#define TV_AUTO_TRIES 10
+static int sTvDispMode = -1, sTvDispW, sTvDispH; /* display mode the DVE left when the TV was turned on (0x1D1 / 0x1D2); if it changes the system took the output back */
+static int sTvKeepVbl;             /* re-route to the same mode: the vblank period measured before is still valid */
 static bool sHomeMenuBgActive;
 static bool sHomeMenuBgCaptureRequested;
 static bool sHomeMenuBgCaptured;
@@ -731,8 +742,8 @@ static inline uint32_t get_shader_index(uint32_t id) {
             return i;
         }
     }
-    char msg[32];
-    sprintf(msg, "ERROR! Shader not known %lu\n", (unsigned long)id);
+    char msg[64]; /* "ERROR! Shader not known " + up to 10 digits + newline = 36 bytes: the old 32-byte buffer could overflow */
+    snprintf(msg, sizeof(msg), "ERROR! Shader not known %lu\n", (unsigned long)id);
     sceIoWrite(2, msg, strlen(msg));
     return 0;
 }
@@ -784,9 +795,11 @@ static inline int texenv_set_texture_color(struct ShaderProgram *prg) {
     }
     /*@Hack: lord forgive me for this, but this is easier */
     switch (prg->shader_id) {
+        case 0x01045A00: // peach letter (castle grounds intro only: the same shader id is also used by translucent 16-bit fire sprites, see below)
+            mode = (gCurrLevelNum == LEVEL_CASTLE_GROUNDS) ? GU_TFX_DECAL : GU_TFX_MODULATE;
+            break;
         case 0x0000038D: // mario's eyes
         case 0x0920038D: // Mario's eyes/emblem fading out (BLENDRGBFADEA + noise): texture over the color by its alpha
-        case 0x01045A00: // peach letter
         case 0x01200A00: // intro copyright fade in
             mode = GU_TFX_DECAL;
             break;
@@ -1441,7 +1454,6 @@ static void gfx_scegu_draw_triangles_real(float buf_vbo[], UNUSED size_t buf_vbo
 #endif
     const bool fogged = (sid & SHADER_OPT_FOG) != 0;
     const int fogmode = scegu_fog_mode(sid);
-
     if (fogged && fogmode == 0) {
         /* GE linear fog (approximation with near/far computed in gfx_pc.c). */
         sceGuEnable(GU_FOG);
@@ -1680,6 +1692,59 @@ static void gfx_scegu_tv_area_calc(void) {
     }
 }
 
+/* Waits for the next vblank, but gives up after timeout_us (0 = a vblank came, -1 = none). sceDisplayWaitVblankStart has no timeout, so the wait is done by a
+ * helper thread and this thread waits on a semaphore with a timeout. If the system never delivers a vblank (the output was just taken away) the helper stays
+ * blocked (one idle thread) and the game keeps running instead of hanging. Only for rare paths (TV on / re-routing); the normal presentation does not use it. */
+static SceUID sVblReq = -1, sVblDone = -1, sVblThread = -1;
+static volatile int sVblBusy;
+
+static int gfx_scegu_vbl_helper(SceSize args, void *argp) {
+    (void) args;
+    (void) argp;
+    for (;;) {
+        if (sceKernelWaitSema(sVblReq, 1, NULL) < 0) {
+            break;
+        }
+        sceDisplayWaitVblankStart();
+        sVblBusy = 0;
+        sceKernelSignalSema(sVblDone, 1);
+    }
+    return 0;
+}
+
+static int gfx_scegu_wait_vblank_to(unsigned int timeout_us) {
+    SceUInt timeout = timeout_us;
+    if (sVblThread < 0) {
+        sVblReq = sceKernelCreateSema("sm64_vbl_req", 0, 0, 1, NULL);
+        sVblDone = sceKernelCreateSema("sm64_vbl_done", 0, 0, 8, NULL);
+        if (sVblReq >= 0 && sVblDone >= 0) {
+            sVblThread = sceKernelCreateThread("sm64_vbl_wait", gfx_scegu_vbl_helper, 0x1D, 0x1000, PSP_THREAD_ATTR_USER, NULL);
+            if (sVblThread >= 0 && sceKernelStartThread(sVblThread, 0, NULL) < 0) {
+                sceKernelDeleteThread(sVblThread);
+                sVblThread = -1;
+            }
+        }
+        if (sVblThread < 0) { /* no helper: the plain wait (as before) */
+            sceDisplayWaitVblankStart();
+            return 0;
+        }
+    }
+    if (sVblBusy) {
+        if (sceKernelPollSema(sVblDone, 1) < 0) {
+            return -1; /* the previous wait is still blocked: the system is not delivering vblanks */
+        }
+        sVblBusy = 0; /* it finished late */
+    }
+    while (sceKernelPollSema(sVblDone, 1) >= 0) { /* stale completions */
+    }
+    sVblBusy = 1;
+    sceKernelSignalSema(sVblReq, 1);
+    if (sceKernelWaitSema(sVblDone, 1, &timeout) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
 /* Puts the TV on screen with the buffers of the "pool" reserved at boot (the video output must already be routed). 0 = ok, <0 = could not. */
 static int gfx_scegu_tv_setup(int mode) {
     const int hi = 1; /* all modes use the 720x480 signal frame (240p too: see psp_dve_set_video_out) */
@@ -1713,18 +1778,38 @@ static int gfx_scegu_tv_setup(int mode) {
     sTvCableGone = 0;
     gfx_scegu_update_game_dims();
     gfx_scegu_tv_block_home(1);
-    {   /* real vblank period in this mode: in the interlaced modes the console counts it per frame (~30 Hz) and the game would stay at 30 frames */
-        unsigned int t0, t1;
-        sceDisplayWaitVblankStart();
-        t0 = sceKernelGetSystemTimeLow();
-        for (i = 0; i < 8; i++) {
-            sceDisplayWaitVblankStart();
+    if (sTvKeepVbl && sTvVblUs > 0) {
+        sTvPaceT = sceKernelGetSystemTimeLow(); /* re-route to the same mode: the measured period is kept (it saves ~9 vblanks without a picture) */
+    } else {   /* real vblank period in this mode: in the interlaced modes the console counts it per frame (~30 Hz) and the game would stay at 30 frames */
+        unsigned int t0 = 0, t1 = 0;
+        int ok;
+        PSP_WD_PHASE("TV setup: measuring the vblank period");
+        /* bounded waits: if the system never delivers vblanks (output taken away right now) the game must not hang here forever */
+        ok = (gfx_scegu_wait_vblank_to(250000u) == 0);
+        if (ok) {
+            t0 = sceKernelGetSystemTimeLow();
+            for (i = 0; i < 8 && ok; i++) {
+                ok = (gfx_scegu_wait_vblank_to(250000u) == 0);
+            }
+            t1 = sceKernelGetSystemTimeLow();
         }
-        t1 = sceKernelGetSystemTimeLow();
-        sTvVblUs = (t1 - t0) / 8u;
-        sTvSlowVbl = (sTvVblUs > 25000u);
-        sTvPaceT = t1;
+        if (ok) {
+            sTvVblUs = (t1 - t0) / 8u;
+            sTvSlowVbl = (sTvVblUs > 25000u);
+            sTvPaceT = t1;
+        } else {
+            sTvVblUs = 16683u; /* no vblank seen: assume 60 Hz, the cable watcher / output watcher re-route again if the mode is wrong */
+            sTvSlowVbl = 0;
+            sTvPaceT = sceKernelGetSystemTimeLow();
+        }
     }
+    {
+        int dm = 0, dw = 0, dh = 0;
+        sTvDispMode = (sceDisplayGetMode(&dm, &dw, &dh) >= 0 && dm != 0) ? dm : -1;
+        sTvDispW = dw;
+        sTvDispH = dh;
+    }
+    sTvKeepVbl = 0;
     return 0;
 }
 
@@ -1797,9 +1882,20 @@ static void gfx_scegu_init(void) {
     sceDisplayWaitVblankStart();
     sceGuDisplay(GU_TRUE);
 
-    void *texman_buffer = getStaticVramBufferBytes(TEXMAN_BUFFER_SIZE);
+    /* The texture store must fit in the VRAM that is really there (2 MB, or 4 MB when it was requested at boot): if it does not, it is shrunk to what is left
+     * instead of running past the end of the VRAM. */
+    unsigned int texman_size = TEXMAN_BUFFER_SIZE;
+    {
+        const unsigned int vram_size = (unsigned int) sceGeEdramGetSize();
+        if (vram_size != 0 && staticOffset + texman_size + TEX_ALIGNMENT > vram_size) {
+            texman_size = (vram_size > staticOffset + TEX_ALIGNMENT) ? (vram_size - staticOffset - TEX_ALIGNMENT) : 0;
+        }
+    }
+    void *texman_buffer = texman_size >= (64u * 1024u) ? getStaticVramBufferBytes(texman_size) : NULL;
     void *texman_aligned = (void *) ((((unsigned int) texman_buffer + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT) * TEX_ALIGNMENT);
-    texman_reset(texman_aligned, TEXMAN_BUFFER_SIZE);
+    if (texman_buffer) {
+        texman_reset(texman_aligned, texman_size);
+    }
     if (!texman_buffer) {
         char msg[32];
         sprintf(msg, "OUT OF MEMORY!\n");
@@ -2276,8 +2372,18 @@ void gfx_scegu_power_event(int suspending) {
             sceKernelDelayThread(1000);
         }
         sceGeDrawSync(0);
+        /* The console must not go to sleep with the DVE (TV encoder) routed to the TV and the TV buffers on screen: the firmware's suspend / resume path expects
+         * the console's own video mode. The game thread (the only one that may touch the video output) goes back to the console screen and waits here for it (at
+         * most ~0.5 s). After waking up the cable watcher turns the TV on again by itself (the setting is kept). */
+        if (sTvOn) {
+            sTvSuspendReq = 1;
+            for (i = 0; i < 500 && sTvSuspendReq; i++) {
+                sceKernelDelayThread(1000);
+            }
+        }
     } else {
         gPspSuspending = 0;
+        sTvResumeReq = 1;
     }
 }
 
@@ -2313,14 +2419,20 @@ static void gfx_scegu_tv_apply(int mode) {
     if (cur != PSP_TV_OFF) {
         /* from one TV mode to another: it goes through the console path first, as Daedalus does, so the DVE is not left with leftovers of the previous mode */
         (void) psp_dve_set_video_out(0);
-        sceDisplayWaitVblankStart();
+        (void) gfx_scegu_wait_vblank_to(250000u);
     }
     psp_dve_mark_attempt(); /* if the console hangs here, the next boot goes back to the console screen */
-    if (psp_dve_set_video_out(mode) < 0 || gfx_scegu_tv_setup(mode) < 0) {
-        gfx_scegu_tv_to_lcd();
-        psp_dve_mark_clear();
-        sTvRevert = PSP_TV_OFF; /* the menu learns that it could not be done */
-        return;
+    {
+        const int rv = psp_dve_set_video_out(mode);
+        const int rs = (rv < 0) ? 0 : gfx_scegu_tv_setup(mode);
+        if (rv < 0 || rs < 0) {
+            gfx_scegu_tv_to_lcd();
+            psp_dve_mark_clear();
+            if (!sTvAuto) {
+                sTvRevert = PSP_TV_OFF; /* the menu learns that it could not be done (an automatic attempt keeps the setting: the watcher tries again) */
+            }
+            return;
+        }
     }
     gPspTvActive = mode;
     if (mode == PSP_TV_480P && !sTvAuto) {
@@ -2420,6 +2532,24 @@ static void gfx_scegu_start_frame(void) {
             sTvCableGone = 0;
         }
     }
+    if (sTvOn && sTvDispMode > 0 && !sTvReconnect && !sTvCableGone && sTvProbT0 == 0 && sTvReqMode < 0) {
+        /* The system can take the output back to the console screen with the cable still plugged in (the SCREEN / brightness button, or right after plugging the
+         * cable in): the display mode / size is no longer the TV one. Checked every frame (a cheap call) so the output is routed to the TV again right away;
+         * at most once per second, so a wrong reading cannot make it loop. */
+        static unsigned int sLostAt;
+        static int sLostN;
+        int dm = 0, dw = 0, dh = 0;
+        if (sceDisplayGetMode(&dm, &dw, &dh) >= 0 && (dm != sTvDispMode || dw != sTvDispW || dh != sTvDispH)) {
+            /* the system is still changing the output while it is taking it: wait until the change settles (~0.2 s) before touching the DVE */
+            if (++sLostN >= 12 && (sLostAt == 0 || sFrameN - sLostAt >= 60u) && psp_dve_cable_state() > 0) {
+                sLostN = 0;
+                sLostAt = sFrameN | 1u;
+                sTvReconnect = 1;
+            }
+        } else {
+            sLostN = 0;
+        }
+    }
     if ((sFrameN % 30u) == 0 && sTvProbT0 == 0 && sTvReqMode < 0) {
         /* Cable watcher (every ~0.5 s): the TV is only on with the cable plugged in. Without a cable it goes back to the console screen (the setting is kept); when it is
          * connected (stable ~1 s) it turns on by itself with the chosen mode; if it is reconnected quickly, it is routed again. */
@@ -2427,19 +2557,24 @@ static void gfx_scegu_start_frame(void) {
         const int cs = psp_dve_cable_state();
         if (cs >= 0) {
             sStable = (cs == sCablePrev) ? sStable + 1 : 0;
-            if (cs > 0 && sCablePrev == 0 && sTvOn) {
-                sTvReconnect = 1;
+            if (cs > 0 && sCablePrev == 0) {
+                sTvAutoFails = 0; /* cable plugged in again: the automatic attempts start over */
+                if (sTvOn) {
+                    sTvReconnect = 1;
+                }
             }
             sCablePrev = cs;
             if (sStable >= 1) {
+                psp_dve_cable_latch(cs);
                 if (cs == 0 && sTvOn) {
                     gfx_scegu_tv_drain();
                     gfx_scegu_tv_to_lcd();
                     psp_dve_mark_clear();
-                } else if (cs > 0 && !sTvOn && gPspOptTv > 0) {
+                } else if (cs > 0 && !sTvOn && gPspOptTv > 0 && sTvAutoHold == 0 && sTvAutoFails < TV_AUTO_TRIES) {
                     sTvAuto = 1;
                     gfx_scegu_tv_apply(gPspOptTv);
                     sTvAuto = 0;
+                    sTvAutoFails = sTvOn ? 0 : sTvAutoFails + 1;
                 }
                 /* with a VIDEO cable plugged in and TV Output at Off the sound comes out of the console's speakers (with headphones, cs is 0: not touched) */
                 psp_dve_audio_route(cs > 0 && !sTvOn && gPspOptTv == 0);
@@ -2459,17 +2594,53 @@ static void gfx_scegu_start_frame(void) {
             }
         }
     }
+    if (sTvSuspendReq) { /* the console is about to sleep (see gfx_scegu_power_event) */
+        if (sTvOn) {
+            gfx_scegu_tv_drain();
+            gfx_scegu_tv_to_lcd();
+            psp_dve_mark_clear();
+        }
+        sTvSuspendReq = 0;
+    }
+    if (sTvResumeReq) {
+        /* Woke up from sleep. The DVE (TV encoder) does not come back routed to the TV: if the TV was still on (the suspend notice could not be handled
+         * in time) the frame was left with the TV layout and no signal. Back to the console screen first; the cable watcher turns the TV on again (it only
+         * needs the cable and the setting). The firmware may also have put the VRAM back to 2 MB: the TV buffers live above 2 MB, so if the 4 MB cannot be
+         * restored the TV stays unavailable until the game is restarted (the textures and console buffers are below 2 MB and are not affected). */
+        sTvResumeReq = 0;
+        gfx_scegu_tv_drain();
+        if (sTvOn) {
+            gfx_scegu_tv_to_lcd();
+            psp_dve_mark_clear();
+        }
+        if (!psp_dve_resume() && sTvPool != NULL) {
+            sTvPool = NULL;
+            sTvReqMode = -1;
+        }
+        sTvAutoHold = 60;   /* ~1 s before turning the TV on again */
+        sTvAutoFails = 0;
+    }
+    if (sTvAutoHold > 0) {
+        sTvAutoHold--;
+    }
     if (sTvReconnect || sTvRefresh) {
         const int cur = gfx_scegu_tv_current();
         const int reroute = sTvReconnect;
         sTvReconnect = sTvRefresh = 0;
         if (cur != PSP_TV_OFF) {
+            PSP_WD_PHASE("TV re-route: draining the frames");
             gfx_scegu_tv_drain();
+            sTvKeepVbl = reroute; /* same mode: the vblank period does not change */
+            PSP_WD_PHASE("TV re-route: pspDveMgrSetVideoOut / TV setup");
             if ((reroute && psp_dve_set_video_out(cur) < 0) || gfx_scegu_tv_setup(cur) < 0) {
                 gfx_scegu_tv_to_lcd();
                 psp_dve_mark_clear();
-                sTvRevert = PSP_TV_OFF;
+                if (!reroute) {
+                    sTvRevert = PSP_TV_OFF; /* a re-route is automatic (cable / system): the setting is kept and the cable watcher tries again */
+                }
             }
+            sTvKeepVbl = 0;
+            PSP_WD_PHASE("gfx_start_frame");
         }
     }
     sNoiseFrame++;

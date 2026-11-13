@@ -363,6 +363,9 @@ struct MarioState
     /*0xBC*/ f32 peakHeight;
     /*0xC0*/ f32 quicksandDepth;
     /*0xC4*/ f32 unkC4;
+    // Added for the PSP multiplayer (player vs player, like sm64coopdx)
+    s8 knockbackTimer;      // frames during which a player that was just knocked back by another player cannot be hit again
+    u8 bounceSquishTimer;   // squash from another player's jump / ground pound
 };
 
 #endif // TYPES_H

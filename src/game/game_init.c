@@ -24,6 +24,7 @@
 #include "segment_symbols.h"
 #include "thread6.h"
 #include "pc/psp_me.h"
+#include "pc/psp_netplay.h"
 #include "pc/audio/audio_psp.h"
 #include <prevent_bss_reordering.h>
 
@@ -353,6 +354,7 @@ void init_render_image(void) {
 void end_master_display_list(void) {
 #ifdef TARGET_PSP
     psp_options_home_notice(); /* HOME with the TV active: buzz + notice (drawn here, in the frame's list, not with print_text) */
+    psp_np_hud_draw();         /* multiplayer: notices ("... entered ...") and the other player's name tag */
 #endif
     draw_screen_borders();
     if (gShowProfiler) {

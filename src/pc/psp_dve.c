@@ -2,10 +2,9 @@
  * Daedalus did): it is bundled in the game and loaded with pspSdkLoadStartModule(.., PSP_MEMORY_PARTITION_KERNEL), as that port does. If anything fails at any point, the
  * console screen stays. Safety measures:
  * - On a PSP slim the module is loaded and VRAM goes to 4 MB at BOOT (as the Zelda port does); with that the TV can be turned on and off from the
- * menu WITHOUT restarting. On the console (TV Off) the game draws exactly as before. Without module / PSP-1000 / L held: everything stays as usual.
+ * menu WITHOUT restarting. On the console (TV Off) the game draws exactly as before. Without module / PSP-1000: everything stays as usual.
  * - A cable is NOT required: the console does not always report the component cable (it gives 0 even though there is an image on the TV), so component is assumed unless
  * the console says it is composite.
- * - Holding L at boot forces the console screen (no module or 4 MB; the setting is not touched).
  * - tv_boot.tmp is created before routing the output to the TV and deleted after ~5 s of play (or when the TV is turned off); if the file is still there at boot, the
  * previous attempt did not work: it boots on the console and the setting goes back to Off. */
 #include <pspkernel.h>
@@ -47,7 +46,6 @@ static int sModel = -1;
 static int sCableRaw;  /* last raw value of the cable detection */
 static int sProbed;
 static int sReady;     /* module loaded, PSP slim and 4 MB VRAM requested: the TV can be turned on / off live */
-static int sSafe;      /* booted with L held: nothing was loaded */
 static int sEdramErr;  /* result of requesting the 4 MB (0 = ok) */
 static int sAvail;
 static int sMarked;
@@ -92,11 +90,18 @@ int psp_dve_probe(void) {
     return sAvail;
 }
 
+/* Cable type latched by the cable watcher once it has been read the same way on two checks in a row (0 = none latched). While the system is changing the video
+ * output (SCREEN / brightness button) the raw signal can read differently for a moment; routing the TV with a wrong value leaves the output "up" but without a picture. */
+static int sCableLatch;
+void psp_dve_cable_latch(int state) {
+    sCableLatch = (state > 0) ? state : 0;
+}
+
 int psp_dve_cable(void) {
     if (!sAvail) {
         return PSP_CABLE_NONE;
     }
-    sCableRaw = psp_dve_cable_state();
+    sCableRaw = (sCableLatch > 0) ? sCableLatch : psp_dve_cable_state(); /* the latched value is not disturbed by the transient readings of a SCREEN-button press */
     if (sCableRaw < 0) {
         sCableRaw = pspDveMgrCheckVideoOut(); /* without the cable module: the old signal (with the component cable it gives 0 even though there is an image on the TV) */
     }
@@ -172,7 +177,7 @@ int psp_dve_status(int *detail) {
     }
     if (!sAvail) {
         *detail = sModel;
-        return sProbed ? PSP_DVE_PSP1000 : (sSafe ? PSP_DVE_SAFE : PSP_DVE_NOT_PROBED);
+        return sProbed ? PSP_DVE_PSP1000 : PSP_DVE_NOT_PROBED;
     }
     if (sEdramErr < 0) {
         *detail = sEdramErr;
@@ -211,33 +216,6 @@ static void dve_marker_write(int on) {
     }
 }
 
-static int dve_l_held(void) {
-    SceCtrlData pad;
-    int i;
-    sceCtrlSetSamplingCycle(0);
-    sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
-    for (i = 0; i < 4; i++) { /* the first reads may come back empty */
-        sceKernelDelayThread(16000);
-        memset(&pad, 0, sizeof(pad));
-        if (sceCtrlPeekBufferPositive(&pad, 1) > 0 && (pad.Buttons & PSP_CTRL_LTRIGGER)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-/* Boot information (to know what the console says when the game is opened with its native TV mode on): it is saved in tv_boot_info.txt. */
-static void dve_boot_info(int mode, int w, int h, int wanted, int adopt, int natState) {
-    char path[FS_MAX_PATH];
-    FILE *f;
-    fs_resolve_path(path, sizeof(path), "tv_boot_info.txt");
-    f = fopen(path, "wb");
-    if (f != NULL) {
-        fprintf(f, "display mode=0x%X %dx%d cable_state=%d native_state=%d wanted=%d adopt_native_tv=%d\n", (unsigned int) mode, w, h, psp_dve_cable_state(), natState, wanted, adopt);
-        fclose(f);
-    }
-}
-
 int psp_dve_boot_mode(int wanted) {
     int failed_before = 0;
     gPspTvActive = 0;
@@ -247,10 +225,6 @@ int psp_dve_boot_mode(int wanted) {
         psp_options_tv_off();
         wanted = PSP_TV_OFF;
         failed_before = 1;
-    }
-    if (dve_l_held()) {
-        sSafe = 1;
-        return 0;
     }
     if (!psp_dve_probe()) {
         return 0;
@@ -263,7 +237,6 @@ int psp_dve_boot_mode(int wanted) {
         const int gotMode = (sceDisplayGetMode(&mode, &w, &h) >= 0);
         /* native mode = the system's internal state says it is on (or changing); if unknown, a display mode different from the console's */
         const int native = !failed_before && (natState == 1 || natState == 2 || (natState < 0 && gotMode && mode != 0));
-        dve_boot_info(mode, w, h, wanted, native, natState);
         if (native) {
             sNativeTv = 1;
             (void) psp_dve_set_video_out(0);
@@ -358,6 +331,23 @@ void psp_dve_audio_route(int want) {
         (void) sceAudioRoutingSetMode(want ? 2 : 0);
         sRouteSpk = want;
     }
+}
+
+/* After waking up from sleep (game thread, GE idle). Returns 1 if the TV can still be used (VRAM is at 4 MB), 0 if not. The audio routing is
+ * applied again on the next cable check (the system may have reset it while sleeping). */
+int psp_dve_resume(void) {
+    unsigned int size;
+    sRouteSpk = -1;
+    if (!sReady) {
+        return 0;
+    }
+    size = (unsigned int) sceGeEdramGetSize();
+    if (size < DVE_EDRAM) {
+        const int r = pspDveMgrSetEdramSize(DVE_EDRAM);
+        size = (unsigned int) sceGeEdramGetSize();
+        printf("dve: resume, VRAM was below 4 MB, request -> 0x%08X, now %u bytes\n", (unsigned int) r, size);
+    }
+    return size >= DVE_EDRAM;
 }
 
 void psp_dve_shutdown(void) {

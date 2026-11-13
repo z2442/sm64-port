@@ -9,6 +9,7 @@
 /* Fps limit (30 / 60) and mode: 0 = "Keep FPS" (always tries for the limit; if the scene does not fit, the game runs slower),
  * 1 = "Keep Speed" (lowers the fps of the ticks that do not fit so the game keeps its speed) */
 extern int gPspOptFpsCap;
+int psp_opt_fps_cap(void); /* the limit in force (30 while online) */
 extern int gPspOptKeepSpeed;
 extern int gPspOptPipe;        /* Triple Buffer: 1 = presentation in a separate thread with 3 color buffers (see gfx_scegu.c) */
 extern float gPspObjDistScale; /* multiplies the distance at which objects are deactivated (1.0 = original, never less) */

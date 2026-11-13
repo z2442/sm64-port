@@ -41,7 +41,9 @@ void bhv_bobomb_explosion_bubble_loop(void) {
 void bhv_respawner_loop(void) {
     struct Object *spawnedObject;
 
-    if (!is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, o->oRespawnerMinSpawnDist)) {
+    /* (WLAN multiplayer) both consoles run their own respawner: it only fires when NEITHER player is near, so the two copies come back together */
+    if (!is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, o->oRespawnerMinSpawnDist)
+        && !psp_np_world_remote_within(o->oPosX, o->oPosY, o->oPosZ, (float) o->oRespawnerMinSpawnDist)) {
         spawnedObject = spawn_object(o, o->oRespawnerModelToRespawn, o->oRespawnerBehaviorToRespawn);
         spawnedObject->oBehParams = o->oBehParams;
         o->activeFlags = ACTIVE_FLAG_DEACTIVATED;

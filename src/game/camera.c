@@ -3286,6 +3286,12 @@ void reset_camera(struct Camera *c) {
     unused8033B310 = 0;
 }
 
+/* WLAN (like sm64coopdx): when the other player is already in the arena Bowser waits (action 20) for the fight to be told to him, and the camera does not play the
+ * introduction of the fight a second time for the player who comes in later. Bowser has already run his first frame here (the camera starts after the objects). */
+static s32 bowser_intro_is_skipped(void) {
+    return gSecondCameraFocus != NULL && gSecondCameraFocus->behavior == segmented_to_virtual(bhvBowser) && gSecondCameraFocus->oAction == 20;
+}
+
 void init_camera(struct Camera *c) {
     struct Surface *floor = 0;
     Vec3f marioOffset;
@@ -3342,19 +3348,27 @@ void init_camera(struct Camera *c) {
         case LEVEL_BOWSER_1:
 #ifndef VERSION_JP
             if (gCurrDemoInput == NULL) {
-                start_cutscene(c, CUTSCENE_ENTER_BOWSER_ARENA);
+                if (!bowser_intro_is_skipped()) {
+                    start_cutscene(c, CUTSCENE_ENTER_BOWSER_ARENA);
+                }
             } else if (gSecondCameraFocus != NULL) {
                 gSecondCameraFocus->oBowserUnk88 = 2;
             }
 #else
-            start_cutscene(c, CUTSCENE_ENTER_BOWSER_ARENA);
+            if (!bowser_intro_is_skipped()) {
+                start_cutscene(c, CUTSCENE_ENTER_BOWSER_ARENA);
+            }
 #endif
             break;
         case LEVEL_BOWSER_2:
-            start_cutscene(c, CUTSCENE_ENTER_BOWSER_ARENA);
+            if (!bowser_intro_is_skipped()) {
+                start_cutscene(c, CUTSCENE_ENTER_BOWSER_ARENA);
+            }
             break;
         case LEVEL_BOWSER_3:
-            start_cutscene(c, CUTSCENE_ENTER_BOWSER_ARENA);
+            if (!bowser_intro_is_skipped()) {
+                start_cutscene(c, CUTSCENE_ENTER_BOWSER_ARENA);
+            }
             break;
 
         //! Hardcoded position checks determine which cutscene to play when Mario enters castle grounds.

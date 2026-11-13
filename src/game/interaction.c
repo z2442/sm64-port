@@ -23,6 +23,9 @@
 #include "sm64.h"
 #include "sound_init.h"
 #include "thread6.h"
+#ifdef TARGET_PSP
+#include "pc/psp_netplay.h"
+#endif
 
 #define INT_GROUND_POUND_OR_TWIRL (1 << 0) // 0x01
 #define INT_PUNCH                 (1 << 1) // 0x02
@@ -555,8 +558,15 @@ static u32 unused_determine_knockback_action(struct MarioState *m) {
     return bonkAction;
 }
 
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_SOLID_PLAYERS
+static u8 sPspKnockedByPlayer; /* the last knockback was caused by the other player */
+#else
+#define sPspKnockedByPlayer 0
+#endif
+
 u32 determine_knockback_action(struct MarioState *m, UNUSED s32 arg) {
     u32 bonkAction;
+    f32 sign = 1.0f; // 1 = forward knockback, -1 = backward
 
     s16 terrainIndex = 0; // 1 = air, 2 = water, 0 = default
     s16 strengthIndex = 0;
@@ -602,12 +612,54 @@ u32 determine_knockback_action(struct MarioState *m, UNUSED s32 arg) {
     }
 
     if (-0x4000 <= facingDYaw && facingDYaw <= 0x4000) {
+        sign = -1.0f;
         m->forwardVel *= -1.0f;
         bonkAction = sBackwardKnockbackActions[terrainIndex][strengthIndex];
     } else {
         m->faceAngle[1] += 0x8000;
         bonkAction = sForwardKnockbackActions[terrainIndex][strengthIndex];
     }
+
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_SOLID_PLAYERS
+    /* hit by the other player (multiplayer): a much stronger knockback along the direction it was facing, as in sm64coopdx */
+    sPspKnockedByPlayer = FALSE;
+    if (psp_np_game_remote() != NULL && m->interactObj == psp_np_game_remote() && terrainIndex != 2) {
+        const struct MarioState *r = psp_np_game_remote_state();
+        f32 scaler = 1.0f;
+        f32 mag;
+
+        if (r != NULL) {
+            if (r->action == ACT_JUMP_KICK || (r->flags & MARIO_KICKING)) {
+                scaler = 2.0f;
+            }
+            if (r->flags & MARIO_METAL_CAP) {
+                scaler *= 1.25f;
+            }
+        }
+        if (m->flags & MARIO_METAL_CAP) {
+            scaler *= 0.5f;
+            if (scaler < 1.0f) {
+                scaler = 1.0f;
+            }
+        }
+
+        mag = scaler * (f32) PSP_PVP_KNOCKBACK_STRENGTH * sign;
+        m->forwardVel = mag;
+        if (sign > 0.0f && terrainIndex == 1) {
+            mag = -mag;
+        }
+        m->vel[0] = -mag * sins(m->interactObj->oFaceAngleYaw);
+        m->vel[1] = (mag < 0.0f) ? -mag : mag;
+        m->vel[2] = -mag * coss(m->interactObj->oFaceAngleYaw);
+        m->slideVelX = m->vel[0];
+        m->slideVelZ = m->vel[2];
+        m->knockbackTimer = PSP_PVP_KNOCKBACK_TIMER;
+        m->faceAngle[1] = m->interactObj->oFaceAngleYaw + (sign == 1.0f ? 0 : 0x8000);
+        sPspKnockedByPlayer = TRUE;
+    }
+#else
+    (void) sign;
+#endif
 
     return bonkAction;
 }
@@ -724,8 +776,10 @@ u32 take_damage_and_knock_back(struct MarioState *m, struct Object *o) {
         }
 
         update_mario_sound_and_camera(m);
-        return drop_and_set_mario_action(m, determine_knockback_action(m, o->oDamageOrCoinValue),
-                                         damage);
+        {
+            const u32 knockbackAction = determine_knockback_action(m, o->oDamageOrCoinValue);
+            return drop_and_set_mario_action(m, knockbackAction, damage | (sPspKnockedByPlayer ? PSP_PVP_KNOCKBACK_ACTION_ARG : 0));
+        }
     }
 
     return FALSE;
@@ -1767,7 +1821,296 @@ void check_kick_or_punch_wall(struct MarioState *m) {
     }
 }
 
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_SOLID_PLAYERS
+/* ---- Player vs player (WLAN multiplayer), after sm64coopdx (interaction.c: resolve_player_collision, interact_player_pvp) ----------------------
+ * Both consoles run their own game, so nothing about a fight is sent: every console looks at what it sees of the other player (its position,
+ * action and flags, see PspNpPlayer) and only ever changes its OWN Mario. The one that gets hit decides, like in sm64coopdx.
+ *   - solid players: standing inside the other one pushes this Mario out; coming down on its head bounces (a crouching player makes the
+ *     other twirl), and the one that was jumped on is squashed for a moment;
+ *   - attacks: punch, kick, trip, dive / fast attacks, slide kick, ground pound, twirl and rollout flips hurt the other player and knock it
+ *     back (classic "PvP": 2 damage, 3 for a ground pound or twirl, 1 for a slide); the attacker recoils like it does against an enemy. */
+
+static u8 sPspHitCooldown; /* frames in which this Mario's hit on the other player is not repeated (its own console has the last word) */
+
+static f32 psp_np_vec3_length(const f32 *v) {
+    return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+}
+
+/* No push / bounce / attack with a player that cannot be touched right now. */
+static u8 psp_np_players_can_touch(const struct MarioState *m, const struct MarioState *r) {
+    const u32 vanish = MARIO_VANISH_CAP | MARIO_CAP_ON_HEAD;
+
+    if (psp_np_game_remote_age() < 60 || psp_np_game_remote_vanished()) { /* nobody touches anybody while a level is loading */
+        return FALSE;
+    }
+    if ((m->action & ACT_FLAG_INTANGIBLE) || (r->action & ACT_FLAG_INTANGIBLE)) {
+        return FALSE;
+    }
+    if ((m->flags & vanish) == vanish || (r->flags & vanish) == vanish) { /* the vanish cap goes through other players */
+        return FALSE;
+    }
+    return TRUE;
+}
+
+/* Hitboxes overlap, like detect_player_hitbox_overlap of sm64coopdx (the feet are compared instead of the torsos: both players are
+ * measured the same way, so it is the same except for the pose). scale < 1 is stricter. */
+static u8 psp_np_players_overlap(const struct MarioState *a, const struct MarioState *b, f32 scale) {
+    const f32 dx = a->pos[0] - b->pos[0];
+    const f32 dz = a->pos[2] - b->pos[2];
+    const f32 radius = (gMarioState->marioObj->hitboxRadius * 2.0f) * 1.75f;
+    const f32 height = gMarioState->marioObj->hitboxHeight;
+
+    if (radius * scale <= sqrtf(dx * dx + dz * dz)) {
+        return FALSE;
+    }
+    if (a->pos[1] > b->pos[1] + height) {
+        return FALSE;
+    }
+    if (a->pos[1] + height < b->pos[1]) {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static u8 psp_np_player_is_sliding(const struct MarioState *m) {
+    if (m->action & (ACT_FLAG_BUTT_OR_STOMACH_SLIDE | ACT_FLAG_DIVING)) {
+        return TRUE;
+    }
+    switch (m->action) {
+        case ACT_CROUCH_SLIDE:
+        case ACT_SLIDE_KICK_SLIDE:
+        case ACT_BUTT_SLIDE_AIR:
+        case ACT_HOLD_BUTT_SLIDE_AIR:
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static u8 psp_np_pvp_checks(const struct MarioState *attacker, const struct MarioState *victim) {
+    const u8 inCutscene = ((attacker->action & ACT_GROUP_MASK) == ACT_GROUP_CUTSCENE) || ((victim->action & ACT_GROUP_MASK) == ACT_GROUP_CUTSCENE)
+                          || attacker->action == ACT_IN_CANNON || victim->action == ACT_IN_CANNON;
+    const u8 attackerInvulnerable = (attacker->action & ACT_FLAG_INVULNERABLE) || attacker->invincTimer != 0 || attacker->hurtCounter != 0;
+    const u8 victimInvulnerable = (victim->action & ACT_FLAG_INVULNERABLE) || victim->invincTimer != 0 || victim->hurtCounter != 0 || inCutscene;
+    const u8 ignoredAttack = attacker->action == ACT_JUMP || attacker->action == ACT_DOUBLE_JUMP || attacker->action == ACT_LONG_JUMP
+                             || attacker->action == ACT_SIDE_FLIP || attacker->action == ACT_BACKFLIP || attacker->action == ACT_TRIPLE_JUMP
+                             || attacker->action == ACT_WALL_KICK_AIR || attacker->action == ACT_WATER_JUMP || attacker->action == ACT_STEEP_JUMP
+                             || attacker->action == ACT_HOLD_JUMP || attacker->action == ACT_FREEFALL || attacker->action == ACT_LEDGE_GRAB;
+    const u8 victimIntangible = (victim->action & ACT_FLAG_INTANGIBLE) != 0;
+    const u8 victimGroundPounding = (victim->action == ACT_GROUND_POUND) && (victim->actionState != 0);
+
+    if (victim->knockbackTimer != 0) {
+        return FALSE;
+    }
+    return !victimInvulnerable && !ignoredAttack && !attackerInvulnerable && !victimIntangible && !victimGroundPounding;
+}
+
+static u8 psp_np_pvp_damage(const struct MarioState *attacker, u32 interaction) {
+    (void) attacker;
+    if (interaction & INT_GROUND_POUND_OR_TWIRL) {
+        return 3;
+    } else if (interaction & INT_KICK) {
+        return 2;
+    } else if (interaction & (INT_SLIDE_KICK | INT_FAST_ATTACK_OR_SHELL)) {
+        return 1;
+    }
+    return 2;
+}
+
+/* The solid part: push out, bounce on the head, squash. */
+static void psp_np_player_collision(struct MarioState *m) {
+    struct Object *o = psp_np_game_remote();
+    struct MarioState *r = psp_np_game_remote_state();
+    f32 extentY, radius, relX, relZ, dist, relY;
+    u32 interaction;
+
+    if (o == NULL || r == NULL || m != gMarioState || !psp_np_players_can_touch(m, r)) {
+        return;
+    }
+    if ((m->action & ACT_GROUP_MASK) == ACT_GROUP_CUTSCENE || (r->action & ACT_GROUP_MASK) == ACT_GROUP_CUTSCENE || m->action == ACT_IN_CANNON
+        || r->action == ACT_IN_CANNON || m->action == ACT_DEATH_EXIT_LAND || r->action == ACT_DEATH_EXIT_LAND || m->invincTimer > 0
+        || r->invincTimer > 0) {
+        return;
+    }
+
+    extentY = m->marioObj->hitboxHeight;
+    radius = m->marioObj->hitboxRadius * 2.0f;
+    relY = m->pos[1] - r->pos[1];
+    if (relY < 0.0f) {
+        relY = -relY;
+    }
+    if (relY >= extentY) {
+        return;
+    }
+    relX = m->pos[0] - r->pos[0];
+    relZ = m->pos[2] - r->pos[2];
+    dist = sqrtf(relX * relX + relZ * relZ);
+    if (dist >= radius) {
+        return;
+    }
+
+    /* the other player comes down on this one: this Mario is squashed for a moment (the other console makes it bounce) */
+    if (determine_interaction(r, m->marioObj) & INT_HIT_FROM_ABOVE) {
+        if (m->bounceSquishTimer < 4) {
+            m->bounceSquishTimer = 4;
+        }
+    }
+
+    interaction = determine_interaction(m, o);
+    if (interaction & INT_HIT_FROM_ABOVE) {
+        f32 velY;
+        psp_np_game_remote_squish(4);
+        if (r->action == ACT_CROUCHING) { /* a crouching player is a trampoline */
+            mario_stop_riding_and_holding(m);
+            set_mario_action(m, ACT_TWIRLING, 0);
+            velY = 30.0f + fabsf(m->vel[1]);
+            velY = velY > 100.0f ? 100.0f : (velY < 80.0f ? 80.0f : velY);
+        } else if (m->action == ACT_JUMP) {
+            mario_stop_riding_and_holding(m);
+            set_mario_action(m, ACT_DOUBLE_JUMP, 0);
+            velY = 15.0f + fabsf(m->vel[1]);
+            velY = velY > 55.0f ? 55.0f : (velY < 35.0f ? 35.0f : velY);
+        } else if (m->action == ACT_DOUBLE_JUMP) {
+            mario_stop_riding_and_holding(m);
+            set_mario_action(m, (m->flags & MARIO_WING_CAP) ? ACT_FLYING_TRIPLE_JUMP : ACT_TRIPLE_JUMP, 0);
+            velY = 20.0f + fabsf(m->vel[1]);
+            velY = velY > 60.0f ? 60.0f : (velY < 40.0f ? 40.0f : velY);
+        } else if (m->action == ACT_LONG_JUMP) {
+            velY = 5.0f + fabsf(m->vel[1]);
+            velY = velY > 40.0f ? 40.0f : (velY < 30.0f ? 30.0f : velY);
+        } else if (m->action == ACT_HOLD_JUMP || m->action == ACT_HOLD_FREEFALL) {
+            set_mario_action(m, ACT_HOLD_JUMP, 0);
+            velY = 15.0f + fabsf(m->vel[1]);
+            velY = velY > 40.0f ? 40.0f : (velY < 25.0f ? 25.0f : velY);
+        } else {
+            mario_stop_riding_and_holding(m);
+            set_mario_action(m, ACT_JUMP, 0);
+            velY = 15.0f + fabsf(m->vel[1]);
+            velY = velY > 50.0f ? 50.0f : (velY < 30.0f ? 30.0f : velY);
+        }
+        bounce_off_object(m, o, velY);
+        return;
+    }
+
+    {
+        const f32 k = (radius - dist) / radius;
+        const f32 posX = m->pos[0] + k * relX;
+        const f32 posZ = m->pos[2] + k * relZ;
+        /* never push into out of bounds */
+        if (find_floor_height(posX, m->pos[1], posZ) <= -10999.0f) {
+            return;
+        }
+        m->pos[0] = posX;
+        m->pos[2] = posZ;
+    }
+}
+
+/* One direction of a fight: `attacker` hits `victim` (one of them is this console's Mario, the other is the other player as MarioState). */
+static void psp_np_pvp(struct MarioState *attacker, struct MarioState *victim) {
+    const u8 victimIsLocal = (victim == gMarioState);
+    struct Object *attackerObj = attacker->marioObj;
+    u32 interaction;
+
+#define PSP_PVP_ROLLOUT_FLIP(s) (((s)->action == ACT_FORWARD_ROLLOUT || (s)->action == ACT_BACKWARD_ROLLOUT) && (s)->actionState == 1)
+
+    if (!psp_np_pvp_checks(attacker, victim) || !psp_np_players_overlap(attacker, victim, victimIsLocal ? 1.0f : 0.6f)) {
+        return;
+    }
+
+    interaction = determine_interaction(attacker, victim->marioObj);
+    if (attacker->action == ACT_JUMP_KICK && (attacker->flags & MARIO_KICKING)) { /* jump kicks always hit with a kick's strength */
+        interaction = INT_KICK;
+    } else if (PSP_PVP_ROLLOUT_FLIP(attacker)) {
+        interaction = INT_HIT_FROM_BELOW;
+    }
+    if (!(interaction & INT_ANY_ATTACK) || (interaction & INT_HIT_FROM_ABOVE)) { /* (a jump on the head is the solid part above) */
+        return;
+    }
+
+    /* slides only hurt when they are fast, and the faster one wins */
+    if ((interaction & (INT_SLIDE_KICK | INT_FAST_ATTACK_OR_SHELL)) || psp_np_player_is_sliding(victim)) {
+        if (attacker->action == ACT_GROUND_POUND) {
+            /* a ground pound always hits */
+        } else {
+            if (attacker->action == ACT_SLIDE_KICK_SLIDE || attacker->action == ACT_SLIDE_KICK) {
+                if (psp_np_vec3_length(attacker->vel) < 15.0f) {
+                    return;
+                }
+            } else if (psp_np_vec3_length(attacker->vel) < 40.0f) {
+                return;
+            }
+            if (psp_np_vec3_length(victim->vel) > psp_np_vec3_length(attacker->vel)) {
+                return;
+            }
+        }
+    }
+
+    if (attacker->action == ACT_GROUND_POUND) {
+        if (attacker->actionState == 0) { /* it did not start to fall yet */
+            return;
+        }
+    }
+
+    if (victimIsLocal) {
+        /* this Mario is hit: damage and knockback, the same way an enemy's attack does it */
+        victim->interactObj = attackerObj;
+        if (interaction & INT_KICK) {
+            if (victim->action == ACT_FIRST_PERSON) { /* leaves the first person view */
+                raise_background_noise(2);
+                gCameraMovementFlags &= ~CAM_MOVE_C_UP_MODE;
+                set_camera_mode(victim->area->camera, -1, 1);
+            }
+            set_mario_action(victim, ACT_FREEFALL, 0);
+        }
+        if (!(victim->flags & MARIO_METAL_CAP)) {
+            attackerObj->oDamageOrCoinValue = psp_np_pvp_damage(attacker, interaction);
+            if (attacker->flags & MARIO_METAL_CAP) {
+                attackerObj->oDamageOrCoinValue *= 2;
+            }
+        } else {
+            attackerObj->oDamageOrCoinValue = 0;
+        }
+        if (attacker->action == ACT_GROUND_POUND && victim->bounceSquishTimer < 20) {
+            victim->bounceSquishTimer = 20;
+        }
+        if (victim->invincTimer < 3) {
+            victim->invincTimer = 3;
+        }
+        take_damage_and_knock_back(victim, attackerObj);
+        attackerObj->oInteractStatus = 0;
+        victim->interactObj = NULL;
+    } else {
+        /* this Mario hits the other player: it gets hurt on its own console; here it only recoils and the other model is squashed */
+        if (sPspHitCooldown != 0) {
+            return;
+        }
+        sPspHitCooldown = 3;
+        if (attacker->action == ACT_GROUND_POUND) {
+            psp_np_game_remote_squish(20);
+        }
+        bounce_back_from_attack(attacker, interaction);
+    }
+
+#undef PSP_PVP_ROLLOUT_FLIP
+}
+
+static void psp_np_player_attacks(struct MarioState *m) {
+    struct MarioState *r = psp_np_game_remote_state();
+
+    if (sPspHitCooldown > 0) {
+        sPspHitCooldown--;
+    }
+    if (r == NULL || psp_np_game_remote() == NULL || m != gMarioState || !psp_np_players_can_touch(m, r)) {
+        return;
+    }
+    psp_np_pvp(r, m);
+    psp_np_pvp(m, r);
+}
+#endif
+
 void mario_process_interactions(struct MarioState *m) {
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_SOLID_PLAYERS
+    psp_np_player_collision(m);
+#endif
     sDelayInvincTimer = FALSE;
     sInvulnerable = (m->action & ACT_FLAG_INVULNERABLE) || m->invincTimer != 0;
 
@@ -1781,13 +2124,27 @@ void mario_process_interactions(struct MarioState *m) {
                 m->collidedObjInteractTypes &= ~interactType;
 
                 if (!(object->oInteractStatus & INT_STATUS_INTERACTED)) {
-                    if (sInteractionHandlers[i].handler(m, interactType, object)) {
+                    const u32 handled = sInteractionHandlers[i].handler(m, interactType, object);
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+                    if (interactType == INTERACT_COIN) {
+                        psp_np_world_collected(m, object, PSP_NP_EV_COIN);
+                    } else if (interactType == INTERACT_STAR_OR_KEY) {
+                        psp_np_world_collected(m, object, PSP_NP_EV_STAR);
+                    } else if (interactType == INTERACT_CAP) {
+                        psp_np_world_collected(m, object, PSP_NP_EV_CAP);
+                    }
+#endif
+                    if (handled) {
                         break;
                     }
                 }
             }
         }
     }
+
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_SOLID_PLAYERS
+    psp_np_player_attacks(m);
+#endif
 
     if (m->invincTimer > 0 && !sDelayInvincTimer) {
         m->invincTimer -= 1;

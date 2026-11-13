@@ -125,12 +125,18 @@ void spawn_default_star(f32 sp20, f32 sp24, f32 sp28) {
     struct Object *sp1C;
     sp1C = spawn_star(sp1C, sp20, sp24, sp28);
     sp1C->oBehParams2ndByte = 0;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_star(o, sp1C, 0);
+#endif
 }
 
 void spawn_red_coin_cutscene_star(f32 sp20, f32 sp24, f32 sp28) {
     struct Object *sp1C;
     sp1C = spawn_star(sp1C, sp20, sp24, sp28);
     sp1C->oBehParams2ndByte = 1;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_star(o, sp1C, 1);
+#endif
 }
 
 void spawn_no_exit_star(f32 sp20, f32 sp24, f32 sp28) {
@@ -138,6 +144,9 @@ void spawn_no_exit_star(f32 sp20, f32 sp24, f32 sp28) {
     sp1C = spawn_star(sp1C, sp20, sp24, sp28);
     sp1C->oBehParams2ndByte = 1;
     sp1C->oInteractionSubtype |= INT_SUBTYPE_NO_EXIT;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_star(o, sp1C, 2);
+#endif
 }
 
 void bhv_hidden_red_coin_star_init(void) {

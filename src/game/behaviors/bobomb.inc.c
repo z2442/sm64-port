@@ -48,7 +48,7 @@ void bobomb_check_interactions(void) {
     {
         if ((o->oInteractStatus & INT_STATUS_MARIO_UNK1) != 0)
         {
-            o->oMoveAngleYaw = gMarioObject->header.gfx.angle[1];
+            o->oMoveAngleYaw = psp_np_attack_yaw(o, gMarioObject->header.gfx.angle[1]); /* (the other player's direction when it was the one that kicked) */
             o->oForwardVel = 25.0;
             o->oVelY = 30.0;
             o->oAction = BOBOMB_ACT_LAUNCHED;

@@ -6,6 +6,9 @@ void bhv_1up_interact(void) {
     if (obj_check_if_collided_with_object(o, gMarioObject) == 1) {
         play_sound(SOUND_GENERAL_COLLECT_1UP, gDefaultSoundArgs);
         gMarioState->numLives++;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+        psp_np_world_collected(gMarioState, o, PSP_NP_EV_1UP);
+#endif
         o->activeFlags = ACTIVE_FLAG_DEACTIVATED;
     }
 }

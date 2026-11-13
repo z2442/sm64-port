@@ -3,6 +3,7 @@
 #include "lib/src/libultra_internal.h"
 #include "macros.h"
 #include "fs_utils.h"
+#include "psp_netplay.h"
 
 #if defined(TARGET_PSP)
 #include <pspiofilemgr.h>
@@ -127,6 +128,68 @@ s32 osAiSetFrequency(u32 freq) {
     return D_8033491C / (s32) a1;
 }
 
+#if defined(TARGET_PSP)
+/* Crash-safe save file: the new data is written to "<file>.tmp" first and only replaces the real file once it is complete, so a power loss or
+ * a crash in the middle of a write can no longer leave a half-written (corrupt) save. If the process stops between removing the old file and
+ * renaming the new one, the complete ".tmp" copy is picked up when reading. */
+static int psp_save_read_file(const char *path, u8 *out, int size) {
+    SceUID fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
+    int ok;
+    if (fd < 0) {
+        return -1;
+    }
+    ok = (sceIoRead(fd, out, size) == size);
+    sceIoClose(fd);
+    return ok ? 0 : -1;
+}
+
+static int psp_save_read(const char *path, u8 *out, int size) {
+    char tmp[FS_MAX_PATH + 8];
+    if (psp_save_read_file(path, out, size) == 0) {
+        return 0;
+    }
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) < (int) sizeof(tmp) && psp_save_read_file(tmp, out, size) == 0) {
+        printf("Save read from the backup copy.\n");
+        return 0;
+    }
+    return -1;
+}
+
+static int psp_save_write(const char *path, const u8 *data, int size) {
+    char tmp[FS_MAX_PATH + 8];
+    SceUID fd;
+    int ok;
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int) sizeof(tmp)) {
+        return -1;
+    }
+    fd = sceIoOpen(tmp, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    if (fd < 0) {
+        return -1;
+    }
+    ok = (sceIoWrite(fd, data, size) == size);
+    sceIoClose(fd);
+    if (!ok) {
+        sceIoRemove(tmp); /* the real file is untouched */
+        return -1;
+    }
+    sceIoRemove(path); /* the destination cannot exist for the rename */
+    if (sceIoRename(tmp, path) < 0) {
+        /* The rename was refused: write the real file directly (the previous behaviour) so the newest data is never left only in the ".tmp" copy. */
+        fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+        if (fd < 0) {
+            return 0; /* the data is still complete in the ".tmp" copy, which the read side accepts */
+        }
+        ok = (sceIoWrite(fd, data, size) == size);
+        sceIoClose(fd);
+        if (ok) {
+            sceIoRemove(tmp);
+        }
+        return ok ? 0 : -1;
+    }
+    return 0;
+}
+#endif
+
 s32 osEepromProbe(UNUSED OSMesgQueue *mq) {
     return 1;
 }
@@ -134,6 +197,14 @@ s32 osEepromProbe(UNUSED OSMesgQueue *mq) {
 s32 osEepromLongRead(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes) {
     u8 content[512];
     s32 ret = -1;
+
+#if defined(TARGET_PSP)
+    if (psp_netplay_save_override()) { /* WLAN client: the host's save file, in memory */
+        psp_netplay_save_read(content);
+        memcpy(buffer, content + address * 8, nbytes);
+        return 0;
+    }
+#endif
 
 #ifdef TARGET_WEB
     if (EM_ASM_INT({
@@ -165,16 +236,12 @@ s32 osEepromLongRead(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes)
     printf("Opening save for read: '%s'\n", path);
 #if defined(TARGET_PSP)
     {
-        SceUID fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
-        if (fd < 0) {
+        if (psp_save_read(path, content, (int) sizeof(content)) != 0) {
             printf("Failed to open save for read.\n");
             return -1;
         }
-        if (sceIoRead(fd, content, sizeof(content)) == (int) sizeof(content)) {
-            memcpy(buffer, content + address * 8, nbytes);
-            ret = 0;
-        }
-        sceIoClose(fd);
+        memcpy(buffer, content + address * 8, nbytes);
+        ret = 0;
     }
 #else
     fp = fopen(path, "rb");
@@ -199,6 +266,15 @@ s32 osEepromLongRead(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes)
 s32 osEepromLongWrite(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes) {
     u8 content[512] = {0};
     s32 ret;
+
+#if defined(TARGET_PSP)
+    if (psp_netplay_save_override()) { /* WLAN client: only the in-memory copy changes, the Memory Stick is never written */
+        psp_netplay_save_read(content);
+        memcpy(content + address * 8, buffer, nbytes);
+        psp_netplay_save_write(content);
+        return 0;
+    }
+#endif
     if (address != 0 || nbytes != 512) {
         osEepromLongRead(mq, 0, content, 512);
     }
@@ -224,13 +300,11 @@ s32 osEepromLongWrite(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes
     printf("Opening save for write: '%s'\n", path);
 #if defined(TARGET_PSP)
     {
-        SceUID fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
-        if (fd < 0) {
+        ret = psp_save_write(path, content, (int) sizeof(content));
+        if (ret != 0) {
             printf("Failed to open save for write.\n");
             return -1;
         }
-        ret = sceIoWrite(fd, content, sizeof(content)) == (int) sizeof(content) ? 0 : -1;
-        sceIoClose(fd);
     }
 #else
     fp = fopen(path, "wb");

@@ -11,6 +11,11 @@
 #include "level_table.h"
 #include "course_table.h"
 #include "thread6.h"
+#if defined(TARGET_PSP)
+#include <string.h>
+#include "pc/psp_netplay.h"
+static s8 sNetSuppress; /* WLAN: the save being written is the result of a merge that adds nothing for the sender: it is not sent back */
+#endif
 
 #define MENU_DATA_MAGIC 0x4849
 #define SAVE_FILE_MAGIC 0x4441
@@ -263,6 +268,11 @@ void save_file_do_save(s32 fileIndex) {
         write_eeprom_data(gSaveBuffer.files[fileIndex], sizeof(gSaveBuffer.files[fileIndex]));
 
         gSaveFileModified = FALSE;
+#if defined(TARGET_PSP)
+        if (!sNetSuppress && fileIndex == gCurrSaveFileNum - 1) {
+            psp_netplay_progress_changed(&gSaveBuffer.files[fileIndex][0], sizeof(struct SaveFile)); /* WLAN: the other console gets the progress */
+        }
+#endif
     }
 
     save_main_menu_data();
@@ -637,3 +647,85 @@ s32 check_warp_checkpoint(struct WarpNode *warpNode) {
 
     return isWarpCheckpointActive;
 }
+
+#if defined(TARGET_PSP)
+/* WLAN multiplayer (pc/psp_netplay.c). */
+
+/* The star counter of the HUD is only recalculated when a star is collected or a level starts: after the save file changes behind the game's back
+ * (joining a room, or the other player's progress arriving) it is refreshed here. */
+void psp_netplay_refresh_hud(void) {
+    if (gMarioState != NULL && gCurrSaveFileNum >= 1 && gCurrSaveFileNum <= NUM_SAVE_FILES) {
+        gMarioState->numStars = save_file_get_total_star_count(gCurrSaveFileNum - 1, COURSE_MIN - 1, COURSE_MAX - 1);
+    }
+}
+
+/* The client plays with a copy of the host's save file kept only in memory. The save file the host was playing (hostFile) is copied over the one
+ * this console has selected, so the rest of the game keeps working with its own file number. Writes go to the in-memory copy (see osEepromLongWrite),
+ * never to the Memory Stick. */
+void psp_netplay_adopt_host_save(int hostFile) {
+    save_file_load_all();
+    if (gCurrSaveFileNum >= 1 && hostFile >= 1 && hostFile <= NUM_SAVE_FILES && hostFile != gCurrSaveFileNum) {
+        const s32 dst = gCurrSaveFileNum - 1;
+        bcopy(&gSaveBuffer.files[hostFile - 1][0], &gSaveBuffer.files[dst][0], sizeof(gSaveBuffer.files[dst][0]));
+        gSaveFileModified = TRUE;
+        save_file_do_save(dst);
+    }
+    psp_netplay_refresh_hud();
+}
+
+/* The other console's current save file arrived: it is MERGED into this console's current file, never copied over it:
+ *  - flags (keys, doors, caps, switches...): union; the "cap is lying somewhere" flags and the cap position are NOT merged (they describe this
+ *    player's own lost cap);
+ *  - stars of every course (and the cannon-open bit): union;
+ *  - coin scores: the best.
+ * Returns 0 if it was ignored, otherwise bit 0 = this file changed (and was saved: on the host that is the Memory Stick), bit 1 = this file has
+ * something the sender lacks (it was sent back). So both consoles converge on the same progress and nothing is ever lost. */
+int psp_netplay_merge_progress(const void *data, int size) {
+    const u32 capMask = SAVE_FLAG_CAP_ON_GROUND | SAVE_FLAG_CAP_ON_KLEPTO | SAVE_FLAG_CAP_ON_UKIKI | SAVE_FLAG_CAP_ON_MR_BLIZZARD;
+    struct SaveFile remote;
+    struct SaveFile *local;
+    int i, changed = 0, more = 0;
+
+    if (size != (int) sizeof(struct SaveFile) || gCurrSaveFileNum < 1 || gCurrSaveFileNum > NUM_SAVE_FILES) {
+        return 0;
+    }
+    memcpy(&remote, data, sizeof(remote));
+    local = &gSaveBuffer.files[gCurrSaveFileNum - 1][0];
+
+    if ((remote.flags & ~capMask & ~local->flags) != 0) {
+        local->flags |= remote.flags & ~capMask;
+        changed = 1;
+    }
+    if ((local->flags & ~capMask & ~remote.flags) != 0) {
+        more = 1;
+    }
+    for (i = 0; i < COURSE_COUNT; i++) {
+        if ((remote.courseStars[i] & ~local->courseStars[i]) != 0) {
+            local->courseStars[i] |= remote.courseStars[i];
+            changed = 1;
+        }
+        if ((local->courseStars[i] & ~remote.courseStars[i]) != 0) {
+            more = 1;
+        }
+    }
+    for (i = 0; i < COURSE_STAGES_COUNT; i++) {
+        if (remote.courseCoinScores[i] > local->courseCoinScores[i]) {
+            local->courseCoinScores[i] = remote.courseCoinScores[i];
+            changed = 1;
+        } else if (local->courseCoinScores[i] > remote.courseCoinScores[i]) {
+            more = 1;
+        }
+    }
+    if (changed) {
+        local->flags |= SAVE_FLAG_FILE_EXISTS;
+        gSaveFileModified = TRUE;
+        sNetSuppress = !more; /* if this file also has more than the sender, the save below sends the merged result back */
+        save_file_do_save(gCurrSaveFileNum - 1);
+        sNetSuppress = 0;
+        psp_netplay_refresh_hud();
+    } else if (more) {
+        psp_netplay_progress_changed(local, sizeof(struct SaveFile));
+    }
+    return 1 | (changed ? 2 : 0) | (more ? 4 : 0);
+}
+#endif

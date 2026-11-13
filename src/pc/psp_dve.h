@@ -36,6 +36,10 @@ void psp_dve_shutdown(void);
 void psp_dve_audio_route(int want);
 /* Boot on the console screen: if the system left its TV mode on, it is put back to normal mode (before starting the video). */
 void psp_dve_reset_lcd_if_tv(void);
+/* After waking up from sleep: restores the 4 MB of VRAM if the system lowered it. 1 = the TV can still be used, 0 = not until restart. */
+int psp_dve_resume(void);
+/* The cable watcher latches the cable state (1 composite / 2 component) once it is stable; 0 / negative clears it. Used to route the TV. */
+void psp_dve_cable_latch(int state);
 
 /* psp_options.c */
 void psp_options_tv_off(void); /* sets "TV Output" to Off and saves the file */
