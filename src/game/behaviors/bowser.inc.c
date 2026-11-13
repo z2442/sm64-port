@@ -4,7 +4,7 @@ void bowser_tail_anchor_act_0(void) {
     struct Object *bowser = o->parentObj;
     cur_obj_become_tangible();
     cur_obj_scale(1.0f);
-    if (bowser->oAction == 19)
+    if (bowser->oAction == 19 || bowser->oAction == 20 || psp_np_world_bowser_carried(bowser)) /* (20: waiting for the other console, see bowser_act_nothing) */
         bowser->oIntangibleTimer = -1;
     else if (obj_check_if_collided_with_object(o, gMarioObject)) {
         bowser->oIntangibleTimer = 0;
@@ -90,7 +90,7 @@ void bhv_bowser_body_anchor_loop(void) {
         else
             cur_obj_become_tangible();
     }
-    if (o->parentObj->oHeldState != HELD_FREE)
+    if (o->parentObj->oHeldState != HELD_FREE || o->parentObj->oAction == 20 || psp_np_world_bowser_carried(o->parentObj)) /* (20: waiting for the other console: he does not hurt anybody yet) */
         cur_obj_become_intangible();
     o->oInteractStatus = 0;
 }
@@ -748,6 +748,19 @@ void bowser_act_jump_onto_stage(void) {
     print_debug_bottom_up("sp %d", o->oForwardVel);
 }
 
+/* Action 20 (WLAN): Bowser was loaded while the other player was already in this arena, so the fight is not started again for this player (the camera cutscene is
+ * not played either, see camera.c): he stands still until the other console tells where the fight is (psp_netplay_game.c writes that over him). If it never does
+ * (the other player left, or went quiet) the fight starts here, with the intro skipped. */
+void bowser_act_nothing(void) {
+    o->oForwardVel = 0.0f;
+    o->oAngleVelYaw = 0;
+    cur_obj_init_animation_with_sound(12);
+    if (psp_np_world_bowser_give_up(o->oTimer)) {
+        o->oBowserUnk88 = 2; /* the intro is over */
+        bowser_initialize_action();
+    }
+}
+
 void bowser_act_dance(void) {
     if (is_item_in_array(o->oTimer, D_8032F514))
         cur_obj_play_sound_2(SOUND_OBJ_BOWSER_WALK);
@@ -976,7 +989,8 @@ void (*sBowserActions[])(void) = { bowser_act_default,  bowser_act_thrown_droppe
                                    bowser_act_dead,  bowser_act_text_wait,  bowser_act_intro_walk,  bowser_act_charge_mario,
                                    bowser_act_spit_fire_into_sky,  bowser_act_spit_fire_onto_floor,  bowser_act_hit_edge, bowser_act_turn_from_edge,
                                    bowser_act_hit_mine, bowser_act_jump, bowser_act_walk_to_mario, bowser_act_breath_fire,
-                                   bowser_act_teleport, bowser_act_jump_towards_mario, bowser_act_unused_slow_walk, bowser_act_ride_tilting_platform };
+                                   bowser_act_teleport, bowser_act_jump_towards_mario, bowser_act_unused_slow_walk, bowser_act_ride_tilting_platform,
+                                   bowser_act_nothing };
 struct SoundState D_8032F5B8[] = { { 0, 0, 0, NO_SOUND },
                                    { 0, 0, 0, NO_SOUND },
                                    { 0, 0, 0, NO_SOUND },
@@ -1095,6 +1109,13 @@ void bhv_bowser_loop(void) {
     s16 angleToMario;  // AngleToMario    from Bowser's perspective
     s16 angleToCentre; // AngleToCentre from Bowser's perspective
 
+    if (psp_np_world_bowser_carried(o)) { /* WLAN: the other player carries him by the tail; this copy hangs from that player's model and does nothing else */
+        psp_np_world_bowser_carry_step(o);
+        cur_obj_init_animation_with_sound(2);
+        cur_obj_become_intangible();
+        return;
+    }
+
     o->oBowserDistToCentre = sqrtf(o->oPosX * o->oPosX + o->oPosZ * o->oPosZ);
     o->oBowserAngleToCentre = atan2s(0.0f - o->oPosZ, 0.0f - o->oPosX);
     angleToMario = abs_angle_diff(o->oMoveAngleYaw, o->oAngleToMario);
@@ -1152,7 +1173,9 @@ void bhv_bowser_init(void) {
     o->oBowserUnk1B2 = D_8032F690[level];
     o->oHealth = D_8032F694[level];
     cur_obj_start_cam_event(o, CAM_EVENT_BOWSER_INIT);
-    o->oAction = 5;
+    /* WLAN, like sm64coopdx: the player who gets here first plays the intro; the one who comes in while the other is already in the arena just finds Bowser where
+     * the fight is (action 20 waits for the other console's state) */
+    o->oAction = psp_np_world_peer_here() ? 20 : 5;
     o->oBowserUnk1AE = 0;
     o->oBowserEyesShut = 0;
 }

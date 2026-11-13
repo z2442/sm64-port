@@ -10,6 +10,7 @@
 #include "ingame_menu.h"
 #include "hud.h"
 #include "segment2.h"
+#include "audio/external.h"
 #include "area.h"
 #include "save_file.h"
 #include "print.h"
@@ -424,6 +425,12 @@ void render_hud_camera_status(void) {
 
     switch (sCameraHUD.status & CAM_STATUS_MODE_GROUP) {
         case CAM_STATUS_MARIO:
+#ifdef TARGET_PSP
+            if (gPspLuigiVoice) { /* multiplayer: this player is Luigi */
+                render_hud_tex_lut(x + 16, y, (u8 *) texture_hud_char_luigi_head);
+                break;
+            }
+#endif
             render_hud_tex_lut(x + 16, y, (*cameraLUT)[GLYPH_CAM_MARIO_HEAD]);
             break;
         case CAM_STATUS_LAKITU:

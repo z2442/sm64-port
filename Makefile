@@ -23,6 +23,9 @@ TARGET_N64 ?= 0
 TARGET_WEB ?= 0
 # Build for PSP
 TARGET_PSP ?= 0
+# WLAN multiplayer (src/pc/psp_netplay.c). PSP_NETPLAY=0 removes the whole feature: nothing is built, linked or shown in the menu.
+# It is OFF by default for now (the multiplayer is still being finished); build with PSP_NETPLAY=1 to get it.
+PSP_NETPLAY ?= 0
 # Enable gprof profiling for PSP builds (only works with TARGET_PSP=1)
 PROFILE_PSP ?= 0
 # Compiler to use (ido or gcc)
@@ -351,6 +354,19 @@ SOUND_SEQUENCE_FILES := $(wildcard sound/sequences/$(VERSION)/*.m64) \
 endif
 
 SOUND_SAMPLE_DIRS := $(wildcard sound/samples/*)
+SOUND_BANKS_DIR := sound/sound_banks/
+SOUND_SEQ_JSON := sound/sequences.json
+SOUND_NP_DEPS := $(SOUND_BIN_DIR)/netplay.mode
+ifneq ($(PSP_NETPLAY),1)
+# Luigi's voice (his two sound banks and sample sets) only exists for the WLAN multiplayer. Without it the sound data is exactly the original one
+# (tools/psp/make_release.py needs that: it checks that the sound bank data comes from the game's ROM). The banks and the list of banks of each sequence
+# are used from filtered copies in the build folder (see the rules below).
+SOUND_SAMPLE_DIRS := $(filter-out sound/samples/sfx_custom_luigi%,$(SOUND_SAMPLE_DIRS))
+SOUND_BANK_FILES := $(foreach f,$(SOUND_BANK_FILES),$(if $(findstring custom_luigi,$(f)),,$(f)))
+SOUND_BANKS_DIR := $(SOUND_BIN_DIR)/sound_banks/
+SOUND_SEQ_JSON := $(SOUND_BIN_DIR)/sequences.json
+SOUND_NP_DEPS += $(SOUND_BIN_DIR)/sound_banks.stamp $(SOUND_BIN_DIR)/sequences.json
+endif
 SOUND_SAMPLE_AIFFS := $(foreach dir,$(SOUND_SAMPLE_DIRS),$(wildcard $(dir)/*.aiff))
 SOUND_SAMPLE_TABLES := $(foreach file,$(SOUND_SAMPLE_AIFFS),$(BUILD_DIR)/$(file:.aiff=.table))
 SOUND_SAMPLE_AIFCS := $(foreach file,$(SOUND_SAMPLE_AIFFS),$(BUILD_DIR)/$(file:.aiff=.aifc))
@@ -519,7 +535,7 @@ ifeq ($(TARGET_PSP),1)
   PSP_PREFIX    = $(shell psp-config -P)
   # Notes from neo
   #-gdwarf-2 -gstrict-dwarf -g3 --ffunction-sections -fdata-sections -Wl,-gc-sections
-  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_NETPLAY=$(PSP_NETPLAY) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
   PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -Wl,-u,sm64PspDveImport -lme-core
   
   ifeq ($(PROFILE_PSP),1)
@@ -554,7 +570,7 @@ ifeq ($(ENABLE_OPENGL),1)
     GFX_LDFLAGS += -lGL -lSDL2
   endif
   ifeq ($(TARGET_PSP),1)
-    GFX_LDFLAGS += -L$(PSPSDK_PREFIX)/lib -lintrafont -lpspdebug -lpspgu -lpspvfpu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet -lpsppower -lc -lpspuser -lpspvram
+    GFX_LDFLAGS += -L$(PSPSDK_PREFIX)/lib -lintrafont -lpspdebug -lpspgu -lpspvfpu -lpspctrl -lpspge -lpspdisplay -lpsphprm -lm -lpspsdk -lpsprtc -lpspaudio -lpsputility -lpspnet_inet $(if $(filter 1,$(PSP_NETPLAY)),-lpspnet_adhocctl -lpspnet_adhoc -lpspnet -lpspwlan) -lpsppower -lc -lpspuser -lpspvram
   endif
 endif
 ifeq ($(ENABLE_DX11),1)
@@ -693,6 +709,11 @@ $(BUILD_DIR)/src/menu/file_select.o: $(BUILD_DIR)/include/text_strings.h
 $(BUILD_DIR)/src/menu/star_select.o: $(BUILD_DIR)/include/text_strings.h
 $(BUILD_DIR)/src/game/ingame_menu.o: $(BUILD_DIR)/include/text_strings.h
 
+# Luigi (WLAN multiplayer): its textures are generated from the PNGs before group0.c includes them
+LUIGI_TEXTURES := $(patsubst actors/luigi/%.png,$(BUILD_DIR)/actors/luigi/%.inc.c,$(wildcard actors/luigi/*.png))
+$(BUILD_DIR)/actors/group0.o: $(LUIGI_TEXTURES)
+$(BUILD_DIR)/bin/segment2.o: $(BUILD_DIR)/textures/segment2/custom_luigi_head.rgba16.inc.c
+
 ################################################################
 # TEXTURE GENERATION                                           #
 ################################################################
@@ -766,18 +787,36 @@ $(ENDIAN_BITWIDTH): tools/determine-endian-bitwidth.c
 #	@rm $@.dummy1
 #	@rm $@.dummy2
 
-$(SOUND_BIN_DIR)/sound_data.ctl: sound/sound_banks/ $(SOUND_BANK_FILES) $(SOUND_SAMPLE_AIFCS) $(ENDIAN_BITWIDTH)
-	$(PYTHON) tools/assemble_sound.py $(BUILD_DIR)/sound/samples/ sound/sound_banks/ $(SOUND_BIN_DIR)/sound_data.ctl $(SOUND_BIN_DIR)/sound_data.tbl $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+# What the sound data was built for (WLAN multiplayer on / off). When it changes, the sound data is rebuilt and the Luigi files of the other mode are dropped.
+.PHONY: FORCE
+FORCE:
+$(SOUND_BIN_DIR)/netplay.mode: FORCE
+	@mkdir -p $(dir $@)
+	@echo $(PSP_NETPLAY) | cmp -s - $@ || { echo $(PSP_NETPLAY) > $@; $(if $(filter 1,$(PSP_NETPLAY)),,rm -rf $(BUILD_DIR)/sound/samples/sfx_custom_luigi* $(SOUND_BIN_DIR)/sound_banks $(SOUND_BIN_DIR)/sound_banks.stamp;) }
+
+ifneq ($(PSP_NETPLAY),1)
+$(SOUND_BIN_DIR)/sound_banks.stamp: $(SOUND_BANK_FILES) $(SOUND_BIN_DIR)/netplay.mode
+	rm -rf $(SOUND_BIN_DIR)/sound_banks
+	mkdir -p $(SOUND_BIN_DIR)/sound_banks
+	cp $(SOUND_BANK_FILES) $(SOUND_BIN_DIR)/sound_banks/
+	touch $@
+
+$(SOUND_BIN_DIR)/sequences.json: sound/sequences.json $(SOUND_BIN_DIR)/netplay.mode
+	sed -e 's/, *"[0-9A-Fa-f]*_custom_luigi[a-z_]*"//g' $< > $@
+endif
+
+$(SOUND_BIN_DIR)/sound_data.ctl: sound/sound_banks/ $(SOUND_BANK_FILES) $(SOUND_SAMPLE_AIFCS) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
+	$(PYTHON) tools/assemble_sound.py $(BUILD_DIR)/sound/samples/ $(SOUND_BANKS_DIR) $(SOUND_BIN_DIR)/sound_data.ctl $(SOUND_BIN_DIR)/sound_data.tbl $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
 
 $(SOUND_BIN_DIR)/sound_data.tbl: $(SOUND_BIN_DIR)/sound_data.ctl
 	@true
 
 ifeq ($(VERSION),sh)
-$(SOUND_BIN_DIR)/sequences.bin: $(SOUND_BANK_FILES) sound/sequences.json sound/sequences/ sound/sequences/jp/ $(SOUND_SEQUENCE_FILES) $(ENDIAN_BITWIDTH)
-	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/bank_sets sound/sound_banks/ sound/sequences.json $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+$(SOUND_BIN_DIR)/sequences.bin: $(SOUND_BANK_FILES) sound/sequences.json sound/sequences/ sound/sequences/jp/ $(SOUND_SEQUENCE_FILES) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
+	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/bank_sets $(SOUND_BANKS_DIR) $(SOUND_SEQ_JSON) $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
 else
-$(SOUND_BIN_DIR)/sequences.bin: $(SOUND_BANK_FILES) sound/sequences.json sound/sequences/ sound/sequences/$(VERSION)/ $(SOUND_SEQUENCE_FILES) $(ENDIAN_BITWIDTH)
-	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/bank_sets sound/sound_banks/ sound/sequences.json $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+$(SOUND_BIN_DIR)/sequences.bin: $(SOUND_BANK_FILES) sound/sequences.json sound/sequences/ sound/sequences/$(VERSION)/ $(SOUND_SEQUENCE_FILES) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
+	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/bank_sets $(SOUND_BANKS_DIR) $(SOUND_SEQ_JSON) $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
 endif
 
 $(SOUND_BIN_DIR)/bank_sets: $(SOUND_BIN_DIR)/sequences.bin

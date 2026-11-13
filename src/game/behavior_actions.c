@@ -7,6 +7,7 @@
 #include "area.h"
 #include "audio/external.h"
 #include "behavior_actions.h"
+#include "pc/psp_netplay.h"
 #include "behavior_data.h"
 #include "camera.h"
 #include "debug.h"

@@ -1209,6 +1209,20 @@ u8 sSquishScaleOverTime[16] = { 0x46, 0x32, 0x32, 0x3C, 0x46, 0x50, 0x50, 0x3C,
  * Applies the squish to Mario's model via scaling.
  */
 void squish_mario_model(struct MarioState *m) {
+    /* squash from another player's jump / ground pound (multiplayer): same rubber band as the real squish, only while that one is not active */
+    if (m->bounceSquishTimer > 0 && m->squishTimer == 0) {
+        u8 timer = m->bounceSquishTimer;
+        if (timer <= 16) {
+            timer--;
+            m->marioObj->header.gfx.scale[1] = 1.0f - ((sSquishScaleOverTime[15 - timer] * 0.6f) / 100.0f);
+            m->marioObj->header.gfx.scale[0] = ((sSquishScaleOverTime[15 - timer] * 0.4f) / 100.0f) + 1.0f;
+            m->marioObj->header.gfx.scale[2] = m->marioObj->header.gfx.scale[0];
+        } else {
+            vec3f_set(m->marioObj->header.gfx.scale, 1.4f, 0.4f, 1.4f);
+        }
+        m->bounceSquishTimer--;
+        return;
+    }
     if (m->squishTimer != 0xFF) {
         // If no longer squished, scale back to default.
         if (m->squishTimer == 0) {
@@ -1716,6 +1730,10 @@ s32 execute_mario_action(UNUSED struct Object *o) {
 static s32 execute_mario_action_impl(UNUSED struct Object *o) {
     s32 inLoop = TRUE;
 
+    if (gMarioState->knockbackTimer > 0) {
+        gMarioState->knockbackTimer--; /* multiplayer: ticks down once a frame (see PSP_PVP_KNOCKBACK_TIMER) */
+    }
+
     if (gMarioState->action) {
         gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
         mario_reset_bodystate(gMarioState);
@@ -1824,6 +1842,8 @@ void init_mario(void) {
 
     gMarioState->forwardVel = 0.0f;
     gMarioState->squishTimer = 0;
+    gMarioState->knockbackTimer = 0;
+    gMarioState->bounceSquishTimer = 0;
 
     gMarioState->hurtCounter = 0;
     gMarioState->healCounter = 0;

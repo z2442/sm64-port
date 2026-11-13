@@ -6,6 +6,7 @@
 #include "memory.h"
 #include "print.h"
 #include "segment2.h"
+#include "audio/external.h"
 
 /**
  * This file handles printing and formatting the colorful text that
@@ -354,9 +355,15 @@ s8 char_to_glyph_index(char c) {
  */
 void add_glyph_texture(s8 glyphIndex) {
     const u8 *const *glyphs = segmented_to_virtual(main_hud_lut);
+    const u8 *glyph = glyphs[glyphIndex];
 
+#ifdef TARGET_PSP
+    if (glyphIndex == GLYPH_MARIO_HEAD && gPspLuigiVoice) {
+        glyph = texture_hud_char_luigi_head; /* multiplayer: this player is Luigi */
+    }
+#endif
     gDPPipeSync(gDisplayListHead++);
-    gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, glyphs[glyphIndex]);
+    gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, glyph);
     gSPDisplayList(gDisplayListHead++, dl_hud_img_load_tex_block);
 }
 

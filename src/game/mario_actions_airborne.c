@@ -35,7 +35,7 @@ void play_far_fall_sound(struct MarioState *m) {
 
 #ifndef VERSION_JP
 void play_knockback_sound(struct MarioState *m) {
-    if (m->actionArg == 0 && (m->forwardVel <= -28.0f || m->forwardVel >= 28.0f)) {
+    if ((m->actionArg & ~PSP_PVP_KNOCKBACK_ACTION_ARG) == 0 && (m->forwardVel <= -28.0f || m->forwardVel >= 28.0f)) {
         play_sound_if_no_flag(m, SOUND_MARIO_DOH, MARIO_MARIO_SOUND_PLAYED);
     } else {
         play_sound_if_no_flag(m, SOUND_MARIO_UH, MARIO_MARIO_SOUND_PLAYED);
@@ -1090,9 +1090,15 @@ s32 act_crazy_box_bounce(struct MarioState *m) {
 
 u32 common_air_knockback_step(struct MarioState *m, u32 landAction, u32 hardFallAction, s32 animation,
                               f32 speed) {
+    if (m->knockbackTimer > 0) {
+        m->knockbackTimer = PSP_PVP_KNOCKBACK_TIMER; /* stays protected while it flies */
+    }
+
     u32 stepResult;
 
-    mario_set_forward_vel(m, speed);
+    if (m->knockbackTimer <= 0) { /* (a knockback from the other player keeps the strength it was given: sm64coopdx does not force the speed every frame) */
+        mario_set_forward_vel(m, speed);
+    }
 
     stepResult = perform_air_step(m, 0);
     switch (stepResult) {
@@ -1198,7 +1204,7 @@ s32 act_hard_forward_air_kb(struct MarioState *m) {
 
 s32 act_thrown_backward(struct MarioState *m) {
     u32 landAction;
-    if (m->actionArg != 0) {
+    if ((m->actionArg & ~PSP_PVP_KNOCKBACK_ACTION_ARG) != 0) {
         landAction = ACT_HARD_BACKWARD_GROUND_KB;
     } else {
         landAction = ACT_BACKWARD_GROUND_KB;
@@ -1216,7 +1222,7 @@ s32 act_thrown_forward(struct MarioState *m) {
     s16 pitch;
 
     u32 landAction;
-    if (m->actionArg != 0) {
+    if ((m->actionArg & ~PSP_PVP_KNOCKBACK_ACTION_ARG) != 0) {
         landAction = ACT_HARD_FORWARD_GROUND_KB;
     } else {
         landAction = ACT_FORWARD_GROUND_KB;

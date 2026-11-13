@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "pc/psp_lprof.h"
+#include "pc/psp_netplay.h"
 
 #include "sm64.h"
 #include "seq_ids.h"
@@ -278,6 +279,15 @@ u16 level_control_timer(s32 timerOp) {
 
     return gHudDisplay.timer;
 }
+
+#ifdef TARGET_PSP
+/* The pause menu does not stop the game: only while another player is linked (alone, even hosting a room, it is the normal pause). */
+s32 psp_live_pause(void) {
+    return psp_netplay_state() == PSP_NP_CONNECTED;
+}
+#else
+#define psp_live_pause() 0
+#endif
 
 u32 pressed_pause(void) {
     u32 val4 = get_dialog_id() >= 0;
@@ -1094,23 +1104,55 @@ s32 play_mode_normal(void) {
 
     // If either initiate_painting_warp or initiate_delayed_warp initiated a
     // warp, change play mode accordingly.
-    if (sCurrPlayMode == PLAY_MODE_NORMAL) {
+    // (PLAY_MODE_PAUSED only gets here in a multiplayer room, where the pause does not stop the game: see psp_live_pause)
+    if (sCurrPlayMode == PLAY_MODE_NORMAL || sCurrPlayMode == PLAY_MODE_PAUSED) {
         if (sWarpDest.type == WARP_TYPE_CHANGE_LEVEL) {
             set_play_mode(PLAY_MODE_CHANGE_LEVEL);
         } else if (sTransitionTimer != 0) {
             set_play_mode(PLAY_MODE_CHANGE_AREA);
-        } else if (pressed_pause()) {
+        } else if (sCurrPlayMode == PLAY_MODE_NORMAL && pressed_pause()) {
             lower_background_noise(1);
 #ifdef VERSION_SH
             cancel_rumble();
 #endif
-            gCameraMovementFlags |= CAM_MOVE_PAUSE_SCREEN;
+            if (!psp_live_pause()) {
+                gCameraMovementFlags |= CAM_MOVE_PAUSE_SCREEN;
+            }
             set_play_mode(PLAY_MODE_PAUSED);
         }
     }
 
     return 0;
 }
+
+#ifdef TARGET_PSP
+/* Multiplayer: like in sm64coopdx, the pause menu does not stop the game while another player is in the room (the world keeps running
+ * under the menu, this Mario just gets no input). The frame of the game is run with a neutral controller: the menu itself reads the
+ * buttons from gPlayer3Controller when it is drawn. */
+static void psp_live_pause_run_game(void) {
+    const struct Controller saved = *gPlayer1Controller;
+
+    if (sTransitionTimer < 0) {
+        sTransitionTimer = 0; /* the pause menu was opened before the room was joined (it parks the timer at -1) */
+    }
+    gPlayer1Controller->rawStickX = 0;
+    gPlayer1Controller->rawStickY = 0;
+    gPlayer1Controller->stickX = 0.0f;
+    gPlayer1Controller->stickY = 0.0f;
+    gPlayer1Controller->stickMag = 0.0f;
+    gPlayer1Controller->buttonDown = 0;
+    gPlayer1Controller->buttonPressed = 0;
+    play_mode_normal();
+    *gPlayer1Controller = saved;
+    gCameraMovementFlags &= ~CAM_MOVE_PAUSE_SCREEN; /* no zoomed-out pause camera: the game is still being played */
+
+    if (sCurrPlayMode != PLAY_MODE_PAUSED) {
+        /* something warped this Mario (a death, a painting...) with the menu open: the menu closes and the sound comes back */
+        psp_close_pause_menu();
+        raise_background_noise(1);
+    }
+}
+#endif
 
 s32 play_mode_paused(void) {
     if (gPauseScreenMode == 0) {
@@ -1239,7 +1281,16 @@ s32 update_level(void) {
             changeLevel = play_mode_normal();
             break;
         case PLAY_MODE_PAUSED:
-            changeLevel = play_mode_paused();
+            changeLevel = 0;
+#ifdef TARGET_PSP
+            if (psp_live_pause()) {
+                psp_live_pause_run_game();
+            }
+            if (sCurrPlayMode == PLAY_MODE_PAUSED)
+#endif
+            {
+                changeLevel = play_mode_paused();
+            }
             break;
         case PLAY_MODE_CHANGE_AREA:
             changeLevel = play_mode_change_area();
@@ -1296,7 +1347,8 @@ s32 init_level(void) {
                 set_mario_action(gMarioState, ACT_IDLE, 0);
             } else if (gDebugLevelSelect == 0) {
                 if (gMarioState->action != ACT_UNINITIALIZED) {
-                    if (save_file_exists(gCurrSaveFileNum - 1)) {
+                    /* in a WLAN room nobody sits through Lakitu's opening on a file that is still empty (the host's file is shared) */
+                    if (save_file_exists(gCurrSaveFileNum - 1) || psp_netplay_state() == PSP_NP_CONNECTED) {
                         set_mario_action(gMarioState, ACT_IDLE, 0);
                     } else {
                         set_mario_action(gMarioState, ACT_INTRO_CUTSCENE, 0);

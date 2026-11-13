@@ -18,6 +18,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include <pspiofilemgr.h>
 #include <psppower.h>
 #include <pspctrl.h>
 #include <psprtc.h>
@@ -35,6 +36,7 @@
 #include "pc/fs_utils.h"
 #include "pc/psp_me.h"
 #include "pc/psp_dve.h"
+#include "pc/psp_netplay.h"
 #include "pc/configfile.h"
 
 void create_dl_scale_matrix(s8 pushOp, f32 x, f32 y, f32 z); /* ingame_menu.c */
@@ -70,6 +72,7 @@ enum {
     OPT_TVAREA,  /* TV Width */
     OPT_TVAREAY, /* TV Height */
     OPT_TVSHIFT, /* TV Vertical Shift */
+    OPT_NETFPS,  /* Online FPS Limit (Multiplayer page): 30 (safe, the default) or 60 while a room is up */
     OPT_RESET,
     OPT_COUNT
 };
@@ -88,12 +91,21 @@ enum {
     ROW_SOUNDMODE, /* Stereo / Mono / Headset: the same setting as the file select menu */
     ROW_AUDRESET,
     ROW_TVPAGE,    /* entry to the TV page (inside Graphics); can only be entered with the video cable plugged in */
-    ROW_TVRESET    /* "Reset TV": leaves TV Aspect and TV Area at their defaults (does not touch TV Output or the rest of Graphics) */
+    ROW_TVRESET,   /* "Reset TV": leaves TV Aspect and TV Area at their defaults (does not touch TV Output or the rest of Graphics) */
+    ROW_NETPAGE,   /* entry to the Multiplayer (WLAN) page (only when built with PSP_NETPLAY=1) */
+    ROW_NETHOST,   /* Host a game */
+    ROW_NETJOIN,   /* Join a game: searches for a room and joins the first one found */
+    ROW_NETLEAVE   /* Leave the room */
 };
 
-enum { PG_MAIN, PG_VIDEO, PG_AUDIO, PG_CTRL, PG_TV };
+enum { PG_MAIN, PG_VIDEO, PG_AUDIO, PG_CTRL, PG_TV, PG_NET };
 
-static const u8 sPgMain[] = { ROW_VIDEO, ROW_AUDIO, ROW_CONTROLS };
+static const u8 sPgMain[] = { ROW_VIDEO, ROW_AUDIO, ROW_CONTROLS
+#if PSP_NETPLAY
+    , ROW_NETPAGE
+#endif
+};
+static const u8 sPgNet[] = { ROW_NETHOST, ROW_NETJOIN, OPT_NETFPS, ROW_NETLEAVE };
 static const u8 sPgAudio[] = { ROW_MUSIC, ROW_SFX, ROW_SOUNDMODE, ROW_AUDRESET };
 static const u8 sPgVideo[] = { OPT_FPSCAP, OPT_PACING, OPT_OBJDIST, OPT_FARDIST, OPT_CULLOBJ, OPT_SHOWFPS, OPT_SOUNDCPU, ROW_TVPAGE, OPT_RESET };
 static const u8 sPgTv[] = { OPT_TVOUT, OPT_TVASPECT, OPT_TVAREA, OPT_TVAREAY, OPT_TVSHIFT, ROW_TVRESET };
@@ -132,7 +144,7 @@ static const struct { const char *name; unsigned int mask; } sPhys[] = {
 
 /* Menu rule: no value leaves the game below how it looks on the N64. The distance rows start at 100 % (the original) and
  * only go up; the rest (fps limit, pacing, counter) does not change what is drawn. */
-int gPspOptFpsCap = 60;   /* fps limit: 30 / 60 */
+int gPspOptFpsCap = 60;   /* fps limit: 30 / 60 (the chosen value; psp_opt_fps_cap() is the one in force) */
 int gPspOptPipe = 1;      /* Triple Buffer: the CPU starts the next frame without waiting for the previous one to reach the screen (gfx_scegu.c) */
 int gPspOptKeepSpeed = 0; /* 0 = "Keep FPS": always tries for the limit (if it does not fit, the game runs slower); 1 = "Keep Speed": lowers the fps so as not to lose speed */
 float gPspObjDistScale = 1.5f; /* multiplies the distance at which objects are deactivated (>= 1.0); default 150 % */
@@ -170,10 +182,10 @@ static const char *const sTvAspTxt[2] = { "4:3", "16:9" };
 static const char *const sTvShiftTxt[121] = { "-60","-59","-58","-57","-56","-55","-54","-53","-52","-51","-50","-49","-48","-47","-46","-45","-44","-43","-42","-41","-40","-39","-38","-37","-36","-35","-34","-33","-32","-31","-30","-29","-28","-27","-26","-25","-24","-23","-22","-21","-20","-19","-18","-17","-16","-15","-14","-13","-12","-11","-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","53","54","55","56","57","58","59","60" };
 #define TV_AREA_MIN 60 /* value i of the row is TV_AREA_MIN + i percent */
 static const char *const sTvAreaTxt[41] = { "60%","61%","62%","63%","64%","65%","66%","67%","68%","69%","70%","71%","72%","73%","74%","75%","76%","77%","78%","79%","80%","81%","82%","83%","84%","85%","86%","87%","88%","89%","90%","91%","92%","93%","94%","95%","96%","97%","98%","99%","100%" };
-static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 4, 2, 41, 41, 121, 0 };
-static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0 }; /* 60 fps, Keep FPS, counter Off, Object / Far Distance 150 %, culling Vertical */
+static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 4, 2, 41, 41, 121, 2, 0 };
+static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0 }; /* 60 fps, Keep FPS, counter Off, Object / Far Distance 150 %, culling Vertical */
 
-static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0 }; /* index chosen in each row */
+static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0 }; /* index chosen in each row */
 #define VOL_STEP 5 /* the menu raises / lowers the volume in steps of 5 */
 static int sMusic = 100; /* 0 a 100 */
 static int sSfx = 100;
@@ -355,12 +367,13 @@ static int psp_opt_lang(void) {
 #endif
 }
 
-static const char *const sTrTitle[5][LANG_COUNT] = {
+static const char *const sTrTitle[6][LANG_COUNT] = {
     TR("OPTIONS", "OPTIONS", "OPTIONEN", "オプション"),
     TR("GRAPHICS", "GRAPHISMES", "GRAFIK", "グラフィック"),
     TR("AUDIO", "AUDIO", "AUDIO", "オーディオ"),
     TR("CONTROLS", "COMMANDES", "STEUERUNG", "コントロール"),
     TR("OUTPUT", "SORTIE", "AUSGABE", "TVシュツリョク"), /* no "TV": in the US version the letter V does not exist in the color font */
+    TR("MULTIPLAYER", "EN LIGNE", "MEHRSPIELER", "オンライン"), /* no J, Q, V, X or Z (color font) */
 };
 static const char *const sTrLabel[OPT_COUNT][LANG_COUNT] = {
     TR("FPS Limit", "Limite de FPS", "FPS-Limit", "FPSセイゲン"),
@@ -375,6 +388,7 @@ static const char *const sTrLabel[OPT_COUNT][LANG_COUNT] = {
     TR("TV Width", "Largeur TV", "TV-Breite", "TVヨコハバ"),
     TR("TV Height", "Hauteur TV", "TV-Höhe", "TVタカサ"),
     TR("TV Vertical Shift", "Décalage vertical TV", "TV vertikal", "TVタテイチ"),
+    TR("Online FPS Limit", "Limite FPS en ligne", "Online-FPS-Limit", "オンラインFPSセイゲン"),
     TR("Reset to Defaults", "Réinitialiser", "Zurücksetzen", "ショキチニモドス"),
 };
 static const char *const sTrPacing[2][LANG_COUNT] = {
@@ -396,7 +410,7 @@ static const char *const sTrTvSafe[LANG_COUNT] = TR("Safe mode", "Mode sûr", "S
 static const char *const sTrTvHelp[LANG_COUNT] = TR("L: Reconnect TV", "L: Reconnecter la TV", "L: TV neu verbinden", "L: TVサイセツゾク");
 static const char *const sTrCable[3][LANG_COUNT] = {
     TR("No cable", "Pas de cable", "Kein Kabel", "No cable"),
-    TR("Composite cable", "Cable composite", "Composite-Kabel", "Composite cable"),
+    TR("AV cable", "Câble AV", "AV-Kabel", "AV cable"),
     TR("Component cable", "Cable composante", "Komponenten-Kabel", "Component cable"),
 };
 static const char *const sTrTvKeep[LANG_COUNT] = TR("A: keep %s (%d)", "A: garder %s (%d)", "A: %s behalten (%d)", "A: OK %s (%d)");
@@ -451,7 +465,17 @@ static const char *const sTrChange[LANG_COUNT] = TR("A: Change", "A: Changer", "
 static const char *const sTrWait[LANG_COUNT] = TR("Wait to cancel", "Patientez pour annuler", "Warten zum Abbrechen", "ホウチデキャンセル");
 static const char *const sTrOptions[LANG_COUNT] = TR("Options", "Options", "Optionen", "オプション");
 
+static const char *const sTrNet[4][LANG_COUNT] = {
+    TR("Multiplayer (WLAN)", "Multijoueur (WLAN)", "Mehrspieler (WLAN)", "WLANツウシン"),
+    TR("Host a Game", "Créer une partie", "Spiel hosten", "ホストニナル"),
+    TR("Join a Game", "Rejoindre", "Spiel beitreten", "サンカスル"),
+    TR("Leave", "Quitter", "Verlassen", "ヤメル"),
+};
 static const char *psp_opt_label(int row) {
+    if (row == ROW_NETPAGE) return LT(sTrNet[0]);
+    if (row == ROW_NETHOST) return LT(sTrNet[1]);
+    if (row == ROW_NETJOIN) return LT(sTrNet[2]);
+    if (row == ROW_NETLEAVE) return LT(sTrNet[3]);
     if (row < OPT_COUNT) return LT(sTrLabel[row]);
     if (row == ROW_VIDEO) return LT(sTrPage[0]);
     if (row == ROW_AUDIO) return LT(sTrPage[1]);
@@ -469,7 +493,8 @@ static const char *psp_opt_label(int row) {
 
 /* single-line rows (page entries and "Reset"): the text is centered in the box, with no value line */
 static int psp_opt_is_action(int row) {
-    return row == OPT_RESET || row == ROW_VIDEO || row == ROW_AUDIO || row == ROW_CONTROLS || row == ROW_TVPAGE || row == ROW_TVRESET || row == ROW_CTRLRESET || row == ROW_AUDRESET;
+    return row == OPT_RESET || row == ROW_VIDEO || row == ROW_AUDIO || row == ROW_CONTROLS || row == ROW_TVPAGE || row == ROW_TVRESET || row == ROW_CTRLRESET || row == ROW_AUDRESET
+        || row == ROW_NETPAGE || row == ROW_NETHOST || row == ROW_NETJOIN || row == ROW_NETLEAVE;
 }
 
 /* can the "TV Output" row be used? (module loaded + slim PSP; the cable is not required). Queried now and then, not every frame. */
@@ -498,7 +523,8 @@ static int sTvAcc; /* copy updated every ~0.25 s while drawing the menu */
 static const char *psp_opt_value_text(int row) {
     static char buf[40];
     switch (row) {
-        case OPT_FPSCAP: return sFpsTxt[sVal[row]];
+        case OPT_FPSCAP: return psp_netplay_state() == PSP_NP_CONNECTED ? sFpsTxt[psp_opt_fps_cap() >= 60] : sFpsTxt[sVal[row]];
+        case OPT_NETFPS: return sFpsTxt[sVal[row]];
         case OPT_PACING: return LT(sTrPacing[sVal[row]]);
         case OPT_SHOWFPS: return LT(sTrOnOff[sVal[row]]);
         case OPT_SOUNDCPU: return LT(sTrOnOff[sVal[row]]);
@@ -554,7 +580,24 @@ static const char *psp_opt_value_text(int row) {
 /* are there more values to the left / right? (for the arrows) */
 /* Greyed-out row (not usable now): shown grey and the cursor skips it. */
 /* Exception: only the "TV Settings" row (in Graphics) can be selected even if it is greyed out, so that the reason (no cable, etc.) can be read below; pressing X plays the buzz. */
+/* Multiplayer rows: Host / Join only when nothing is running (or after an error); Leave only when something is. */
+/* The fps limit in force: while a multiplayer link is up the game is held at 30 fps unless "Online FPS Limit" (Multiplayer page) says 60 (at 60 fps the WLAN
+ * latency was seen to climb on both consoles, so 30 is the default). The chosen FPS Limit is kept and comes back when the link ends. */
+int psp_opt_fps_cap(void) {
+    if (psp_netplay_state() != PSP_NP_CONNECTED) {
+        return gPspOptFpsCap;
+    }
+    return (sVal[OPT_NETFPS] == 1 && gPspOptFpsCap >= 60) ? 60 : 30; /* "Online FPS Limit" (Multiplayer page), never above the FPS Limit */
+}
+static int psp_opt_net_grey(int row) {
+    const int st = psp_netplay_state();
+    if (row == ROW_NETHOST || row == ROW_NETJOIN) return st != PSP_NP_OFF && st != PSP_NP_ERROR;
+    if (row == ROW_NETLEAVE) return st == PSP_NP_OFF;
+    return 0;
+}
 static int psp_opt_row_grey(int row) {
+    if (row == ROW_NETHOST || row == ROW_NETJOIN || row == ROW_NETLEAVE) return psp_opt_net_grey(row);
+    if (row == OPT_FPSCAP && psp_netplay_state() == PSP_NP_CONNECTED) return 1; /* held at 30 while online */
     return (row == OPT_TVOUT && (!psp_opt_tv_ready() || (sVal[OPT_TVOUT] == 0 && sNoCable))) || (row == ROW_TVPAGE && !sTvAcc) || psp_opt_tv_row_off(row);
 }
 static int psp_opt_row_skip(int row) {
@@ -562,7 +605,7 @@ static int psp_opt_row_skip(int row) {
 }
 
 static int psp_opt_can_dec(int row) {
-    if (psp_opt_tv_row_off(row)) return 0;
+    if (psp_opt_tv_row_off(row) || (row == OPT_FPSCAP && psp_netplay_state() == PSP_NP_CONNECTED)) return 0;
     if (row == ROW_DEAD) return configDeadzone > 0;
     if (row == ROW_MUSIC) return sMusic > 0;
     if (row == ROW_SFX) return sSfx > 0;
@@ -571,7 +614,7 @@ static int psp_opt_can_dec(int row) {
     return row < OPT_RESET && sVal[row] > 0;
 }
 static int psp_opt_can_inc(int row) {
-    if (psp_opt_tv_row_off(row)) return 0;
+    if (psp_opt_tv_row_off(row) || (row == OPT_FPSCAP && psp_netplay_state() == PSP_NP_CONNECTED)) return 0;
     if (row == ROW_DEAD) return configDeadzone < DEAD_MAX;
     if (row == ROW_MUSIC) return sMusic < 100;
     if (row == ROW_SFX) return sSfx < 100;
@@ -584,8 +627,8 @@ static int psp_opt_can_inc(int row) {
  * wrap = 1 only for the A button on two-value rows (Yes/No), where "next" means toggle. */
 static void psp_opt_change(int row, int dir, int wrap) {
     int nv;
-    if (psp_opt_tv_row_off(row)) {
-        return;
+    if (psp_opt_tv_row_off(row) || (row == OPT_FPSCAP && psp_netplay_state() == PSP_NP_CONNECTED)) {
+        return; /* (held at 30 fps while online) */
     }
     if (row == ROW_DEAD) {
         nv = (int) configDeadzone + dir * 2;
@@ -735,7 +778,7 @@ static char sCfgName[40] = CTRL_FILE;
 static int sSawNew; /* the file had at least one setting of the new format (if not, it is an old one and gets migrated) */
 
 static const char *const sRowKey[OPT_COUNT] = {
-    "fps_limit", "frame_pacing", "fps_counter", "show_sound_cpu", "object_distance", "far_distance", "object_culling", "tv_output", "tv_aspect", "tv_width", "tv_height", "tv_shift_y", NULL,
+    "fps_limit", "frame_pacing", "fps_counter", "show_sound_cpu", "object_distance", "far_distance", "object_culling", "tv_output", "tv_aspect", "tv_width", "tv_height", "tv_shift_y", "online_fps_limit", NULL,
 };
 static const char *const sBindKey[NUM_BINDS] = {
     "a_button", "b_button", "start", "l_trigger", "r_trigger", "z_trigger", "c_up", "c_down", "c_left", "c_right",
@@ -763,6 +806,7 @@ static const char *const *psp_opt_texts(int row) {
         case OPT_TVAREA:
         case OPT_TVAREAY: return sTvAreaTxt;
         case OPT_TVSHIFT: return sTvShiftTxt;
+        case OPT_NETFPS: return sFpsTxt;
         default: return NULL;
     }
 }
@@ -927,6 +971,7 @@ static void psp_cfg_put(FILE *f, const char *key, const char *val, const char *c
 
 void psp_options_save_file(const char *filename) {
     char path[FS_MAX_PATH];
+    char tmpPath[FS_MAX_PATH + 8];
     char num[16], names[48];
     FILE *f;
     int i;
@@ -938,11 +983,12 @@ void psp_options_save_file(const char *filename) {
         "100%, 150%, 200%, 250% or 300% (how far away objects stay active)",
         "100%, 150%, 200%, 250% or 300% (how far you see)",
         "Original or Vertical (Vertical also hides objects above / below the view)",
-        "Off, 240p, 480i or 480p (PSP slim/3000 with a video cable; applies right away; 480p asks you to confirm; hold L at start to force the PSP screen)",
+        "Off, 240p, 480i or 480p (PSP slim/3000 with a video cable; applies right away; 480p asks you to confirm)",
         "4:3 (the original 4:3 view) or 16:9 (the widescreen view); both fill the video frame, so set the TV to its matching 4:3 / 16:9 mode",
         "60% to 100%, in steps of 1% (how much of the TV frame WIDTH the picture uses; lower it if your TV cuts off the left / right edges)",
         "60% to 100%, in steps of 1% (how much of the TV frame HEIGHT the picture uses; lower it if your TV cuts off the top / bottom edges; if the picture looks squashed, adjust it against the width)",
         "-60 to 60 (moves the picture vertically inside the TV frame, in lines of the 480-line signal; positive = down, negative = up; it needs room, so lower TV Height first)",
+        "30 or 60 (the FPS limit while a Multiplayer room is up; 30 is the stable one; with 60 the timing of every tick is written to sm64_net.txt)",
         NULL,
     };
     static const char *const sBindComment[NUM_BINDS] = {
@@ -954,7 +1000,11 @@ void psp_options_save_file(const char *filename) {
     }
     fs_resolve_path(path, sizeof(path), sCfgName);
     fs_prepare_parent_path(sCfgName);
-    f = fopen(path, "w");
+    /* Crash-safe write: everything goes to "<file>.tmp" and replaces the real file only once it is complete (see the end of this function). */
+    if (snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", path) >= (int) sizeof(tmpPath)) {
+        tmpPath[0] = '\0';
+    }
+    f = fopen(tmpPath[0] ? tmpPath : path, "w");
     if (f == NULL) {
         return;
     }
@@ -966,6 +1016,11 @@ void psp_options_save_file(const char *filename) {
                "# Lines that are missing or have a value that isn't understood keep their default.\n"
                "\n[Graphics]\n");
     for (i = 0; i < OPT_RESET; i++) {
+#if !PSP_NETPLAY
+        if (i == OPT_NETFPS) {
+            continue; /* multiplayer is not built in: its setting is not written (an old line in the file is simply ignored) */
+        }
+#endif
         psp_cfg_put(f, sRowKey[i], psp_opt_texts(i)[sVal[i]], sComment[i]);
     }
     fprintf(f, "\n[Audio]\n");
@@ -983,7 +1038,34 @@ void psp_options_save_file(const char *filename) {
     }
     snprintf(num, sizeof(num), "%u", configDeadzone);
     psp_cfg_put(f, "stick_deadzone", num, "0 to 80 (how far the stick must move before it counts)");
-    fclose(f);
+    {
+        const int werr = ferror(f);
+        fclose(f);
+        if (tmpPath[0]) {
+            if (werr) {
+                sceIoRemove(tmpPath); /* incomplete: the real file stays as it was */
+            } else {
+                sceIoRemove(path);
+                if (sceIoRename(tmpPath, path) < 0) {
+                    /* the rename was refused: write the file directly instead (the previous behaviour) */
+                    FILE *g = fopen(path, "w");
+                    if (g != NULL) {
+                        FILE *src = fopen(tmpPath, "r");
+                        if (src != NULL) {
+                            char chunk[256];
+                            size_t n;
+                            while ((n = fread(chunk, 1, sizeof(chunk), src)) > 0) {
+                                fwrite(chunk, 1, n, g);
+                            }
+                            fclose(src);
+                        }
+                        fclose(g);
+                        sceIoRemove(tmpPath);
+                    }
+                }
+            }
+        }
+    }
 }
 
 void psp_options_load_file(const char *filename) {
@@ -1000,6 +1082,13 @@ void psp_options_load_file(const char *filename) {
     f = fopen(path, "r");
     if (f == NULL && strcmp(path, sCfgName) != 0) {
         f = fopen(sCfgName, "r");
+    }
+    if (f == NULL) {
+        /* a write that stopped between removing the old file and renaming the new one leaves the complete copy as "<file>.tmp" */
+        char tmpPath[FS_MAX_PATH + 8];
+        if (snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", path) < (int) sizeof(tmpPath)) {
+            f = fopen(tmpPath, "r");
+        }
     }
     if (f != NULL) {
         while (fgets(line, sizeof(line), f) != NULL) {
@@ -1074,6 +1163,15 @@ static int psp_opt_kana_mark(u32 cp) {
 }
 #endif
 
+#if defined(VERSION_JP) || defined(VERSION_SH)
+/* The JP / Shindou font only has the plain capital letters: the Latin-1 letters with marks (a-acute, n-tilde, u-diaeresis...) are written as their base letter.
+ * 0 = not a letter. Index: code point - 0xC0. */
+static char psp_opt_fold(u32 cp) {
+    static const char sFold[65] = "AAAAAAACEEEEIIIIDNOOOOO\0OUUUUYTSAAAAAAACEEEEIIIIDNOOOOO\0OUUUUYTY"; /* (64 letters and the end mark) */
+    return (cp >= 0xC0 && cp <= 0xFF) ? sFold[cp - 0xC0] : 0;
+}
+#endif
+
 /* UTF-8 text -> game text codes (those of the version being compiled): letters, numbers, a few symbols, and depending on the version accented letters
  * (EU) or kana (JP / Shindou). What does not exist in the font becomes a space. */
 static void psp_opt_str(u8 *dst, const char *src, int max) {
@@ -1094,6 +1192,7 @@ static void psp_opt_str(u8 *dst, const char *src, int max) {
         else if (cp >= 'a' && cp <= 'z') d = (u8) (cp - 'a' + 0x0A);
         else if (cp == '-') d = 0x9F;
         else if (cp == '%') d = 0xF3;
+        else if (psp_opt_fold(cp) != 0) d = (u8) (psp_opt_fold(cp) - 'A' + 0x0A);
 #else
         else if (cp >= 'a' && cp <= 'z') d = (u8) (cp - 'a' + 0x24);
         else if (cp == '-') d = 0x9F;
@@ -1142,7 +1241,37 @@ static void psp_opt_str(u8 *dst, const char *src, int max) {
         else if (cp == 0xEF) d = 0xA2;
         else if (cp == 0xDF) d = 0xEC;
         else if (cp == 0xE7) d = 0xEE;
+        /* the extra Spanish letters (ingame_menu.c, PSP_FONT_X_FIRST) */
+        else if (cp == 0xE1) d = 0x40;
+        else if (cp == 0xED) d = 0x42;
+        else if (cp == 0xF3) d = 0x43;
+        else if (cp == 0xFA) d = 0x44;
+        else if (cp == 0xF1) d = 0x45;
+        else if (cp == 0xC1) d = 0x47;
+        else if (cp == 0xCD) d = 0x49;
+        else if (cp == 0xD3) d = 0x4A;
+        else if (cp == 0xDA) d = 0x4B;
+        else if (cp == 0xD1) d = 0x4C;
+        else if (cp == 0xBF) d = 0x4E;
+        else if (cp == 0xA1) d = 0x4F;
 #else
+        /* the extra Spanish letters (ingame_menu.c, PSP_FONT_X_FIRST); the rest of the accents are written without them */
+        else if (cp == 0xE1) d = 0x40;
+        else if (cp == 0xE9) d = 0x41;
+        else if (cp == 0xED) d = 0x42;
+        else if (cp == 0xF3) d = 0x43;
+        else if (cp == 0xFA) d = 0x44;
+        else if (cp == 0xF1) d = 0x45;
+        else if (cp == 0xFC) d = 0x46;
+        else if (cp == 0xC1) d = 0x47;
+        else if (cp == 0xC9) d = 0x48;
+        else if (cp == 0xCD) d = 0x49;
+        else if (cp == 0xD3) d = 0x4A;
+        else if (cp == 0xDA) d = 0x4B;
+        else if (cp == 0xD1) d = 0x4C;
+        else if (cp == 0xDC) d = 0x4D;
+        else if (cp == 0xBF) d = 0x4E;
+        else if (cp == 0xA1) d = 0x4F;
         else if (cp == 0xE0 || cp == 0xE2 || cp == 0xE4) d = 0x24;
         else if (cp == 0xC4) d = 0x0A;
         else if (cp >= 0xE8 && cp <= 0xEB) d = 0x28;
@@ -1237,6 +1366,7 @@ static const u8 *psp_opt_page_rows(int *n) {
         case PG_AUDIO: *n = (int) sizeof(sPgAudio); return sPgAudio;
         case PG_CTRL: *n = (int) sizeof(sPgCtrl); return sPgCtrl;
         case PG_TV: *n = (int) sizeof(sPgTv); return sPgTv;
+        case PG_NET: *n = (int) sizeof(sPgNet); return sPgNet;
         default: *n = (int) sizeof(sPgMain); return sPgMain;
     }
 }
@@ -1308,6 +1438,16 @@ static void psp_opt_draw(void) {
         }
     }
     psp_opt_text(48, 14, LT(sTrBack), 0); /* bottom left corner */
+    if (sPage == PG_NET) {
+        char nb[72];
+        const int rtt = psp_netplay_rtt_ms();
+        if (psp_netplay_state() == PSP_NP_CONNECTED && rtt >= 0) {
+            snprintf(nb, sizeof(nb), "%.40s | %d ms", psp_netplay_status(), rtt);
+        } else {
+            snprintf(nb, sizeof(nb), "%.60s", psp_netplay_status());
+        }
+        psp_opt_text(160, 14, nb, 0); /* bottom center: what the network is doing */
+    }
     {
         const int left = gfx_scegu_tv_probation_left();
         if (left > 0) {
@@ -1335,9 +1475,20 @@ static void psp_opt_draw(void) {
             }
         }
     }
-    /* the TV row is greyed out: it says why (no cable, or the reason the TV module is not available) */
-    if (sPage == PG_VIDEO && rows[sSel] == ROW_TVPAGE && !sTvAcc) {
-        psp_opt_text(160, 14, psp_opt_tv_ready() ? LT(sTrCable[0]) : psp_opt_value_text(OPT_TVOUT), 0);
+    /* the TV row is greyed out: it says why (no cable, or the reason the TV module is not available); when it can be entered it says which cable is plugged in */
+    if (sPage == PG_VIDEO && rows[sSel] == ROW_TVPAGE) {
+        if (!sTvAcc) {
+            psp_opt_text(160, 14, psp_opt_tv_ready() ? LT(sTrCable[0]) : psp_opt_value_text(OPT_TVOUT), 0);
+        } else {
+            static int sPgCabPoll = 0, sPgCab = -1;
+            if (--sPgCabPoll <= 0) {
+                sPgCabPoll = 15;
+                sPgCab = psp_dve_cable_state();
+            }
+            if (sPgCab > 0 && sPgCab <= 2) {
+                psp_opt_text(160, 14, LT(sTrCable[sPgCab]), 0);
+            }
+        }
     }
     /* help at the bottom center, on the button rows */
     if (sPage == PG_CTRL && rows[sSel] >= ROW_BIND0 && rows[sSel] < ROW_BIND0 + NUM_BINDS) {
@@ -1471,6 +1622,388 @@ void psp_options_home_notice(void) {
     }
 }
 
+#if PSP_NETPLAY
+/* ---------------------------------------------------------------------------------------------------------------------------------------------
+ * Multiplayer notices and name tag, after sm64coopdx (network_player.c: "<name> connected / entered <course>...", and nametags.c). They live
+ * here because this file has the menu font, the UTF-8 conversion and the translations. Fed by pc/psp_netplay.c (game thread), drawn once per
+ * frame at the end of the display list (psp_np_hud_draw, called by end_master_display_list).
+ * ------------------------------------------------------------------------------------------------------------------------------------------ */
+#include <math.h>
+#include "area.h"
+#include "camera.h"
+#include "course_table.h"
+#include "level_table.h"
+#include "memory.h"
+#ifdef VERSION_EU
+#include "eu_translation.h"
+#endif
+
+enum { NPN_CONNECTED, NPN_DISCONNECTED, NPN_ENTERED_THIS, NPN_LEFT_THIS, NPN_ENTERED, NPN_COUNT };
+static const char *const sTrNpNotice[NPN_COUNT][LANG_COUNT] = {
+    TR("%s connected", "%s s'est connecté", "%s ist beigetreten", "%s ガ サンカシマシタ"),
+    TR("%s disconnected", "%s s'est déconnecté", "%s hat das Spiel verlassen", "%s ガ タイシュツシマシタ"),
+    TR("%s entered this level", "%s a rejoint ce niveau", "%s hat dieses Level betreten", "%s ガ コノコースニ キマシタ"),
+    TR("%s left this level", "%s a quitté ce niveau", "%s hat dieses Level verlassen", "%s ガ コノコースヲ デマシタ"),
+    TR("%s entered", "%s est entré dans", "%s betritt", "%s ガ イドウシマシタ"),
+};
+/* the castle has no course name: inside, grounds, courtyard */
+static const char *const sTrNpCastle[3][LANG_COUNT] = {
+    TR("Peach's Castle", "le château de Peach", "Peachs Schloss", "ピーチノ シロ"),
+    TR("Castle Grounds", "les jardins du château", "den Schlossgarten", "シロノ ニワ"),
+    TR("Castle Courtyard", "la cour du château", "den Schlosshof", "シロノ ナカニワ"),
+};
+
+/* The look is sm64coopdx's (djui_popup.c): a black box in the top right corner, light grey text centered in it with the player's name in
+ * the player's colour, 6 seconds on screen fading out during the last one, the newest on top, and the same sound. */
+#define NP_POPUP_MAX 3
+#define NP_POPUP_TICKS 180 /* 6 seconds of game ticks */
+#define NP_POPUP_FADE 30
+#define NP_POPUP_SLIDE 5   /* ticks it takes to slide in from the top */
+#define NP_LINE_MAX 64
+
+struct NpPopup {
+    u8 name[NP_LINE_MAX];    /* first line: the name (drawn in the player's colour)... */
+    u8 line[2][NP_LINE_MAX]; /* ...followed by line[0]; line[1] is the second line (the course) */
+    s16 nameWidth;
+    s16 width[2];
+    u8 lines;
+    u8 rgb[3];
+    u32 born; /* gGlobalTimer when it appeared */
+};
+extern s16 gMenuMode; /* ingame_menu.c: -1 = no pause menu */
+static struct NpPopup sNpPopup[NP_POPUP_MAX];
+static int sNpPopupCount;
+static char sNpPeerName[PSP_NP_NAME_BYTES + 8];
+static u8 sNpPeerTag[NP_LINE_MAX];
+static s16 sNpPeerTagWidth;
+static int sNpPeerLuigi;
+static int sNpLinked;
+static int sNpPeerCourse = -1; /* -1: not seen yet in this room */
+static int sNpPeerLevel;
+static int sNpPeerAct;
+static int sNpPeerKnown;
+
+/* name tag interpolation (60 fps): the 1st frame of a tick is drawn halfway from the previous position, the 2nd at the real one */
+static Mtx *sNpTagMtx;
+static f32 sNpTagX, sNpTagY;
+static u32 sNpTagTick;
+static int sNpTagValid;
+
+/* A player's text colour, as sm64coopdx does it (network_get_player_text_color): halfway between its cap's colour and white. Mario's cap
+ * is red and Luigi's green. */
+static void psp_np_player_colour(int luigi, u8 *rgb) {
+    static const u8 sCap[2][3] = { { 0xFF, 0x00, 0x00 }, { 0x00, 0xFF, 0x00 } };
+    int i;
+    for (i = 0; i < 3; i++) {
+        rgb[i] = (u8) (127 + sCap[luigi ? 1 : 0][i] / 2);
+    }
+}
+
+static void psp_np_popup_drop_old(void) {
+    while (sNpPopupCount > 0 && (u32) (gGlobalTimer - sNpPopup[0].born) >= NP_POPUP_TICKS) {
+        memmove(&sNpPopup[0], &sNpPopup[1], sizeof(sNpPopup[0]) * (NP_POPUP_MAX - 1));
+        sNpPopupCount--;
+    }
+}
+
+/* codes of a course name (the table of the pause menu, in the game's language; the first 3 characters are the course number) */
+static void psp_np_course_name(u8 *dst, int course) {
+    void **tbl;
+    const u8 *name;
+    int n = 0;
+#ifdef VERSION_EU
+    switch (eu_get_language()) {
+        case LANGUAGE_FRENCH:
+            tbl = segmented_to_virtual(course_name_table_eu_fr);
+            break;
+        case LANGUAGE_GERMAN:
+            tbl = segmented_to_virtual(course_name_table_eu_de);
+            break;
+        default:
+            tbl = segmented_to_virtual(course_name_table_eu_en);
+            break;
+    }
+#else
+    tbl = segmented_to_virtual(seg2_course_name_table);
+#endif
+    name = segmented_to_virtual(tbl[course - 1]);
+    while (n < 3 && name[n] != 0xFF) {
+        n++;
+    }
+    name += n;
+    for (n = 0; n < NP_LINE_MAX - 1 && name[n] != 0xFF; n++) {
+        dst[n] = name[n];
+#if !defined(VERSION_JP) && !defined(VERSION_SH)
+        /* "BOB-OMB BATTLEFIELD" -> "Bob-omb Battlefield", as sm64coopdx writes it (the Japanese font has no lower case) */
+        if (n > 0 && dst[n] >= 0x0A && dst[n] <= 0x23 && dst[n - 1] != 0x9E && dst[n - 1] != 0xFF) {
+            dst[n] += 0x1A;
+        }
+#endif
+    }
+    dst[n] = 0xFF;
+}
+
+static void psp_np_popup(int kind, int course, int level) {
+    struct NpPopup *p;
+    char txt[96];
+
+    psp_np_popup_drop_old();
+    if (sNpPopupCount >= NP_POPUP_MAX) {
+        memmove(&sNpPopup[0], &sNpPopup[1], sizeof(sNpPopup[0]) * (NP_POPUP_MAX - 1));
+        sNpPopupCount--;
+    }
+    p = &sNpPopup[sNpPopupCount++];
+    /* every text starts with the name ("%s ..."): the name and the rest are kept apart, they have different colours */
+    psp_opt_str(p->name, sNpPeerName, NP_LINE_MAX);
+    p->nameWidth = psp_opt_width(p->name);
+    snprintf(txt, sizeof(txt), "%s", LT(sTrNpNotice[kind]) + 2);
+    psp_opt_str(p->line[0], txt, NP_LINE_MAX);
+    p->width[0] = p->nameWidth + psp_opt_width(p->line[0]);
+    p->lines = 1;
+    psp_np_player_colour(sNpPeerLuigi, p->rgb);
+    if (kind == NPN_ENTERED) {
+        if (course >= COURSE_MIN && course < COURSE_CAKE_END) {
+            psp_np_course_name(p->line[1], course);
+        } else {
+            const int which = (level == LEVEL_CASTLE_GROUNDS) ? 1 : ((level == LEVEL_CASTLE_COURTYARD) ? 2 : 0);
+            psp_opt_str(p->line[1], LT(sTrNpCastle[which]), NP_LINE_MAX);
+        }
+        p->width[1] = psp_opt_width(p->line[1]);
+        p->lines = 2;
+    }
+    p->born = gGlobalTimer;
+    play_sound(SOUND_MENU_PINCH_MARIO_FACE, gDefaultSoundArgs);
+}
+
+/* The other player's name: the console's nickname as far as the game's font can write it; without one (or with nothing writable), the
+ * character it plays as. */
+void psp_np_hud_peer_name(const char *utf8, int peerIsLuigi) {
+    int i, any = 0;
+
+    snprintf(sNpPeerName, sizeof(sNpPeerName), "%s", utf8 != NULL ? utf8 : "");
+    psp_opt_str(sNpPeerTag, sNpPeerName, NP_LINE_MAX);
+    for (i = 0; sNpPeerTag[i] != 0xFF; i++) {
+        if (sNpPeerTag[i] != 0x9E) {
+            any = 1;
+        }
+    }
+    if (!any) {
+        snprintf(sNpPeerName, sizeof(sNpPeerName), "%s", peerIsLuigi ? "Luigi" : "Mario");
+        psp_opt_str(sNpPeerTag, sNpPeerName, NP_LINE_MAX);
+    }
+    sNpPeerTagWidth = psp_opt_width(sNpPeerTag);
+    sNpPeerLuigi = peerIsLuigi;
+}
+
+void psp_np_hud_link(int up) {
+    if (up == sNpLinked) {
+        return;
+    }
+    sNpLinked = up;
+    sNpPeerCourse = -1;
+    sNpTagValid = 0;
+    psp_np_popup(up ? NPN_CONNECTED : NPN_DISCONNECTED, 0, 0);
+}
+
+/* Where the other player is: a notice when it changes course (the same three cases as sm64coopdx). */
+void psp_np_hud_peer_place(int known, int level, UNUSED int area, int act) {
+    int course;
+
+    sNpPeerKnown = known;
+    if (!known || level < 1 || level >= LEVEL_COUNT) {
+        return;
+    }
+    course = gLevelToCourseNumTable[level - 1];
+    if (sNpPeerCourse >= 0 && course != sNpPeerCourse && course < COURSE_CAKE_END) {
+        if (sNpPeerCourse == gCurrCourseNum && gCurrCourseNum != COURSE_NONE) {
+            psp_np_popup(NPN_LEFT_THIS, 0, 0);
+        } else if (course == gCurrCourseNum && gCurrCourseNum != COURSE_NONE) {
+            psp_np_popup(NPN_ENTERED_THIS, 0, 0);
+        } else {
+            psp_np_popup(NPN_ENTERED, course, level);
+        }
+    }
+    sNpPeerCourse = course;
+    sNpPeerLevel = level;
+    sNpPeerAct = act;
+}
+
+/* For the act selector (menu/star_select.c): the act the other player is playing if it is in that course right now, else 0. */
+int psp_np_hud_peer_act(int course, int *peerIsLuigi) {
+    if (!sNpLinked || !sNpPeerKnown || course == COURSE_NONE || sNpPeerCourse != course) {
+        return 0;
+    }
+    if (peerIsLuigi != NULL) {
+        *peerIsLuigi = sNpPeerLuigi;
+    }
+    return sNpPeerAct;
+}
+
+static void psp_np_codes(s16 x, s16 y, const u8 *codes, u8 r, u8 g, u8 b, u8 a) {
+    gDPSetEnvColor(gDisplayListHead++, 0, 0, 0, a);
+    print_generic_string(x + 1, y - 1, codes);
+    gDPSetEnvColor(gDisplayListHead++, r, g, b, a);
+    print_generic_string(x, y, codes);
+}
+
+#if PSP_NETPLAY_NAMETAGS
+extern f32 gPspPerspFov; /* rendering_graph_node.c: vertical field of view of the last scene drawn */
+
+/* The other player's name over its head: its position in front of the camera (what the renderer left in the object) projected to the
+ * 320 x 240 space of the menus. Smaller with the distance, gone when far. Hidden while it crouches, crawls or is in a cannon, like in
+ * sm64coopdx, and under the pause menu. */
+static void psp_np_draw_tag(void) {
+    struct Object *o = psp_np_game_remote();
+    const struct MarioState *r = psp_np_game_remote_state();
+    f32 cx, cy, depth, focal, x, y, scale, pitchSin, pitchCos, dx, dy, dz, len;
+    f32 drawX, drawY;
+    u8 alpha;
+    Mtx *mtx, *scaleMtx;
+
+    if (o == NULL || r == NULL || gMenuMode != -1 || gCurrentArea == NULL || gCurrentArea->camera == NULL || gPspPerspFov < 1.0f
+        || !(o->header.gfx.node.flags & GRAPH_RENDER_ACTIVE) || (o->header.gfx.node.flags & GRAPH_RENDER_INVISIBLE)) {
+        sNpTagValid = 0;
+        return;
+    }
+    switch (r->action) {
+        case ACT_START_CROUCHING:
+        case ACT_CROUCHING:
+        case ACT_STOP_CROUCHING:
+        case ACT_START_CRAWLING:
+        case ACT_CRAWLING:
+        case ACT_STOP_CRAWLING:
+        case ACT_IN_CANNON:
+        case ACT_DISAPPEARED:
+            sNpTagValid = 0;
+            return;
+    }
+
+    /* the camera's pitch turns "175 units above the feet" into camera space */
+    dx = gLakituState.focus[0] - gLakituState.pos[0];
+    dy = gLakituState.focus[1] - gLakituState.pos[1];
+    dz = gLakituState.focus[2] - gLakituState.pos[2];
+    len = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (len < 1.0f) {
+        sNpTagValid = 0;
+        return;
+    }
+    pitchSin = dy / len;
+    pitchCos = sqrtf(1.0f - pitchSin * pitchSin);
+    cx = o->header.gfx.cameraToObject[0];
+    cy = o->header.gfx.cameraToObject[1] + 175.0f * pitchCos;
+    depth = -(o->header.gfx.cameraToObject[2] - 175.0f * pitchSin);
+    if (depth < 150.0f || depth > 6000.0f) {
+        sNpTagValid = 0;
+        return;
+    }
+    focal = (SCREEN_HEIGHT / 2) / tanf(gPspPerspFov * 0.5f * 3.14159265f / 180.0f);
+    x = SCREEN_WIDTH / 2 + cx / depth * focal;
+    y = SCREEN_HEIGHT / 2 + cy / depth * focal;
+    if (x < -60.0f || x > SCREEN_WIDTH + 60.0f || y < 0.0f || y > SCREEN_HEIGHT + 10.0f) {
+        sNpTagValid = 0;
+        return;
+    }
+    scale = 800.0f / depth;
+    scale = scale > 1.0f ? 1.0f : (scale < 0.55f ? 0.55f : scale);
+    alpha = (depth > 5000.0f) ? (u8) (255.0f * (6000.0f - depth) / 1000.0f) : 255;
+
+    /* interpolated for the 1st frame of a 60 fps tick (psp_np_hud_patch puts the real position before the 2nd) */
+    drawX = x;
+    drawY = y;
+    if (sNpTagValid && (u32) (gGlobalTimer - sNpTagTick) <= 1) {
+        drawX = (sNpTagX + x) * 0.5f;
+        drawY = (sNpTagY + y) * 0.5f;
+    }
+    sNpTagX = x;
+    sNpTagY = y;
+    sNpTagTick = gGlobalTimer;
+    sNpTagValid = 1;
+
+    mtx = (Mtx *) alloc_display_list(sizeof(Mtx));
+    scaleMtx = (Mtx *) alloc_display_list(sizeof(Mtx));
+    if (mtx == NULL || scaleMtx == NULL) {
+        return;
+    }
+    guTranslate(mtx, drawX, drawY, 0.0f);
+    guScale(scaleMtx, scale, scale, 1.0f);
+    sNpTagMtx = mtx;
+    gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+    gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(scaleMtx), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+    {
+        /* the player's colour with a dark outline of the same colour, like sm64coopdx's name tags */
+        static const s8 sOutline[4][2] = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
+        u8 rgb[3];
+        int k;
+        psp_np_player_colour(sNpPeerLuigi, rgb);
+        gDPSetEnvColor(gDisplayListHead++, rgb[0] / 4, rgb[1] / 4, rgb[2] / 4, alpha);
+        for (k = 0; k < 4; k++) {
+            print_generic_string(-sNpPeerTagWidth / 2 + sOutline[k][0], sOutline[k][1], sNpPeerTag);
+        }
+        gDPSetEnvColor(gDisplayListHead++, rgb[0], rgb[1], rgb[2], alpha);
+        print_generic_string(-sNpPeerTagWidth / 2, 0, sNpPeerTag);
+    }
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+    gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
+}
+#endif
+
+/* Called with the other interpolation patches (pc_main.c), between the two frames of a 60 fps tick: the name tag goes to its real place. */
+void psp_np_hud_patch(void) {
+    if (sNpTagMtx != NULL) {
+        guTranslate(sNpTagMtx, sNpTagX, sNpTagY, 0.0f);
+        sNpTagMtx = NULL;
+    }
+}
+
+void psp_np_hud_draw(void) {
+    int i;
+    s16 top;
+
+    sNpTagMtx = NULL;
+    psp_np_popup_drop_old();
+    if (sNpPopupCount == 0 && !sNpLinked) {
+        return;
+    }
+    create_dl_ortho_matrix();
+    gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+#if PSP_NETPLAY_NAMETAGS
+    if (sNpLinked) {
+        psp_np_draw_tag();
+    }
+#endif
+    /* notices: stacked from the very top right corner (over the HUD, like sm64coopdx), the newest on top */
+    top = 239;
+    for (i = sNpPopupCount - 1; i >= 0; i--) {
+        const struct NpPopup *p = &sNpPopup[i];
+        const u32 age = gGlobalTimer - p->born;
+        const f32 fade = (age > NP_POPUP_TICKS - NP_POPUP_FADE) ? (f32) (NP_POPUP_TICKS - age) / NP_POPUP_FADE : 1.0f;
+        const u8 alpha = (u8) (255.0f * fade * fade);
+        const s16 textW = (p->lines == 2 && p->width[1] > p->width[0]) ? p->width[1] : p->width[0];
+        const s16 w = (textW + 16 > 130) ? textW + 16 : 130;
+        const s16 h = (s16) (p->lines * 14 + 8);
+        const s16 x = (s16) GFX_DIMENSIONS_FROM_RIGHT_EDGE(1) - w; /* the real right edge of the wide screen */
+        const s16 cx = x + w / 2;
+        s16 y = top;
+        s16 tx;
+
+        if (age < NP_POPUP_SLIDE) {
+            y += (s16) ((NP_POPUP_SLIDE - age) * h / NP_POPUP_SLIDE); /* slides in from above */
+        }
+        psp_opt_box(x, y, w, h, 0, 0, 0, (u8) (alpha * 220 / 255));
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+        tx = cx - p->width[0] / 2;
+        psp_np_codes(tx, y - 16, p->name, p->rgb[0], p->rgb[1], p->rgb[2], alpha);
+        psp_np_codes(tx + p->nameWidth, y - 16, p->line[0], 220, 220, 220, alpha);
+        if (p->lines == 2) {
+            psp_np_codes(cx - p->width[1] / 2, y - 30, p->line[1], 220, 220, 220, alpha);
+        }
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+        top -= h + 2;
+    }
+}
+#endif /* PSP_NETPLAY */
+
 static void psp_opt_close(void) {
     sOpen = 0;
     sCapture = -1;
@@ -1481,6 +2014,13 @@ static void psp_opt_close(void) {
     }
     psp_options_save_file(sCfgName);
     play_sound(SOUND_MENU_PAUSE_2, gDefaultSoundArgs);
+}
+
+/* Closes the options menu from outside (the pause it lives in was closed by the game: see psp_close_pause_menu in ingame_menu.c). */
+void psp_options_abort(void) {
+    if (sOpen) {
+        psp_opt_close();
+    }
 }
 
 /* On close, this very frame is drawn by the normal pause (darkened, coins, course options): if it drew nothing, one frame of the scene would be seen
@@ -1603,6 +2143,8 @@ int psp_options_pause_frame(int can_open) {
             }
             if (sPage == PG_TV) {
                 psp_opt_enter_page(PG_VIDEO, psp_opt_row_index(sPgVideo, (int) sizeof(sPgVideo), ROW_TVPAGE)); /* from the TV page it goes back to Graphics, on the TV row */
+            } else if (sPage == PG_NET) {
+                psp_opt_enter_page(PG_MAIN, psp_opt_row_index(sPgMain, (int) sizeof(sPgMain), ROW_NETPAGE));
             } else {
                 psp_opt_enter_page(PG_MAIN, sPage - 1); /* the entry of the page being left */
             }
@@ -1663,6 +2205,17 @@ int psp_options_pause_frame(int can_open) {
                     psp_opt_enter_page(PG_TV, 0);
                 } else {
                     play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs); /* no video cable (or no TV module): not entered */
+                }
+            } else if (row == ROW_NETPAGE) {
+                psp_opt_enter_page(PG_NET, 0);
+            } else if (row == ROW_NETHOST || row == ROW_NETJOIN || row == ROW_NETLEAVE) {
+                if (psp_opt_net_grey(row)) {
+                    play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+                } else {
+                    if (row == ROW_NETHOST) psp_netplay_host();
+                    else if (row == ROW_NETJOIN) psp_netplay_join();
+                    else psp_netplay_leave();
+                    play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
                 }
             } else if (row == ROW_AUDRESET) {
                 psp_opt_reset_audio();

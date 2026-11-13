@@ -164,6 +164,11 @@ struct PSP_Texture *texman_reserve_memory(int width, int height, unsigned int ty
 }
 
 unsigned int texman_create(void) {
+    /* Safety net: the table has a fixed size. gfx_pc.c restarts the store before this is reached; if it ever happened anyway, the last slot
+     * is reused (a wrong texture for a moment) instead of writing past the table. */
+    if (psp_tex_number >= (sizeof(textures) / sizeof(textures[0])) - 1) {
+        psp_tex_number = (sizeof(textures) / sizeof(textures[0])) - 2;
+    }
     psp_tex_number++;
     textures[psp_tex_number] = (struct PSP_Texture){
         location : psp_tex_buffer,

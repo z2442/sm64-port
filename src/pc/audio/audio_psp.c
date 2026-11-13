@@ -405,11 +405,14 @@ void audio_psp_shutdown(void) {
         sceAudioSRCChRelease();
         sAudioChannelReady = false;
     }
+    /* With a timeout: if a thread is stuck (the console is closing the game) the exit must still go on. */
     if (producer_thread >= 0) {
-        sceKernelWaitThreadEnd(producer_thread, NULL);
+        SceUInt timeout = 700000;
+        sceKernelWaitThreadEnd(producer_thread, &timeout);
     }
     if (output_thread >= 0) {
-        sceKernelWaitThreadEnd(output_thread, NULL);
+        SceUInt timeout = 700000;
+        sceKernelWaitThreadEnd(output_thread, &timeout);
     }
 
     sAudioOutputThreadId = -1;

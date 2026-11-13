@@ -34,6 +34,7 @@
 #include "fs_utils.h"
 #ifdef TARGET_PSP
 #include "psp_dve.h"
+#include "psp_netplay.h"
 #include "psp_watchdog.h"
 #endif
 
@@ -43,6 +44,12 @@
 #include <pspsdk.h>
 #include <pspkernel.h>
 #include <psppower.h>
+#include <pspctrl.h>
+#include <pspge.h>
+#include <string.h>
+#include <stdio.h>
+#include <pspiofilemgr.h>
+#include <time.h>
 #include "psp_me.h"
 #define MODULE_NAME "SM64 for PSP"
 #ifndef SRC_VER
@@ -131,6 +138,7 @@ static inline void patch_interpolations(void) {
     patch_interpolated_paintings();
     patch_interpolated_bubble_particles();
     patch_interpolated_snow_particles();
+    psp_np_hud_patch(); /* multiplayer name tag */
 }
 #endif
 
@@ -167,22 +175,40 @@ static void save_config(void);
 #if defined(TARGET_PSP)
 /* Native PSP HOME menu: an exit callback is registered (without this the HOME button does nothing).
  * When "Exit game" is confirmed the system calls this callback. */
+extern void gfx_scegu_power_event(int suspending); /* gfx_scegu.c */
 static int psp_exit_callback(UNUSED int arg1, UNUSED int arg2, UNUSED void *common) {
-    psp_dve_audio_route(0); /* the sound goes back to the system's automatic mode */
-    save_config();
+    static volatile int sExiting;
+    if (sExiting) {
+        return 0;
+    }
+    sExiting = 1;
+    /* sceKernelExitGame does not run the atexit handlers, so everything is closed here, in this order:
+     * 1) the game thread stops presenting, the GE is drained and, if the TV output was on, the video goes back to the console screen (the same
+     *    path as before sleeping: only the game thread may touch the video output);
+     * 2) the audio routing goes back to automatic;
+     * 3) the audio threads and the ME are stopped (a ME left running our loop takes the console down when the game exits);
+     * 4) the configuration is saved. */
+    psp_netplay_shutdown(); /* closes the WLAN room (no-op if it was never used) */
+    gfx_scegu_power_event(1);
+    psp_dve_shutdown();
     audio_psp_shutdown();
+    save_config();
     sceKernelExitGame();
     return 0;
 }
 
-extern void gfx_scegu_power_event(int suspending); /* gfx_scegu.c */
 static int psp_power_callback(UNUSED int unknown, int flags, UNUSED void *common) {
-    psp_me_note_flags(flags);
     if (flags & (PSP_POWER_CB_SUSPENDING | PSP_POWER_CB_POWER_SWITCH | PSP_POWER_CB_STANDBY)) {
         if (!(flags & (PSP_POWER_CB_RESUMING | PSP_POWER_CB_RESUME_COMPLETE))) {
-            psp_me_power_event(1); /* the ME has to be stopped before the console goes to sleep */
+            /* The order matters: the system does not wait for this thread, so what must be done before sleeping goes first and the slow things last.
+             * 1) the ME (it must not be left running our loop); 2) the video (GE drained, TV back to the console screen); 3) the WLAN room (up to ~3 s,
+             * but only if there is one). */
+            psp_me_power_event(1);
         }
         gfx_scegu_power_event(1);
+        if (!(flags & (PSP_POWER_CB_RESUMING | PSP_POWER_CB_RESUME_COMPLETE))) {
+            (void) psp_netplay_suspend(); /* the WLAN does not survive sleep: the room is left */
+        }
     }
     if (flags & (PSP_POWER_CB_RESUME_COMPLETE | PSP_POWER_CB_RESUMING)) {
         gfx_scegu_power_event(0);
@@ -202,7 +228,7 @@ static int psp_callback_thread(UNUSED SceSize args, UNUSED void *argp) {
 }
 
 static void psp_setup_exit_callback(void) {
-    int thid = sceKernelCreateThread("exit_callback_thread", psp_callback_thread, 0x11, 0xFA0, 0, NULL);
+    int thid = sceKernelCreateThread("exit_callback_thread", psp_callback_thread, 0x11, 0x4000, 0, NULL);
     if (thid >= 0) {
         sceKernelStartThread(thid, 0, NULL);
     }
@@ -211,6 +237,7 @@ static void psp_setup_exit_callback(void) {
 
 extern int gPspPresentAsync; /* gfx_scegu.c */
 extern int gPspOptPipe, gPspOptFpsCap; /* game/psp_options.c */
+extern int psp_opt_fps_cap(void);
 extern int gPspAsyncWant;    /* gfx_pc.c: 1 if the GE queue is long enough for async presentation to pay off */
 
 extern unsigned int gPspLastSwapT, gPspPrevSwapT; /* gfx_scegu.c: time of the last two vblanks with a frame presented */
@@ -223,19 +250,24 @@ unsigned int gPspF2Skip; /* 60 fps ticks whose 2nd frame was dropped because the
 
 void produce_one_frame(void) {
 #if defined(TARGET_PSP)
-    unsigned int t_entry;
+    unsigned int t_entry, t_net0, t_logic0, t_end0, t_end1;
     gfx_psp_update_mode(); /* decides whether this tick presents 1 frame (30 fps) or 2 (60 fps) */
     gfx_psp_set_role(gPspSixtyMode ? 1 : 0);
     t_entry = sceKernelGetSystemTimeLow();
     /* Triple Buffer (only at the 60 fps cap; with lower caps the pace is set by gfx_psp.c's sleep): the frame is presented in the thread, the CPU carries on */
     PSP_WD_PHASE("gfx_start_frame");
     gfx_start_frame();
-    gPspPresentAsync = (gPspOptPipe && gPspOptFpsCap >= 60 && gPspSixtyMode) ? 1 : 0;
+    gPspPresentAsync = (gPspOptPipe && psp_opt_fps_cap() >= 60 && gPspSixtyMode) ? 1 : 0;
+    t_net0 = sceKernelGetSystemTimeLow();
+    psp_netplay_frame(); /* swaps the save file when a WLAN room starts / ends (before the game logic) */
+    t_logic0 = sceKernelGetSystemTimeLow();
     PSP_WD_PHASE("game logic (game_loop_one_iteration)");
     game_loop_one_iteration();
     gFrame++;
+    t_end0 = sceKernelGetSystemTimeLow();
     PSP_WD_PHASE("gfx_end_frame");
     gfx_end_frame();
+    t_end1 = sceKernelGetSystemTimeLow();
     gPspPresentAsync = 0;
 #if PSP_F2_SKIP
     if (gPspSixtyMode) {
@@ -251,6 +283,7 @@ void produce_one_frame(void) {
             patch_interpolations();
             gfx_psp_skip_frame_slot();
             gfx_psp_set_role(0);
+            psp_netplay_perf_note(sceKernelGetSystemTimeLow() - t_entry, t_end0 - t_logic0, t_logic0 - t_net0, t_end1 - t_end0);
             return;
         }
     }
@@ -261,12 +294,13 @@ void produce_one_frame(void) {
         gfx_psp_replay_prepare(psp_f2_nonmatrix_pending()); /* BEFORE patch_interpolations(): it empties the matrix table */
         gfx_start_frame();
         patch_interpolations();
-        gPspPresentAsync = ((gPspOptPipe && gPspOptFpsCap >= 60) || gPspAsyncWant || gfx_psp_replay_decided() || gPspReplayEma >= 600) ? 1 : 0; /* last frame of the tick: its sync + vblank are done in a thread while the next logic runs */
+        gPspPresentAsync = ((gPspOptPipe && psp_opt_fps_cap() >= 60) || gPspAsyncWant || gfx_psp_replay_decided() || gPspReplayEma >= 600) ? 1 : 0; /* last frame of the tick: its sync + vblank are done in a thread while the next logic runs */
         send_display_list(gGfxSPTask);
         gfx_end_frame();
         gPspPresentAsync = 0;
         gfx_psp_set_role(0);
     }
+    psp_netplay_perf_note(sceKernelGetSystemTimeLow() - t_entry, t_end0 - t_logic0, t_logic0 - t_net0, t_end1 - t_end0);
 #else
     u32 num_audio_samples;
     int samples_left;

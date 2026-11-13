@@ -176,7 +176,7 @@ static void boo_set_move_yaw_for_during_hit(s32 hurt) {
     o->oBooMoveYawBeforeHit = (f32) o->oMoveAngleYaw;
 
     if (hurt != FALSE) {
-        o->oBooMoveYawDuringHit = gMarioObject->oMoveAngleYaw;
+        o->oBooMoveYawDuringHit = psp_np_attack_yaw(o, gMarioObject->oMoveAngleYaw);
     } else if (coss((s16)o->oMoveAngleYaw - (s16)o->oAngleToMario) < 0.0f) {
         o->oBooMoveYawDuringHit = o->oMoveAngleYaw;
     } else {

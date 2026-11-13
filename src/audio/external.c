@@ -476,8 +476,9 @@ u8 sMaxChannelsForSoundBank[SOUND_BANK_COUNT] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }
 #else
 #define BANK27_SIZE 0x40
 #endif
+/* PSP: bank 2 (Mario's voice) also holds Luigi's voice ids (see PSP_LUIGI_VOICE_OFFSET), so it has room for them */
 u8 sNumSoundsPerBank[SOUND_BANK_COUNT] = {
-    0x70, 0x30, BANK27_SIZE, 0x80, 0x20, 0x80, 0x20, BANK27_SIZE, 0x80, 0x80,
+    0x70, 0x30, 0x80, 0x80, 0x20, 0x80, 0x20, BANK27_SIZE, 0x80, 0x80,
 };
 #undef BANK27_SIZE
 
@@ -901,7 +902,55 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
 #endif
 #endif
 
+/* Luigi's voice (WLAN multiplayer, see sound/sequences/00_sound_player.s): his version of a Mario voice id is the same id plus this offset.
+ * Only the ids below PSP_VOICE_MARIO_IDS (Mario's own lines, not Peach's) have one. */
+#ifdef VERSION_JP
+#define PSP_LUIGI_VOICE_OFFSET 0x38
+#else
+#define PSP_LUIGI_VOICE_OFFSET 0x40
+#endif
+#define PSP_VOICE_MARIO_IDS 0x38
+u8 gPspLuigiVoice = 0;    /* the local player is Luigi: his voice lines are Luigi's */
+static const f32 *sPspRemoteVoicePos; /* where the other player's voice comes from: what tells its sounds from this player's */
+u8 gPspVoiceNoRemap = 0;  /* set while a voice of the OTHER player is played (it already is the right one) */
+u32 gPspVoiceLast = 0;    /* the local Mario's last voice request (as Mario's id) and a counter that changes with each: sent to the other console */
+u8 gPspVoiceSeq = 0;
+
+static s32 psp_voice_filter(s32 soundBits, const f32 *pos) {
+    if (((u32) soundBits & SOUNDARGS_MASK_BANK) == (2u << SOUNDARGS_SHIFT_BANK) && !gPspVoiceNoRemap) {
+        const u32 id = ((u32) soundBits & SOUNDARGS_MASK_SOUNDID) >> SOUNDARGS_SHIFT_SOUNDID;
+        if (id < PSP_VOICE_MARIO_IDS) {
+            if (gMarioState != NULL && gMarioState->marioObj != NULL && pos == gMarioState->marioObj->header.gfx.cameraToObject) {
+                gPspVoiceLast = (u32) soundBits;
+                gPspVoiceSeq++;
+            }
+            if (gPspLuigiVoice) {
+                soundBits += (s32) (PSP_LUIGI_VOICE_OFFSET << SOUNDARGS_SHIFT_SOUNDID);
+            }
+        }
+    }
+    return soundBits;
+}
+
+/* The other console's player made a voice sound: played from where its model is. */
+void psp_play_remote_voice(u32 soundBits, int luigi, f32 *pos) {
+    const u32 id = (soundBits & SOUNDARGS_MASK_SOUNDID) >> SOUNDARGS_SHIFT_SOUNDID;
+    if ((soundBits & SOUNDARGS_MASK_BANK) != (2u << SOUNDARGS_SHIFT_BANK) || id >= PSP_VOICE_MARIO_IDS) {
+        return;
+    }
+    if (luigi) {
+        soundBits += (u32) (PSP_LUIGI_VOICE_OFFSET << SOUNDARGS_SHIFT_SOUNDID);
+    }
+#if PSP_SFX_EXTRA
+    sPspRemoteVoicePos = pos;
+#endif
+    gPspVoiceNoRemap = 1;
+    play_sound((s32) soundBits, pos);
+    gPspVoiceNoRemap = 0;
+}
+
 void play_sound(s32 soundBits, f32 *pos) {
+    soundBits = psp_voice_filter(soundBits, pos);
     sSoundRequests[sSoundRequestCount].soundBits = soundBits;
     sSoundRequests[sSoundRequestCount].position = pos;
     sSoundRequestCount++;
@@ -1063,6 +1112,24 @@ void func_8031E16C(u8 bankIndex) {
                     (u32) gSoundBanks[bankIndex][soundIndex].distance + 0x4c * (0xff - val);
             }
 
+#if PSP_SFX_EXTRA
+            if (bankIndex == 2 && sMaxChannelsForSoundBank[bankIndex] == 2) {
+                /* voices: slot 0 = this player's best line, slot 1 = the other player's best line */
+                i = (sPspRemoteVoicePos != NULL && gSoundBanks[bankIndex][soundIndex].x == sPspRemoteVoicePos) ? 1 : 0;
+                if (sp98[i] >= gSoundBanks[bankIndex][soundIndex].priority) {
+                    sp98[i] = gSoundBanks[bankIndex][soundIndex].priority;
+                    sp88[i] = soundIndex;
+                    sp78[i] = gSoundBanks[bankIndex][soundIndex].soundStatus;
+                }
+            } else if (bankIndex == 6 && sMaxChannelsForSoundBank[bankIndex] == 2 && sCurrentSound[2][1] != 0xff) {
+                /* the other player's voice is using the shared channel: bank 6 is back to one sound until it ends */
+                if (sp98[0] >= gSoundBanks[bankIndex][soundIndex].priority) {
+                    sp98[0] = gSoundBanks[bankIndex][soundIndex].priority;
+                    sp88[0] = soundIndex;
+                    sp78[0] = gSoundBanks[bankIndex][soundIndex].soundStatus;
+                }
+            } else
+#endif
             for (i = 0; i < sMaxChannelsForSoundBank[bankIndex]; i++) {
                 if (sp98[i] >= gSoundBanks[bankIndex][soundIndex].priority) {
                     for (j = sMaxChannelsForSoundBank[bankIndex] - 1; j > i; j--) {
@@ -1307,7 +1374,11 @@ void audio_signal_game_loop_tick(void) {
 
 #if PSP_SFX_EXTRA
 /* effects sequence channel for the 2nd sound of each bank (0xff = the bank has no 2nd channel) */
-static const u8 sPspSfxExtraChannel[SOUND_BANK_COUNT] = { 0xff, 0xff, 0xff, 10, 11, 12, 13, 0xff, 14, 15 };
+/* Bank 2 (voice) is special: its 2nd channel is ONLY for the other player's voice (multiplayer), so the two players' voices do not cut
+ * each other off, while each player's own lines keep cutting each other as always (see func_8031E16C). It shares channel 13 with the
+ * 2nd sound of bank 6 (PSP_SFX_SHARED_CHANNEL, .channel_psp_shared in the sequence): bank 6 only gives it up while that voice sounds. */
+#define PSP_SFX_SHARED_CHANNEL 13
+static const u8 sPspSfxExtraChannel[SOUND_BANK_COUNT] = { 0xff, 0xff, PSP_SFX_SHARED_CHANNEL, 10, 11, 12, PSP_SFX_SHARED_CHANNEL, 0xff, 14, 15 };
 static u8 sPspSfxExtraOk = 0;
 unsigned int gPspSfxExtra; /* log diagnostic: 1 if the effects sequence has the extra channels */
 
@@ -1379,6 +1450,11 @@ void update_game_sound(void) {
                     gSoundBanks[bankIndex][index].soundStatus = SOUND_STATUS_PLAYING;
                     gSequencePlayers[SEQ_PLAYER_SFX].channels[channelIndex]->soundScriptIO[4] = soundId;
                     gSequencePlayers[SEQ_PLAYER_SFX].channels[channelIndex]->soundScriptIO[0] = 1;
+#if PSP_SFX_EXTRA
+                    if (channelIndex == PSP_SFX_SHARED_CHANNEL) {
+                        gSequencePlayers[SEQ_PLAYER_SFX].channels[channelIndex]->soundScriptIO[6] = (bankIndex == 2) ? 1 : 0;
+                    }
+#endif
 
                     switch (bankIndex) {
                         case 1:

@@ -1,3 +1,5 @@
+#include "game/psp_options.h"
+
 
 /**
  * Behavior for bhvPokey and bhvPokeyBodyPart.
@@ -151,7 +153,8 @@ static void pokey_act_uninitialized(void) {
     s32 i;
     s16 partModel;
 
-    if (o->oDistanceToMario < 2000.0f) {
+    /* Object Distance (menu): the body parts are created from farther away (same rule as the other spawners: only while the object pool has room for 5 more). */
+    if (psp_obj_near(o->oDistanceToMario, 2000.0f, 5)) {
         partModel = MODEL_POKEY_HEAD;
 
         for (i = 0; i < 5; i++) {
@@ -185,7 +188,7 @@ static void pokey_act_wander(void) {
 
     if (o->oPokeyNumAliveBodyParts == 0) {
         obj_mark_for_deletion(o);
-    } else if (o->oDistanceToMario > 2500.0f) {
+    } else if (o->oDistanceToMario > PSP_SPAWN_DIST(2500.0f)) {
         o->oAction = POKEY_ACT_UNLOAD_PARTS;
         o->oForwardVel = 0.0f;
     } else {

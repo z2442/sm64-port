@@ -107,7 +107,7 @@ extern u32 gAudioRandom;
 //make my life easier
 #ifdef VERSION_EU
 #define UNUSED_COUNT_80333EE8 24
-#define AUDIO_HEAP_SIZE 0x2c500
+#define AUDIO_HEAP_SIZE (0x2c500 + PSP_AUDIO_LUIGI_BANK_MEM + PSP_AUDIO_LUIGI_SEQ_MEM)
 #define D_80333EF0_VAL 0x2c00
 #else
 #define UNUSED_COUNT_80333EE8 16

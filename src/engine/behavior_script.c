@@ -15,6 +15,8 @@
 #include "game/object_list_processor.h"
 #include "graph_node.h"
 #include "surface_collision.h"
+#include "surface_load.h"
+#include "pc/psp_netplay.h"
 #ifdef TARGET_PSP
 extern float gPspObjDistScale; /* game/psp_options.c: multiplies the draw distance of objects (>= 1.0) */
 #endif
@@ -929,12 +931,27 @@ void cur_obj_update(void) {
         gCurrentObject->oAngleToMario = obj_angle_to_object(gCurrentObject, gMarioObject);
     }
 
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_retarget(gCurrentObject); /* (WLAN multiplayer) the enemies of this console chase the nearest player */
+#endif
+
     // If the object's action has changed, reset the action timer.
     if (gCurrentObject->oAction != gCurrentObject->oPrevAction) {
         (void) (gCurrentObject->oTimer = 0, gCurrentObject->oSubAction = 0,
                 gCurrentObject->oPrevAction = gCurrentObject->oAction);
     }
 
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    /* an enemy the other console is simulating (WLAN multiplayer): its state comes from there, its own behavior does not run */
+    const s32 followed = gCurrentObject->unused1 != 0 && psp_np_world_follow(gCurrentObject);
+    if (followed) {
+        psp_np_world_follow_step(gCurrentObject);
+        if (gCurrentObject->collisionData != NULL) {
+            load_object_collision_model(); /* a followed thwomp / whomp stays solid where it is now, not where it was when the stream began */
+        }
+    } else
+#endif
+    {
     // Execute the behavior script.
     gCurBhvCommand = gCurrentObject->curBhvCommand;
 
@@ -949,6 +966,7 @@ void cur_obj_update(void) {
     if (gCurrentObject->oTimer < 0x3FFFFFFF) {
         gCurrentObject->oTimer++;
     }
+    }
 
     // If the object's action has changed, reset the action timer.
     if (gCurrentObject->oAction != gCurrentObject->oPrevAction) {
@@ -958,6 +976,12 @@ void cur_obj_update(void) {
 
     // Execute various code based on object flags.
     objFlags = (s16) gCurrentObject->oFlags;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    if (followed) { /* it is placed by the stream: only its graphics are updated */
+        objFlags &= ~(OBJ_FLAG_SET_FACE_ANGLE_TO_MOVE_ANGLE | OBJ_FLAG_SET_FACE_YAW_TO_MOVE_YAW | OBJ_FLAG_MOVE_XZ_USING_FVEL
+                      | OBJ_FLAG_MOVE_Y_WITH_TERMINAL_VEL | OBJ_FLAG_TRANSFORM_RELATIVE_TO_PARENT | OBJ_FLAG_SET_THROW_MATRIX_FROM_TRANSFORM);
+    }
+#endif
 
     if (objFlags & OBJ_FLAG_SET_FACE_ANGLE_TO_MOVE_ANGLE) {
         obj_set_face_angle_to_move_angle(gCurrentObject);

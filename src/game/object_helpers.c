@@ -22,6 +22,7 @@
 #include "memory.h"
 #include "obj_behaviors.h"
 #include "object_helpers.h"
+#include "pc/psp_netplay.h"
 #include "object_list_processor.h"
 #include "rendering_graph_node.h"
 #include "game/psp_options.h"
@@ -547,6 +548,9 @@ struct Object *spawn_object(struct Object *parent, s32 model, const BehaviorScri
 
     obj = spawn_object_at_origin(parent, 0, model, behavior);
     obj_copy_pos_and_angle(obj, parent);
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_spawned(parent, obj, model, segmented_to_virtual(behavior));
+#endif
 
     return obj;
 }
@@ -2593,7 +2597,7 @@ s32 cur_obj_update_dialog(s32 actionArg, s32 dialogFlags, s32 dialogID, UNUSED s
             //! We enable time stop even if Mario is not ready to speak. This
             //  allows us to move during time stop as long as Mario never enters
             //  an action that can be interrupted with text.
-            if (gMarioState->health >= 0x100) {
+            if (psp_np_world_dialog_ok(o) && gMarioState->health >= 0x100) {
                 gTimeStopState |= TIME_STOP_ENABLED;
                 o->activeFlags |= ACTIVE_FLAG_INITIATED_TIME_STOP;
                 o->oDialogState++;
@@ -2603,7 +2607,7 @@ s32 cur_obj_update_dialog(s32 actionArg, s32 dialogFlags, s32 dialogID, UNUSED s
         case DIALOG_UNK1_ENABLE_TIME_STOP:
             // Patched :(
             // Wait for Mario to be ready to speak, and then enable time stop
-            if (mario_ready_to_speak() || gMarioState->action == ACT_READING_NPC_DIALOG) {
+            if (psp_np_world_dialog_ok(o) && (mario_ready_to_speak() || gMarioState->action == ACT_READING_NPC_DIALOG)) {
                 gTimeStopState |= TIME_STOP_ENABLED;
                 o->activeFlags |= ACTIVE_FLAG_INITIATED_TIME_STOP;
                 o->oDialogState++;
@@ -2670,7 +2674,7 @@ s32 cur_obj_update_dialog_with_cutscene(s32 actionArg, s32 dialogFlags, s32 cuts
             //! We enable time stop even if Mario is not ready to speak. This
             //  allows us to move during time stop as long as Mario never enters
             //  an action that can be interrupted with text.
-            if (gMarioState->health >= 0x0100) {
+            if (psp_np_world_dialog_ok(o) && gMarioState->health >= 0x0100) {
                 gTimeStopState |= TIME_STOP_ENABLED;
                 o->activeFlags |= ACTIVE_FLAG_INITIATED_TIME_STOP;
                 o->oDialogState++;
@@ -2680,7 +2684,7 @@ s32 cur_obj_update_dialog_with_cutscene(s32 actionArg, s32 dialogFlags, s32 cuts
 #else
         case DIALOG_UNK2_ENABLE_TIME_STOP:
             // Wait for Mario to be ready to speak, and then enable time stop
-            if (mario_ready_to_speak() || gMarioState->action == ACT_READING_NPC_DIALOG) {
+            if (psp_np_world_dialog_ok(o) && (mario_ready_to_speak() || gMarioState->action == ACT_READING_NPC_DIALOG)) {
                 gTimeStopState |= TIME_STOP_ENABLED;
                 o->activeFlags |= ACTIVE_FLAG_INITIATED_TIME_STOP;
                 o->oDialogState++;

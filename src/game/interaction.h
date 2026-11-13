@@ -98,6 +98,12 @@
 #define INT_STATUS_TOUCHED_BOB_OMB       (1 << 23) /* 0x00800000 */
 
 
+/* Player vs player (WLAN multiplayer, see psp_np_player_attacks in interaction.c). A knockback caused by another player carries this bit in the
+ * action argument (the rest of it is the damage, as always) so the knockback actions keep the strong push of such a hit. */
+#define PSP_PVP_KNOCKBACK_ACTION_ARG    0x10000
+#define PSP_PVP_KNOCKBACK_TIMER         10 /* frames in which a player that was just knocked back by another player cannot be hit again */
+#define PSP_PVP_KNOCKBACK_STRENGTH      25 /* sm64coopdx's default */
+
 s16 mario_obj_angle_to_object(struct MarioState *m, struct Object *o);
 void mario_stop_riding_object(struct MarioState *m);
 void mario_grab_used_object(struct MarioState *m);
