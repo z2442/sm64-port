@@ -19,7 +19,7 @@ static Vec3f sKleptoTargetPositions[] = {
 static u8 sKleptoAttackHandlers[] = { 2, 2, 5, 5, 2, 2 };
 
 static void klepto_target_mario(void) {
-    o->oKleptoDistanceToTarget = lateral_dist_between_objects(gMarioObject, o);
+    o->oKleptoDistanceToTarget = lateral_dist_between_objects(nearest_player_to_object(o), o);
     o->oKleptoUnk1B0 = obj_turn_pitch_toward_mario(250.0f, 0);
     o->oKleptoYawToTarget = o->oAngleToMario;
     o->oKleptoUnk1AE = -60;
@@ -101,8 +101,8 @@ static void klepto_change_target(void) {
         minTargetDist = 99999.0f;
 
         for (i = 0; i < 3; i++) {
-            dx = gMarioObject->oPosX - sKleptoTargetPositions[i][0];
-            dz = gMarioObject->oPosZ - sKleptoTargetPositions[i][2];
+            dx = nearest_player_to_object(o)->oPosX - sKleptoTargetPositions[i][0];
+            dz = nearest_player_to_object(o)->oPosZ - sKleptoTargetPositions[i][2];
 
             targetDist = sqrtf(dx * dx + dz * dz);
             if (targetDist < minTargetDist) {
@@ -220,7 +220,7 @@ static void klepto_act_dive_at_mario(void) {
             }
         }
     } else {
-        f32 dy = o->oPosY - gMarioObject->oPosY;
+        f32 dy = o->oPosY - nearest_player_to_object(o)->oPosY;
         if (o->oSoundStateID == 3) {
             cur_obj_set_anim_if_at_end(4);
         } else if (o->oVelY > 0.0f && dy > 200.0f) {

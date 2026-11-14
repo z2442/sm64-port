@@ -473,9 +473,26 @@ s32 save_file_get_total_star_count(s32 fileIndex, s32 minCourse, s32 maxCourse) 
     return save_file_get_course_star_count(fileIndex, -1) + count;
 }
 
+#if defined(TARGET_PSP)
+/* WLAN multiplayer (sm64coopdx: PACKET_SAVE_SET_FLAG): a lasting flag set during play (a cap switch, a cannon, a door unlocked, the moat drained...) goes
+ * to the other console at once, not at the next save. The flags of this player's own lost cap are not shared (see psp_netplay_merge_progress). */
+static void save_file_share_new_bits(u32 before, u32 after) {
+    const u32 own = SAVE_FLAG_CAP_ON_GROUND | SAVE_FLAG_CAP_ON_KLEPTO | SAVE_FLAG_CAP_ON_UKIKI | SAVE_FLAG_CAP_ON_MR_BLIZZARD;
+    if (!sNetSuppress && ((after & ~before) & ~own & ~SAVE_FLAG_FILE_EXISTS) != 0) {
+        psp_netplay_progress_changed(&gSaveBuffer.files[gCurrSaveFileNum - 1][0], sizeof(struct SaveFile));
+    }
+}
+#endif
+
 void save_file_set_flags(u32 flags) {
+#if defined(TARGET_PSP)
+    const u32 before = gSaveBuffer.files[gCurrSaveFileNum - 1][0].flags;
+#endif
     gSaveBuffer.files[gCurrSaveFileNum - 1][0].flags |= (flags | SAVE_FLAG_FILE_EXISTS);
     gSaveFileModified = TRUE;
+#if defined(TARGET_PSP)
+    save_file_share_new_bits(before, gSaveBuffer.files[gCurrSaveFileNum - 1][0].flags);
+#endif
 }
 
 void save_file_clear_flags(u32 flags) {
@@ -537,9 +554,17 @@ s32 save_file_is_cannon_unlocked(void) {
  * Sets the cannon status to unlocked in the current course.
  */
 void save_file_set_cannon_unlocked(void) {
+#if defined(TARGET_PSP)
+    const u8 before = gSaveBuffer.files[gCurrSaveFileNum - 1][0].courseStars[gCurrCourseNum];
+#endif
     gSaveBuffer.files[gCurrSaveFileNum - 1][0].courseStars[gCurrCourseNum] |= 0x80;
     gSaveBuffer.files[gCurrSaveFileNum - 1][0].flags |= SAVE_FLAG_FILE_EXISTS;
     gSaveFileModified = TRUE;
+#if defined(TARGET_PSP)
+    if (!sNetSuppress && !(before & 0x80)) { /* (WLAN multiplayer: the other console's cannon opens too, see save_file_share_new_bits) */
+        psp_netplay_progress_changed(&gSaveBuffer.files[gCurrSaveFileNum - 1][0], sizeof(struct SaveFile));
+    }
+#endif
 }
 
 void save_file_set_cap_pos(s16 x, s16 y, s16 z) {

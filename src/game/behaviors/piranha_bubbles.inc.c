@@ -50,7 +50,7 @@ void bhv_piranha_plant_bubble_loop(void) {
             break;
 
         case PIRANHA_PLANT_BUBBLE_ACT_GROW_SHRINK_LOOP:
-            if (parent->oDistanceToMario < parent->oDrawingDistance) {
+            if (dist_between_objects(parent, nearest_player_to_object(parent)) < parent->oDrawingDistance) { // (sm64coopdx)
                 cur_obj_enable_rendering();
 
                 if (parent->oAction == PIRANHA_PLANT_ACT_SLEEPING) {

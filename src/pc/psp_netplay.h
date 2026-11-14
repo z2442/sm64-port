@@ -3,7 +3,7 @@
 
 /* Ad-hoc WLAN multiplayer (phase 1: lobby, link test and the host's save file).
  *
- * The feature is OFF by default for now; compile with PSP_NETPLAY=1 (make TARGET_PSP=1 PSP_NETPLAY=1 ...) to build it. With PSP_NETPLAY=0 no network code is built or linked, the
+ * The feature is ON by default; compile with PSP_NETPLAY=0 (make TARGET_PSP=1 PSP_NETPLAY=0 ...) to leave it out. With PSP_NETPLAY=0 no network code is built or linked, the
  * "Multiplayer" page of the options menu disappears and every function below becomes an empty stub. Even when it is built in, nothing is loaded
  * or started until the player picks Host / Join in that page.
  *
@@ -45,6 +45,10 @@ typedef struct {
     /* the sender's last voice sound (SOUND_MARIO_*): voiceSeq changes for every new one */
     uint32_t voice;
     uint8_t voiceSeq;
+    /* its last sounds of the action bank (steps, jumps, landings, swims, punches...), as sm64coopdx plays every player's: sfxSeq counts them, sfx[] keeps the
+     * last four (sfx[seq & 3]) */
+    uint8_t sfxSeq;
+    uint32_t sfx[4];
     /* what the other console needs to judge a fight (see psp_np_player_attacks in game/interaction.c): the sender's MarioState */
     uint8_t invincTimer, hurtCounter;
     int8_t knockbackTimer;
@@ -69,7 +73,10 @@ struct MarioState *psp_np_game_remote_state(void); /* the other player as a Mari
 void psp_np_game_remote_squish(int frames);       /* squashes the other player's model for that many frames */
 struct Object *psp_np_game_remote(void);        /* the other player's model, NULL when it is not shown */
 uint32_t psp_np_game_remote_action(void);       /* its action (the sender's MarioState action) */
+int psp_np_game_remote_pose(float pos[3], short angle[3], unsigned int *action); /* its latest position, angles and action, also while its model is
+                                                                                   * not shown (in a cannon); 0 when it is not in this level / area / act */
 int psp_np_game_remote_vanished(void);          /* it wears the vanish cap */
+struct Object *psp_np_game_remote_held(void);   /* what it carries in its hands (drawn in them, as the local Mario's), NULL for nothing */
 int psp_np_game_remote_age(void);               /* frames since it appeared (nobody pushes anybody while a level is loading) */
 struct MarioBodyState;
 struct MarioBodyState *psp_np_game_body_state(int index); /* body state the geo callbacks must use for the model being drawn */
@@ -108,7 +115,8 @@ typedef struct {
     int16_t value;    /* coins: the sender's coin count */
     int16_t aux[3];   /* star spawn: where the star ends up */
 } PspNpWorldEvent;
-enum { PSP_NP_EV_COIN = 1, PSP_NP_EV_STAR, PSP_NP_EV_CAP, PSP_NP_EV_1UP, PSP_NP_EV_DEAD, PSP_NP_EV_ATTACK, PSP_NP_EV_SPAWN, PSP_NP_EV_ACTION, PSP_NP_EV_STARSPAWN, PSP_NP_EV_DIGEST, PSP_NP_EV_RESYNC };
+enum { PSP_NP_EV_COIN = 1, PSP_NP_EV_STAR, PSP_NP_EV_CAP, PSP_NP_EV_1UP, PSP_NP_EV_DEAD, PSP_NP_EV_ATTACK, PSP_NP_EV_SPAWN, PSP_NP_EV_ACTION, PSP_NP_EV_STARSPAWN, PSP_NP_EV_DIGEST, PSP_NP_EV_RESYNC,
+       PSP_NP_EV_ITEM /* like PACKET_COLLECT_ITEM of sm64coopdx: the object the player used (a secret's trigger, a tower door, a pillar detector) is used here too */ };
 /* Stage 3: what a player sets off (doors opening, switches pressed, the water level of Wet-Dry World) is shown to the other one too. Set
  * PSP_NETPLAY_TRIGGERS to 0 to turn it off. */
 #ifndef PSP_NETPLAY_TRIGGERS
@@ -126,6 +134,21 @@ int psp_np_world_fld_take(void *data);                 /* the newest batch recei
 int psp_np_congestion(void);                           /* 0 = fine .. 3 = the link is very slow (from the ping time) */
 int psp_np_world_obj_send(const void *data, int len);  /* the host's latest batch of enemy states (unreliable, the newest replaces the one not sent yet) */
 int psp_np_world_obj_take(void *data);                 /* the newest batch received (length), 0 if none */
+int psp_np_world_is_host(void);         /* this console hosts the room */
+int psp_np_world_remote_floor_type(void); /* surface type of the floor under the other player, -1 when it is not here */
+void psp_np_world_claim(struct Object *o); /* the local player kicked / punched this platform-like object: this console drives it for a while */
+void psp_np_world_chomp_freed(struct Object *chomp); /* the local player set the chain chomp free (its post): the other console sets its own free too */
+void psp_np_world_drive(struct Object *o); /* while called every frame, this console drives o (the race of the racing penguin, the talk of Yoshi): the other console follows it */
+#define PSP_NP_SIG_UKIKI_HAT 1  /* the cap ukiki took (value 1) or gave back (0) the cap of this console's player */
+#define PSP_NP_SIG_LAKITU 2     /* the intro lakitu: this console's player started it (1), its text is over (2) */
+#define PSP_NP_SIG_MANTA_RING 3 /* this console's player passed a ring of the manta ray: value = its count of rings, extra = the ring's index */
+#define PSP_NP_SIG_NLE_STAR 4   /* a star that does not end the level came out for this console's player (Toad, MIPS): value = its number */
+void psp_np_world_nle_star(const struct Object *star); /* (that star was just made: the other console shows it where it ends up) */
+void psp_np_world_signal(const struct Object *o, int sig, int value); /* tells the other console what one of these objects did here (found there by its home) */
+void psp_np_world_signal_ex(const struct Object *o, int sig, int value, int extra); /* the same, with one more number */
+#define PSP_NP_LAKITU_OTHER 0x4C414B49u /* (Object.unused2 of the intro lakitu: it came down for the other player, see camera_lakitu.inc.c) */
+#define PSP_NP_BOX_REMOTE 0x52424F58u   /* (Object.unused2 of an exclamation box the other player broke: its coins come from that console, see exclamation_box.inc.c) */
+int psp_np_world_spawner_mine(const struct Object *o); /* a spawner of rolling balls: only the console of the player nearest to it makes them (the other console gets them announced) */
 int psp_np_world_follow(struct Object *o);             /* the object is being driven by the other console right now: its behavior must not run */
 #if PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
 short psp_np_attack_yaw(const struct Object *o, short def); /* the direction the other player was facing when it hit this object a moment ago, else def */
@@ -140,6 +163,8 @@ static inline int psp_np_world_bowser_carried(const struct Object *o) { (void) o
 static inline void psp_np_world_bowser_carry_step(struct Object *o) { (void) o; }
 static inline int psp_np_world_bowser_give_up(int frames) { (void) frames; return 1; }
 #endif
+int psp_np_world_remote_on(const struct Object *o);  /* the other player stands on this object (a platform, a switch): sm64coopdx's cur_obj_is_any_player_on_platform */
+struct Object *psp_np_world_nearest_player(const struct Object *o); /* the player (Mario's object or the other player's model) nearest to o: sm64coopdx's nearest_player_to_object */
 int psp_np_world_dialog_ok(const struct Object *o); /* this console's Mario may start a dialog with o (the retargeted enemy that only the OTHER player is near must not freeze this one) */
 int psp_np_world_remote_within(float x, float y, float z, float dist); /* the other player is in this area and within dist of the point (respawners wait for BOTH players to be far) */
 void psp_np_world_retarget(struct Object *o);          /* an enemy this console simulates aims at the nearest player (it could be the other one) */
@@ -149,6 +174,8 @@ void psp_np_world_spawned(struct Object *parent, struct Object *obj, int model, 
 int psp_np_world_send(const PspNpWorldEvent *e);   /* queues an event for the other console (reliable, in order); 0 if the queue is full */
 int psp_np_world_take(PspNpWorldEvent *e);         /* next event received, 0 if none */
 void psp_np_world_collected(struct MarioState *m, struct Object *o, int type); /* the local player picked o up (game/psp_netplay_game.c) */
+extern int gPspNpStarByOther; /* the last red coin / secret was taken by the other player: their star comes out with no cutscene here */
+#define PSP_NP_STAR_NO_CUTSCENE 0x53544152u /* (Object.unused2 of a spawning star: no camera cutscene nor frozen time on this console) */
 void psp_np_world_frame(int peerKnown, int peerLevel, int peerAreaKey, int isHost);       /* once per frame while linked (peerAreaKey: area in bits 0-3, act in bits 4-7) */
 void psp_np_world_reset(void);                                                 /* the link went down */
 void psp_netplay_host(void);
@@ -200,13 +227,32 @@ static inline void psp_np_hud_patch(void) {}
 struct Object;
 static inline struct Object *psp_np_game_remote(void) { return 0; }
 static inline unsigned int psp_np_game_remote_action(void) { return 0; }
+static inline int psp_np_game_remote_pose(float pos[3], short angle[3], unsigned int *action) { (void) pos; (void) angle; (void) action; return 0; }
 static inline int psp_np_game_remote_vanished(void) { return 0; }
+static inline struct Object *psp_np_game_remote_held(void) { return 0; }
 static inline int psp_np_game_remote_age(void) { return 0; }
 struct MarioState;
 static inline struct MarioState *psp_np_game_remote_state(void) { return 0; }
 static inline void psp_np_game_remote_squish(int frames) { (void) frames; }
 static inline short psp_np_attack_yaw(const struct Object *o, short def) { (void) o; return def; }
 static inline int psp_np_world_dialog_ok(const struct Object *o) { (void) o; return 1; }
+static inline int psp_np_world_spawner_mine(const struct Object *o) { (void) o; return 1; }
+static inline int psp_np_world_remote_floor_type(void) { return -1; }
+static inline int psp_np_world_is_host(void) { return 1; }
+static inline void psp_np_world_claim(struct Object *o) { (void) o; }
+static inline void psp_np_world_chomp_freed(struct Object *chomp) { (void) chomp; }
+static inline void psp_np_world_drive(struct Object *o) { (void) o; }
+static inline void psp_np_world_signal(const struct Object *o, int sig, int value) { (void) o; (void) sig; (void) value; }
+#define PSP_NP_SIG_UKIKI_HAT 1
+#define PSP_NP_SIG_LAKITU 2
+#define PSP_NP_SIG_MANTA_RING 3
+#define PSP_NP_SIG_NLE_STAR 4
+static inline void psp_np_world_nle_star(const struct Object *star) { (void) star; }
+static inline void psp_np_world_signal_ex(const struct Object *o, int sig, int value, int extra) { (void) o; (void) sig; (void) value; (void) extra; }
+#define PSP_NP_LAKITU_OTHER 0x4C414B49u
+#define PSP_NP_BOX_REMOTE 0x52424F58u
+static inline int psp_np_world_remote_on(const struct Object *o) { (void) o; return 0; }
+static inline struct Object *psp_np_world_nearest_player(const struct Object *o) { (void) o; return 0; }
 static inline int psp_np_world_peer_here(void) { return 0; }
 static inline int psp_np_world_bowser_carried(const struct Object *o) { (void) o; return 0; }
 static inline void psp_np_world_bowser_carry_step(struct Object *o) { (void) o; }

@@ -1,5 +1,6 @@
 #if defined(TARGET_PSP)
 
+#include <pspsdk.h>
 #include "audio_psp.h"
 
 #include <pspaudio.h>
@@ -146,6 +147,7 @@ void audio_psp_generate_cpu(int16_t *samples, uint32_t frames) {
 }
 
 static int audio_psp_output_thread(SceSize args, void *argp) {
+    pspSdkDisableFPUExceptions(); /* (see main_func: every thread starts with the FPU exceptions on) */
     unsigned int output_index = 0;
 
     (void)args;
@@ -288,6 +290,7 @@ void audio_psp_tick_end(void) {
 
 
 static int audio_psp_producer_thread(SceSize args, void *argp) {
+    pspSdkDisableFPUExceptions(); /* (see main_func: every thread starts with the FPU exceptions on) */
     (void)args;
     (void)argp;
 

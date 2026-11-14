@@ -35,6 +35,11 @@ void bhv_water_bomb_spawner_update(void) {
     spawnerRadius = 50 * (u16)(o->oBehParams >> 16) + 200.0f;
     latDistToMario = lateral_dist_between_objects(o, gMarioObject);
 
+    /* sm64coopdx: one bomb at a time, for the nearest player: only the console of that player makes it (the other one gets it announced) */
+    if (!psp_np_world_spawner_mine(o)) {
+        return;
+    }
+
     // When mario is in range and a water bomb isn't already active
     if (!o->oWaterBombSpawnerBombActive && latDistToMario < spawnerRadius
         && gMarioObject->oPosY - o->oPosY < 1000.0f) {
@@ -127,8 +132,8 @@ static void water_bomb_act_drop(void) {
 
             set_camera_shake_from_point(SHAKE_POS_SMALL, o->oPosX, o->oPosY, o->oPosZ);
 
-            // Move toward mario
-            o->oMoveAngleYaw = o->oAngleToMario;
+            // Move toward the nearest player (sm64coopdx: it can be the other one)
+            o->oMoveAngleYaw = obj_angle_to_object(o, nearest_player_to_object(o));
             o->oForwardVel = 10.0f;
             o->oWaterBombStretchSpeed = -40.0f;
         }
@@ -167,7 +172,9 @@ static void water_bomb_act_drop(void) {
  */
 static void water_bomb_act_explode(void) {
     water_bomb_spawn_explode_particles(25, 60, 10);
-    o->parentObj->oWaterBombSpawnerBombActive = FALSE;
+    if (o->parentObj != NULL) {
+        o->parentObj->oWaterBombSpawnerBombActive = FALSE;
+    }
     obj_mark_for_deletion(o);
 }
 

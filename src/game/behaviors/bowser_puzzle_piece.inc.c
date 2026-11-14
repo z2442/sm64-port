@@ -164,7 +164,7 @@ void bhv_lll_bowser_puzzle_piece_update(void) {
     s8 *nextAction = o->oBowserPuzzlePieceNextAction;
 
     // If Mario is standing on this puzzle piece, set a flag in the parent.
-    if (gMarioObject->platform == o)
+    if (cur_obj_is_any_player_on_platform())
         o->parentObj->oBowserPuzzleCompletionFlags = 1;
 
     // If we should advance to the next action...

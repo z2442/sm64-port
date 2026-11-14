@@ -60,10 +60,13 @@ static struct Object *link_objects_with_behavior(const BehaviorScript *behavior)
 static struct Object *monty_mole_select_available_hole(f32 minDistToMario) {
     struct Object *hole = sMontyMoleHoleList;
     s32 numAvailableHoles = 0;
+    f32 distToPlayer;
 
     while (hole != NULL) {
         if (hole->oMontyMoleHoleCooldown == 0) {
-            if (hole->oDistanceToMario < 1500.0f && hole->oDistanceToMario > minDistToMario) {
+            // (the player nearest to the hole, sm64coopdx)
+            distToPlayer = dist_between_objects(hole, nearest_player_to_object(hole));
+            if (distToPlayer < 1500.0f && distToPlayer > minDistToMario) {
                 numAvailableHoles++;
             }
         }
@@ -79,7 +82,8 @@ static struct Object *monty_mole_select_available_hole(f32 minDistToMario) {
 
         while (hole != NULL) {
             if (hole->oMontyMoleHoleCooldown == 0) {
-                if (hole->oDistanceToMario < 1500.0f && hole->oDistanceToMario > minDistToMario) {
+                distToPlayer = dist_between_objects(hole, nearest_player_to_object(hole));
+                if (distToPlayer < 1500.0f && distToPlayer > minDistToMario) {
                     if (numAvailableHoles == selectedHole) {
                         return hole;
                     }
@@ -137,6 +141,50 @@ void monty_mole_spawn_dirt_particles(s8 offsetY, s8 velYBase) {
  */
 void bhv_monty_mole_init(void) {
     o->oMontyMoleCurrentHole = NULL;
+
+    // WLAN multiplayer: the other console tells this mole from the others by its home. Its script sets none, and the
+    // moles of TTM are all placed at 0, 0, 0 (dropped to the floor below it): those are named by their parameter instead.
+    if (o->oPosX == 0.0f && o->oPosZ == 0.0f) {
+        o->oHomeX = 100.0f * (o->oBehParams2ndByte + 1);
+        o->oHomeY = 100.0f;
+        o->oHomeZ = 100.0f;
+    } else {
+        o->oHomeX = o->oPosX;
+        o->oHomeY = o->oPosY;
+        o->oHomeZ = o->oPosZ;
+    }
+}
+
+/**
+ * WLAN multiplayer: a mole that was following the other console's copy goes on by itself with no hole of its own, or with
+ * the one it had long ago. It takes the hole it is at (or looks for a new one).
+ */
+static void monty_mole_fix_hole(void) {
+    struct Object *hole = o->oMontyMoleCurrentHole;
+    struct Object *best = NULL;
+    f32 bestDist = 300.0f;
+
+    if (hole != NULL && lateral_dist_between_objects(o, hole) < 200.0f) {
+        return;
+    }
+    for (hole = sMontyMoleHoleList; hole != NULL; hole = hole->parentObj) {
+        f32 d = lateral_dist_between_objects(o, hole);
+        if (d < bestDist) {
+            bestDist = d;
+            best = hole;
+        }
+    }
+    if (o->oMontyMoleCurrentHole != NULL && o->oMontyMoleCurrentHole->oMontyMoleHoleCooldown < 0) {
+        o->oMontyMoleCurrentHole->oMontyMoleHoleCooldown = 0; // (the hole it had is free again)
+    }
+    if (best != NULL) {
+        o->oMontyMoleCurrentHole = best;
+        best->oMontyMoleHoleCooldown = -1;
+    } else {
+        o->oAction = MONTY_MOLE_ACT_SELECT_HOLE;
+        cur_obj_hide();
+        cur_obj_become_intangible();
+    }
 }
 
 /**
@@ -167,7 +215,7 @@ static void monty_mole_act_select_hole(void) {
         o->oPosZ = o->oMontyMoleCurrentHole->oPosZ;
 
         o->oFaceAnglePitch = 0;
-        o->oMoveAngleYaw = o->oMontyMoleCurrentHole->oAngleToMario;
+        o->oMoveAngleYaw = obj_angle_to_object(o->oMontyMoleCurrentHole, nearest_player_to_object(o->oMontyMoleCurrentHole));
 
         if (o->oDistanceToMario > 500.0f || minDistToMario > 100.0f || random_sign() < 0) {
             o->oAction = MONTY_MOLE_ACT_RISE_FROM_HOLE;
@@ -266,7 +314,9 @@ static void monty_mole_act_jump_into_hole(void) {
  * Become intangible and enter the select hole action.
  */
 static void monty_mole_hide_in_hole(void) {
-    o->oMontyMoleCurrentHole->oMontyMoleHoleCooldown = 30;
+    if (o->oMontyMoleCurrentHole != NULL) { // (see monty_mole_fix_hole)
+        o->oMontyMoleCurrentHole->oMontyMoleHoleCooldown = 30;
+    }
     o->oAction = MONTY_MOLE_ACT_SELECT_HOLE;
     o->oVelY = 0.0f;
 
@@ -337,6 +387,16 @@ void bhv_monty_mole_update(void) {
     cur_obj_update_floor_and_walls();
 
     o->oMontyMoleHeightRelativeToFloor = o->oPosY - o->oFloorHeight;
+
+    if (o->oAction != MONTY_MOLE_ACT_SELECT_HOLE) {
+        monty_mole_fix_hole();
+        if (o->oMontyMoleHeightRelativeToFloor > 1000.0f) {
+            // (WLAN multiplayer: a jump that was taken over halfway went wrong: back into the hole)
+            o->prevObj = NULL;
+            cur_obj_hide();
+            monty_mole_hide_in_hole();
+        }
+    }
 
     switch (o->oAction) {
         case MONTY_MOLE_ACT_SELECT_HOLE:
@@ -413,7 +473,8 @@ static void monty_mole_rock_act_held(void) {
     o->oParentRelativePosZ = 0.0f;
 
     if (o->parentObj->prevObj == NULL) {
-        f32 distToMario = o->oDistanceToMario;
+        // (thrown at the player nearest to it, sm64coopdx)
+        f32 distToMario = dist_between_objects(o, nearest_player_to_object(o));
         if (distToMario > 600.0f) {
             distToMario = 600.0f;
         }

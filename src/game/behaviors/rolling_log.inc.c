@@ -20,10 +20,12 @@ void bhv_ttm_rolling_log_init(void) {
 
 void rolling_log_roll_log(void) {
     f32 sp24;
+    f32 px, py, pz;
 
-    if (gMarioObject->platform == o) {
-        sp24 = (gMarioObject->header.gfx.pos[2] - o->oPosZ) * coss(-1*o->oMoveAngleYaw)
-               - (gMarioObject->header.gfx.pos[0] - o->oPosX) * sins(-1*o->oMoveAngleYaw);
+    /* sm64coopdx: it rolls toward the average position of the players on it */
+    if (cur_obj_players_on_platform(&px, &py, &pz) > 0) {
+        sp24 = (pz - o->oPosZ) * coss(-1*o->oMoveAngleYaw)
+               - (px - o->oPosX) * sins(-1*o->oMoveAngleYaw);
         if (sp24 > 0)
             o->oAngleVelPitch += 0x10;
         else

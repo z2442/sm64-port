@@ -23,7 +23,7 @@ void bhv_spindrift_loop(void) {
             if (cur_obj_lateral_dist_from_mario_to_home() > 1000.0f)
                 o->oAngleToMario = cur_obj_angle_to_home();
             else if (o->oDistanceToMario > 300.0f)
-                o->oAngleToMario = obj_angle_to_object(o, gMarioObject);
+                o->oAngleToMario = obj_angle_to_object(o, nearest_player_to_object(o));
             cur_obj_rotate_yaw_toward(o->oAngleToMario, 0x400);
             break;
         case 1:

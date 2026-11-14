@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <pspkernel.h>
+#include <pspsdk.h>
 #include <pspnet.h>
 #include <pspnet_adhoc.h>
 #include <pspnet_adhocctl.h>
@@ -57,7 +58,7 @@ extern void psp_netplay_refresh_hud(void);                         /* game/save_
 #define NP_RESEND_SAVE_US 250000U
 #define NP_PROG_MAX 96
 #define NP_PROG_RESEND_US 250000U
-#define NP_LOG "ms0:/PSP/SAVEDATA/SM64PORT/sm64_net.txt"
+#define NP_LOG "ms0:/sm64_net.txt" /* (memory stick root, like the other logs: easy to find) */
 
 enum { PK_ADV = 1, PK_JOIN, PK_WELCOME, PK_SAVE, PK_SAVEACK, PK_PING, PK_PONG, PK_LEAVE, PK_PROGRESS, PK_PROGACK, PK_STATE, PK_NAME, PK_EVENT, PK_EVACK, PK_OBJ, PK_FLD };
 enum { REQ_NONE, REQ_HOST, REQ_JOIN, REQ_LEAVE };
@@ -267,7 +268,10 @@ static uint32_t np_nonce(void) {
 static int np_send(const uint8_t *mac, int type, int a, int b, const void *payload, int len) {
     NpHeader *h = (NpHeader *) sTx;
     uint8_t dest[6];
-    if (sSocket < 0 || len < 0 || len > NP_CHUNK) {
+    /* (the limit is the send buffer, not NP_CHUNK: that is only the size of a piece of the save file. With NP_CHUNK every batch of platform states (4 records,
+     * 432 bytes) and every big batch of enemies was refused here without a trace, so the platforms were never corrected and the enemies came over only a few
+     * at a time) */
+    if (sSocket < 0 || len < 0 || len > (int) (sizeof(sTx) - sizeof(NpHeader))) {
         return -1;
     }
     memcpy(h->magic, "SM64", 4);
@@ -1038,6 +1042,7 @@ static void np_leave_now(void) {
 }
 
 static int np_thread(SceSize args, void *argp) {
+    pspSdkDisableFPUExceptions(); /* (see main_func: every thread starts with the FPU exceptions on) */
     (void) args;
     (void) argp;
     while (!sQuit) {

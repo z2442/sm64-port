@@ -803,9 +803,11 @@ void bowser_dead_bounce(void) {
 
 s32 bowser_dead_wait_for_mario(void) {
     s32 ret = 0;
+    /* (sm64coopdx: the nearest player, whichever it is, walks up to him. His text then goes to that player only: see psp_np_world_dialog_ok) */
+    struct Object *player = nearest_player_to_object(o);
     cur_obj_become_intangible();
-    if (cur_obj_init_animation_and_check_if_near_end(17) && o->oDistanceToMario < 700.0f
-        && abs_angle_diff(gMarioObject->oMoveAngleYaw, o->oAngleToMario) > 0x6000)
+    if (cur_obj_init_animation_and_check_if_near_end(17) && player != NULL && dist_between_objects(o, player) < 700.0f
+        && abs_angle_diff(player->header.gfx.angle[1], obj_angle_to_object(o, player)) > 0x6000)
         ret = 1;
     cur_obj_extend_animation_if_at_end();
     o->oBowserUnkF8 = 0;

@@ -142,7 +142,7 @@ static void boo_oscillate(s32 ignoreOpacity) {
 
 static s32 boo_vanish_or_appear(void) {
     s16 relativeAngleToMario = abs_angle_diff(o->oAngleToMario, o->oMoveAngleYaw);
-    s16 relativeMarioFaceAngle = abs_angle_diff(o->oMoveAngleYaw, gMarioObject->oFaceAngleYaw);
+    s16 relativeMarioFaceAngle = abs_angle_diff(o->oMoveAngleYaw, nearest_player_to_object(o)->oFaceAngleYaw);
     // magic?
     s16 relativeAngleToMarioThreshhold = 0x1568;
     s16 relativeMarioFaceAngleThreshhold = 0x6b58;
@@ -350,9 +350,9 @@ static void boo_chase_mario(f32 a0, s16 a1, f32 a2) {
         o->oVelY = 0.0f;
 
         if (mario_is_in_air_action() == 0) {
-            sp1C = o->oPosY - gMarioObject->oPosY;
+            sp1C = o->oPosY - nearest_player_to_object(o)->oPosY;
             if (a0 < sp1C && sp1C < 500.0f) {
-                o->oVelY = increment_velocity_toward_range(o->oPosY, gMarioObject->oPosY + 50.0f, 10.f, 2.0f);
+                o->oVelY = increment_velocity_toward_range(o->oPosY, nearest_player_to_object(o)->oPosY + 50.0f, 10.f, 2.0f);
             }
         }
 
@@ -759,7 +759,9 @@ void bhv_merry_go_round_boo_manager_loop(void) {
             if (o->oDistanceToMario < 1000.0f) {
                 if (o->oMerryGoRoundBooManagerNumBoosKilled < 5) {
                     if (o->oMerryGoRoundBooManagerNumBoosSpawned != 5) {
-                        if (o->oMerryGoRoundBooManagerNumBoosSpawned - o->oMerryGoRoundBooManagerNumBoosKilled < 2) {
+                        /* (sm64coopdx: only the console of the player nearest to it makes the boos; each one is announced and the other console makes it
+                         * from its own manager, which counts it there: see np_w_spawn_loot) */
+                        if (o->oMerryGoRoundBooManagerNumBoosSpawned - o->oMerryGoRoundBooManagerNumBoosKilled < 2 && psp_np_world_spawner_mine(o)) {
                             spawn_object(o, MODEL_BOO, bhvMerryGoRoundBoo);
                             o->oMerryGoRoundBooManagerNumBoosSpawned++;
                         }
@@ -768,7 +770,7 @@ void bhv_merry_go_round_boo_manager_loop(void) {
                     o->oAction++;
                 }
 
-                if (o->oMerryGoRoundBooManagerNumBoosKilled > 4) {
+                if (o->oMerryGoRoundBooManagerNumBoosKilled > 4 && psp_np_world_spawner_mine(o)) { /* (the Big Boo too: the other console gets it announced) */
                     struct Object *boo = spawn_object(o, MODEL_BOO, bhvMerryGoRoundBigBoo);
                     obj_copy_behavior_params(boo, o);
 

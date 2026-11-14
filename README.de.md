@@ -256,6 +256,7 @@ Alles liegt auf dem Memory Stick in `PSP\SAVEDATA\SM64PORT\`:
 | `sm64_save_file.bin` | Ihr Spielfortschritt (Sterne, Münzen …) |
 | `sm64config.txt` | Alle Ihre Einstellungen (Grafik, Audio, Steuerung) als Klartext |
 | `freeze.txt` | Nur nach einem Einfrieren: ein kleiner Bericht, was das Spiel gerade tat (siehe Problemlösung) |
+| `crash.txt` | Nur nach einem Absturz: wo das Spiel stehen blieb (siehe Problemlösung) |
 
 `sm64config.txt` lässt sich mit dem Editor öffnen. Jede Zeile hat die Form `name = wert`. Um bei null anzufangen, löschen Sie die Datei (oder nutzen Sie *Reset to Defaults*).
 
@@ -301,6 +302,8 @@ Starten Sie das Spiel erneut: Wurde TV eingeschaltet und hielt keine 5 Sekunden,
 
 **Das Spiel friert ein**
 Zeichnet das Spiel etwa 4 Sekunden lang keine Bilder mehr, schreibt ein kleiner Watchdog `freeze.txt` nach `PSP\SAVEDATA\SM64PORT\` (und schreibt sie alle 4 s neu, solange das Einfrieren anhält, bis 12 s). Sie listet, wo der Haupt-Thread war, worauf jeder Thread wartet, den Zustand von GPU und Audioprozessor, das Level / Marios Aktion sowie Akkustand und -spannung. Hängen Sie die Datei an Ihr Issue an. Hängt sich die ganze Konsole so auf, dass kein Code mehr läuft, kann keine Datei geschrieben werden: Dann ist das *Fehlen* von `freeze.txt` selbst eine nützliche Information.
+
+Stürzt das Spiel stattdessen ab (es kehrt von selbst ins Systemmenü zurück), schreibt es vorher `crash.txt` in denselben Ordner: den Fehler, den Spielcode, in dem er auftrat, und die Codeadressen auf dem Stack dieses Threads. Hängen Sie auch diese Datei an und nennen Sie die gebaute Version (die Adressen ergeben nur mit diesem Build Sinn).
 
 **Alles andere**
 Öffnen Sie ein *Issue* auf der GitHub-Seite des Repositorys und fügen Sie die letzten 20–30 Zeilen der Build-Ausgabe bei.

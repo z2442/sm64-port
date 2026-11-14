@@ -23,8 +23,9 @@ TARGET_N64 ?= 0
 TARGET_WEB ?= 0
 # Build for PSP
 TARGET_PSP ?= 0
-# WLAN multiplayer (src/pc/psp_netplay.c). PSP_NETPLAY=0 removes the whole feature: nothing is built, linked or shown in the menu.
-# It is OFF by default for now (the multiplayer is still being finished); build with PSP_NETPLAY=1 to get it.
+# WLAN multiplayer (src/pc/psp_netplay.c), experimental. PSP_NETPLAY=0 removes the whole feature: nothing is built, linked or shown in
+# the menu. It is OFF by default; build with PSP_NETPLAY=1 to try it. 'make release' cannot include it: the release packer
+# (tools/psp/make_release.py) can only rebuild a sound bank that derives from the ROM, and the Luigi banks do not.
 PSP_NETPLAY ?= 0
 # Enable gprof profiling for PSP builds (only works with TARGET_PSP=1)
 PROFILE_PSP ?= 0
@@ -308,7 +309,7 @@ C_FILES := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.c)) $(LEVEL_C_FILES)
 CXX_FILES := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.cpp))
 S_FILES := $(foreach dir,$(ASM_DIRS),$(wildcard $(dir)/*.s))
 ifeq ($(TARGET_PSP),1)
-  PSP_S_FILES := src/pc/gfx/gfx_clip_vfpu.s src/pc/gfx/gfx_transform_vfpu.s src/pc/psp_me_kcall.s src/pc/psp_dve_user.s
+  PSP_S_FILES := src/pc/gfx/gfx_clip_vfpu.s src/pc/gfx/gfx_transform_vfpu.s src/pc/psp_me_kcall.s src/pc/psp_dve_user.s src/pc/psp_crash_user.s
   S_FILES += $(PSP_S_FILES)
 endif
 ULTRA_C_FILES := $(foreach dir,$(ULTRA_SRC_DIRS),$(wildcard $(dir)/*.c))
@@ -529,14 +530,16 @@ ifeq ($(TARGET_PSP),1)
   PSP_FALIGN ?= -falign-functions=64 -flimit-function-alignment
   # Without the divide-by-zero check (extra instructions after every integer division); as on the N64 there is no trap.
   # -fno-math-errno: sqrtf() compiles to the sqrt.s instruction (without checking errno or calling libm); the result is the same.
-  # -fno-trapping-math: the compiler may reorder floating-point operations without changing any result (the PSP does not generate traps).
+  # -fno-trapping-math: the compiler may reorder floating-point operations without changing any result, and compute a division or the like
+  # before the check that guards it. A PSP thread starts with the FPU traps ON, so the game turns them off in every thread it runs
+  # (pspSdkDisableFPUExceptions, see main_func in src/pc/pc_main.c): otherwise such a value stops the game on a real PSP (PPSSPP never traps).
   PSP_EXTRA_CFLAGS ?= -mno-check-zero-division -fno-math-errno -fno-trapping-math
   PSPSDK_PREFIX = $(shell psp-config -p)
   PSP_PREFIX    = $(shell psp-config -P)
   # Notes from neo
   #-gdwarf-2 -gstrict-dwarf -g3 --ffunction-sections -fdata-sections -Wl,-gc-sections
   PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_NETPLAY=$(PSP_NETPLAY) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
-  PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -Wl,-u,sm64PspDveImport -lme-core
+  PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -Wl,-u,sm64PspDveImport -Wl,-u,sm64PspCrashImport -lme-core
   
   ifeq ($(PROFILE_PSP),1)
     # gprof builds run as ELF EBOOTs, not PRX modules.
@@ -1015,6 +1018,21 @@ $(DVENAT_PRX): $(DVENAT_DIR)/dvenat.elf
 $(DVENAT_DIR)/dvenat_prx.inc: $(DVENAT_PRX)
 	$(PYTHON) -c "import sys; d=open(sys.argv[1],'rb').read(); open(sys.argv[2],'w').write('static const unsigned char sNatModule[%d] = {\n%s\n};\n' % (len(d), ','.join(str(b) for b in d)))" $< $@
 $(BUILD_DIR)/src/pc/psp_dve.o: $(DVENAT_DIR)/dvenat_prx.inc
+
+# Crash report module (psp/crashlog): same as the TV modules, it goes inside SM64.PRX (included by psp_watchdog.c) and the game loads it at boot.
+CRASHLOG_DIR := $(BUILD_DIR)/crashlog
+CRASHLOG_PRX := $(CRASHLOG_DIR)/crashlog.prx
+$(CRASHLOG_DIR)/%.o: psp/crashlog/%.c
+	@mkdir -p $(dir $@)
+	psp-gcc -c -Os -G0 -Wall -fshort-wchar -fno-pic -mno-check-zero-division -D_PSP_FW_VERSION=500 -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -o $@ $<
+$(CRASHLOG_DIR)/crashlog.elf: $(CRASHLOG_DIR)/main.o $(CRASHLOG_DIR)/exports.o
+	psp-gcc -L$(PSP_PREFIX)/lib -L$(PSPSDK_PREFIX)/lib -specs=$(PSPSDK_PREFIX)/lib/prxspecs -Wl,-q,-T$(PSPSDK_PREFIX)/lib/linkfile.prx -nostartfiles -Wl,-zmax-page-size=128 $^ -nostdlib -lpspdebug -lpspdisplay_driver -lpspge_driver -lpspmodinfo -lpspsdk -lpspkernel -o $@
+	psp-fixup-imports $@
+$(CRASHLOG_PRX): $(CRASHLOG_DIR)/crashlog.elf
+	psp-prxgen $< $@
+$(CRASHLOG_DIR)/crashlog_prx.inc: $(CRASHLOG_PRX)
+	$(PYTHON) -c "import sys; d=open(sys.argv[1],'rb').read(); open(sys.argv[2],'w').write('static const unsigned char sCrashModule[%d] = {\n%s\n};\n' % (len(d), ','.join(str(b) for b in d)))" $< $@
+$(BUILD_DIR)/src/pc/psp_watchdog.o: $(CRASHLOG_DIR)/crashlog_prx.inc
 
 pbp: $(EXE)
 	@mkdir -p $(BUILD_DIR)/mario64

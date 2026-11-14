@@ -35,7 +35,17 @@ void bhv_hidden_star_loop(void) {
 /* TODO: this is likely not a checkpoint but a Secret */
 void bhv_hidden_star_trigger_loop(void) {
     struct Object *hiddenStar;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    /* sm64coopdx: a secret either player touches counts for both (the other console is told, and takes it as if it had been touched here) */
+    const s32 byOther = (o->oInteractStatus & INT_STATUS_INTERACTED) != 0;
+    if (byOther || obj_check_if_collided_with_object(o, gMarioObject) == 1) {
+        if (!byOther) {
+            psp_np_world_collected(gMarioState, o, PSP_NP_EV_ITEM);
+        }
+        gPspNpStarByOther = byOther; /* (whoever took the last one gets the cutscene of the star) */
+#else
     if (obj_check_if_collided_with_object(o, gMarioObject) == 1) {
+#endif
         hiddenStar = cur_obj_nearest_object_with_behavior(bhvHiddenStar);
         if (hiddenStar != NULL) {
             hiddenStar->oHiddenStarTriggerCounter++;

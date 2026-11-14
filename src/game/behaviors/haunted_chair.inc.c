@@ -59,7 +59,7 @@ void haunted_chair_act_0(void) {
                              4000.0f, 20.0f, 2.0f);
         }
     } else if (o->oHauntedChairUnkF4 != 0) {
-        if (o->oDistanceToMario < 500.0f) {
+        if (dist_between_objects(o, nearest_player_to_object(o)) < 500.0f) {
             o->oHauntedChairUnkF4 -= 1;
         }
         o->oTimer = 0.0f;
@@ -110,7 +110,7 @@ void haunted_chair_act_1(void) {
             if (--o->oHauntedChairUnkF4 == 0) {
                 cur_obj_play_sound_2(SOUND_GENERAL_HAUNTED_CHAIR);
                 o->oMoveAnglePitch = obj_turn_pitch_toward_mario(120.0f, 0);
-                o->oMoveAngleYaw = o->oAngleToMario;
+                o->oMoveAngleYaw = obj_angle_to_object(o, nearest_player_to_object(o));
                 obj_compute_vel_from_move_pitch(50.0f);
             } else if (o->oHauntedChairUnkF4 > 20) {
                 if (gGlobalTimer % 4 == 0) {

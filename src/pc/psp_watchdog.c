@@ -1,4 +1,5 @@
 #ifdef TARGET_PSP
+#include <pspsdk.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -126,6 +127,7 @@ static void wd_note_recovery(int secs) {
 }
 
 static int wd_thread(SceSize args, void *argp) {
+    pspSdkDisableFPUExceptions(); /* (see main_func: every thread starts with the FPU exceptions on) */
     int last = -1, still = 0, reported = 0;
     unsigned int lastT = sceKernelGetSystemTimeLow();
     (void) args;
@@ -165,8 +167,51 @@ static int wd_thread(SceSize args, void *argp) {
     return 0;
 }
 
+/* Crash report (crash.txt): the small kernel module psp/crashlog (embedded here, crashlog/crashlog_prx.inc defines sCrashModule[]) installs the
+ * default exception handler. A crash (a CPU exception in any of the game's threads) then writes where it happened and the code addresses on that
+ * thread's stack, and goes back to the system menu. Without the module (PPSSPP, or if it does not load) nothing changes. */
+#include "crashlog/crashlog_prx.inc"
+
+typedef struct { /* (the same layout as CrashCtx in psp/crashlog/main.c) */
+    const char *const volatile *phase;
+    const short *level;
+    const short *area;
+    const unsigned int *marioAction;
+    const char *build;
+} PspCrashCtx;
+int pspCrashInstall(const char *path, const PspCrashCtx *ctx); /* weak import (psp_crash_user.s): only called once the module is loaded */
+
+static char sCrashPath[256];
+static const char sBuild[] = __DATE__ " " __TIME__;
+
+static void wd_crash_install(void) {
+    static PspCrashCtx ctx;
+    char path[256];
+    SceUID fd, mod;
+    fs_resolve_path(path, sizeof(path), "crashlog.prx"); /* written to the savedata folder, loaded and deleted (as the TV modules, psp_dve.c) */
+    fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    if (fd < 0) {
+        return;
+    }
+    sceIoWrite(fd, sCrashModule, sizeof(sCrashModule));
+    sceIoClose(fd);
+    mod = pspSdkLoadStartModule(path, PSP_MEMORY_PARTITION_KERNEL);
+    sceIoRemove(path);
+    if (mod < 0) {
+        return;
+    }
+    fs_resolve_path(sCrashPath, sizeof(sCrashPath), "crash.txt");
+    ctx.phase = (const char *const volatile *) &gPspWdPhase;
+    ctx.level = &gCurrLevelNum;
+    ctx.area = &gCurrAreaIndex;
+    ctx.marioAction = (const unsigned int *) &gMarioStates[0].action;
+    ctx.build = sBuild;
+    (void) pspCrashInstall(sCrashPath, &ctx);
+}
+
 void psp_watchdog_start(void) {
     SceUID th;
+    wd_crash_install();
     fs_resolve_path(sPath, sizeof(sPath), "freeze.txt");
     psp_watchdog_register("main", sceKernelGetThreadId());
     /* above the audio (0x1E / 0x20), the presentation (0x1D) and the main thread: it has to run no matter what they do */

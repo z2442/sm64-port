@@ -29,6 +29,7 @@
 #include "levels/rr/header.h"
 #include "levels/ssl/header.h"
 #include "levels/thi/header.h"
+#include "pc/psp_netplay.h"
 #include "levels/ttc/header.h"
 #include "levels/vcutm/header.h"
 #include "mario.h"

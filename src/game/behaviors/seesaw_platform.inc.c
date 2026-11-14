@@ -36,10 +36,16 @@ void bhv_seesaw_platform_update(void) {
         cur_obj_play_sound_1(SOUND_ENV_BOAT_ROCKING1);
     }
 
-    if (gMarioObject->platform == o) {
-        // Rotate toward mario
-        f32 rotation = o->oDistanceToMario * coss(o->oAngleToMario - o->oMoveAngleYaw);
-        UNUSED s32 unused;
+    /* sm64coopdx: it tips toward the average position of the players on it */
+    f32 px, py, pz;
+    if (cur_obj_players_on_platform(&px, &py, &pz) > 0) {
+        f32 dx = px - o->oPosX;
+        f32 dy = py - o->oPosY;
+        f32 dz = pz - o->oPosZ;
+        f32 distanceToPlayer = sqrtf(dx * dx + dy * dy + dz * dz);
+        s16 angleToPlayer = atan2s(dz, dx);
+        // Rotate toward the players
+        f32 rotation = distanceToPlayer * coss(angleToPlayer - o->oMoveAngleYaw);
 
         // Deceleration is faster than acceleration
         if (o->oSeesawPlatformPitchVel * rotation < 0) {

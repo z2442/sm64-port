@@ -7,6 +7,7 @@
  */
 
 void bhv_purple_switch_loop(void) {
+    const s32 anyPlayerOnPlatform = cur_obj_is_any_player_on_platform(); /* (sm64coopdx: the switch stays down while either player stands on it) */
     UNUSED s32 unused;
     switch (o->oAction) {
         /**
@@ -28,7 +29,7 @@ void bhv_purple_switch_loop(void) {
          */
         case PURPLE_SWITCH_PRESSED:
             cur_obj_scale_over_time(2, 3, 1.5f, 0.2f);
-            if (o->oTimer == 3) {
+            if (o->oTimer >= 3) {
                 cur_obj_play_sound_2(SOUND_GENERAL2_PURPLE_SWITCH);
                 o->oAction = PURPLE_SWITCH_TICKING;
                 cur_obj_shake_screen(SHAKE_POS_SMALL);
@@ -43,7 +44,7 @@ void bhv_purple_switch_loop(void) {
          */
         case PURPLE_SWITCH_TICKING:
             if (o->oBehParams2ndByte != 0) {
-                if (o->oBehParams2ndByte == 1 && gMarioObject->platform != o) {
+                if (o->oBehParams2ndByte == 1 && !anyPlayerOnPlatform) {
                     o->oAction++;
                 } else {
                     if (o->oTimer < 360) {
@@ -73,7 +74,7 @@ void bhv_purple_switch_loop(void) {
          * unpressed state.
          */
         case PURPLE_SWITCH_WAIT_FOR_MARIO_TO_GET_OFF:
-            if (!cur_obj_is_mario_on_platform()) {
+            if (!anyPlayerOnPlatform) {
                 o->oAction = PURPLE_SWITCH_UNPRESSED;
             }
             break;

@@ -68,6 +68,12 @@ static struct KoopaTheQuickProperties sKoopaTheQuickProperties[] = {
 /**
  * Initialization function.
  */
+/* PSP WLAN multiplayer: this console's player is the one racing Koopa the Quick (it said yes to the race). sm64coopdx keeps one race for everybody,
+ * run by the console of the player that started it; here that console drives Koopa the Quick from then on (psp_np_world_drive) and the other one
+ * follows it. Otherwise he went to the console of the nearest player along the way, whose copy (which never began the race) walked back to the
+ * start of its path. */
+static s32 sKoopaTheQuickLocalRace;
+
 void bhv_koopa_init(void) {
     if ((o->oKoopaMovementType = o->oBehParams2ndByte) == KOOPA_BP_TINY) {
         // Tiny koopa in THI
@@ -79,6 +85,7 @@ void bhv_koopa_init(void) {
     } else if (o->oKoopaMovementType >= KOOPA_BP_KOOPA_THE_QUICK_BASE) {
         // Koopa the Quick. Race index is 0 for BoB and 1 for THI
         o->oKoopaTheQuickRaceIndex = o->oKoopaMovementType - KOOPA_BP_KOOPA_THE_QUICK_BASE;
+        sKoopaTheQuickLocalRace = FALSE;
         o->oKoopaAgility = 4.0f;
         cur_obj_scale(3.0f);
     } else {
@@ -521,6 +528,7 @@ static void koopa_the_quick_act_show_init_text(void) {
 
     if (response == 1) {
         gMarioShotFromCannon = FALSE;
+        sKoopaTheQuickLocalRace = TRUE;
         o->oAction = KOOPA_THE_QUICK_ACT_RACE;
         o->oForwardVel = 0.0f;
 
@@ -751,6 +759,10 @@ static void koopa_the_quick_act_after_race(void) {
 static void koopa_the_quick_update(void) {
     cur_obj_update_floor_and_walls();
     obj_update_blinking(&o->oKoopaBlinkTimer, 10, 15, 3);
+
+    if (sKoopaTheQuickLocalRace && o->oAction >= KOOPA_THE_QUICK_ACT_RACE && o->oAction <= KOOPA_THE_QUICK_ACT_AFTER_RACE) {
+        psp_np_world_drive(o); /* (the race of this console's player: see sKoopaTheQuickLocalRace) */
+    }
 
     switch (o->oAction) {
         case KOOPA_THE_QUICK_ACT_WAIT_BEFORE_RACE:

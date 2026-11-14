@@ -4,6 +4,31 @@ void bhv_cannon_base_unused_loop(void) {
     o->oPosY += o->oVelY;
 }
 
+/* PSP WLAN multiplayer: the other player is inside this cannon (sm64coopdx syncs the cannon: it is taken, and shown raised and aiming). Its Mario is not
+ * shown while in a cannon, so this reads its latest pose instead of its model: where it is (up to ~700 above the cannon's home: the cannon rises ~340 out
+ * of its hole and the player sits 350 above it) and where it aims (its pose's pitch / yaw, see psp_np_game_capture). */
+static s32 cannon_remote_inside(f32 *y, s16 *pitch, s16 *yaw) {
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    f32 pos[3];
+    s16 angle[3];
+    unsigned int action;
+    if (psp_np_game_remote_pose(pos, angle, &action) && action == ACT_IN_CANNON
+        && absf(pos[0] - o->oHomeX) < 150.0f && absf(pos[2] - o->oHomeZ) < 150.0f && absf(pos[1] - o->oHomeY) < 900.0f) {
+        if (y != NULL) {
+            *y = pos[1];
+            *pitch = angle[0];
+            *yaw = angle[1];
+        }
+        return TRUE;
+    }
+#else
+    (void) y;
+    (void) pitch;
+    (void) yaw;
+#endif
+    return FALSE;
+}
+
 void opened_cannon_act_0(void) {
     if (o->oTimer == 0) {
         o->oInteractStatus = 0;
@@ -17,10 +42,10 @@ void opened_cannon_act_0(void) {
         cur_obj_enable_rendering();
         cur_obj_become_tangible();
     }
-    if (o->oDistanceToMario < 500.0f) {
+    if (dist_between_objects(o, nearest_player_to_object(o)) < 500.0f) { /* (sm64coopdx: the nearest player; only this console's player gets in, below) */
         cur_obj_become_tangible();
         cur_obj_enable_rendering();
-        if (o->oInteractStatus & INT_STATUS_INTERACTED
+        if (o->oInteractStatus & INT_STATUS_INTERACTED && !cannon_remote_inside(NULL, NULL, NULL)
             && (!(o->oInteractStatus
                   & INT_STATUS_TOUCHED_BOB_OMB))) // bob-omb explodes when it gets into a cannon
         {
@@ -116,6 +141,30 @@ void bhv_cannon_base_loop(void) {
     if (o->oCannonUnkF8)
         o->oCannonUnkF8++;
     o->oInteractStatus = 0;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    /* sm64coopdx syncs the cannon: while the other player is inside this one, it is shown here aiming where that player aims (its console sends the aim in
+     * the angles of its pose, see psp_np_game_capture); when it leaves, the cannon is back at rest. (Only while it is idle here: this player's own use of
+     * the cannon goes first.) */
+    if (o->oAction == 0) {
+        f32 remoteY;
+        s16 pitch, yaw;
+        if (cannon_remote_inside(&remoteY, &pitch, &yaw)) {
+            o->oMoveAnglePitch = pitch;
+            o->oMoveAngleYaw = yaw;
+            /* raised out of its hole as the one it is in (opened_cannon_act_4: 5 a frame for 69 frames). Its Mario's position does not tell how
+             * far: the hidden model's position is not sent on while it is in the cannon */
+            o->oPosY = approach_f32(o->oPosY, o->oHomeY + 345.0f, 5.0f, 5.0f);
+            (void) remoteY;
+            cur_obj_enable_rendering();
+            cur_obj_become_intangible(); /* (sm64coopdx: taken, nobody else gets in; act_0 makes it tangible again when it is free) */
+            cur_obj_push_mario_away_from_cylinder(220.0f, 300.0f);
+        } else {
+            o->oMoveAnglePitch = 0;
+            o->oMoveAngleYaw = (s16)(o->oBehParams2ndByte << 8);
+            o->oPosY = o->oHomeY; /* (free again: back in its hole) */
+        }
+    }
+#endif
 }
 
 void bhv_cannon_barrel_loop(void) {

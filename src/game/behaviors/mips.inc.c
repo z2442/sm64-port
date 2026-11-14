@@ -9,6 +9,11 @@
 void bhv_mips_init(void) {
     // Retrieve star flags for Castle Secret Stars on current save file.
     u8 starFlags;
+
+    // (its script sets no home: the WLAN multiplayer tells it from other objects by its home, so it is where it was placed)
+    o->oHomeX = o->oPosX;
+    o->oHomeY = o->oPosY;
+    o->oHomeZ = o->oPosZ;
     starFlags = save_file_get_star_flags(gCurrSaveFileNum - 1, -1);
 
     // If the player has >= 15 stars and hasn't collected first MIPS star...
@@ -69,7 +74,7 @@ s16 bhv_mips_find_furthest_waypoint_to_mario(void) {
         if (is_point_close_to_object(o, x, y, z, 800)) {
             // Is this further from Mario than the last waypoint?
             distanceToMario =
-                sqr(x - gMarioObject->header.gfx.pos[0]) + sqr(z - gMarioObject->header.gfx.pos[2]);
+                sqr(x - nearest_player_to_object(o)->header.gfx.pos[0]) + sqr(z - nearest_player_to_object(o)->header.gfx.pos[2]);
             if (furthestWaypointDistance < distanceToMario) {
                 furthestWaypointIndex = i;
                 furthestWaypointDistance = distanceToMario;

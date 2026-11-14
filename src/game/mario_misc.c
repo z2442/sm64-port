@@ -82,6 +82,7 @@ struct MarioBodyState gBodyStates[2]; // 2nd is never accessed in practice, most
 #define NP_DRAWING_REMOTE() 0
 #endif
 struct GraphNodeObject gMirrorMario;  // copy of Mario's geo node for drawing mirror Mario
+struct GraphNodeObject gMirrorRemote; /* PSP WLAN multiplayer: the same for the other player (sm64coopdx mirrors every player) */
 
 // This whole file is weirdly organized. It has to be the same file due
 // to rodata boundaries and function aligns, which means the programmer
@@ -568,12 +569,20 @@ Gfx *geo_switch_mario_hand_grab_pos(s32 callContext, struct GraphNode *b, Mat4 *
     struct MarioState *marioState = &gMarioStates[asHeldObj->playerIndex];
 
     if (callContext == GEO_CONTEXT_RENDER) {
+        struct Object *heldObj = marioState->heldObj;
+        u32 action = marioState->action;
         asHeldObj->objNode = NULL;
-        if (marioState->heldObj != NULL && !NP_DRAWING_REMOTE()) {
-            asHeldObj->objNode = marioState->heldObj;
-            switch (marioState->marioBodyState->grabPos) {
+#if defined(TARGET_PSP) && PSP_NETPLAY
+        if (NP_DRAWING_REMOTE()) { /* the other player's model draws what that player carries, with its own grab position and action */
+            heldObj = psp_np_game_remote_held();
+            action = psp_np_game_remote_action();
+        }
+#endif
+        if (heldObj != NULL) {
+            asHeldObj->objNode = heldObj;
+            switch (BODY_STATE(asHeldObj->playerIndex)->grabPos) {
                 case GRAB_POS_LIGHT_OBJ:
-                    if (marioState->action & ACT_FLAG_THROWING) {
+                    if (action & ACT_FLAG_THROWING) {
                         vec3s_set(asHeldObj->translation, 50, 0, 0);
                     } else {
                         vec3s_set(asHeldObj->translation, 50, 0, 110);
@@ -587,7 +596,7 @@ Gfx *geo_switch_mario_hand_grab_pos(s32 callContext, struct GraphNode *b, Mat4 *
                     break;
             }
         }
-    } else if (callContext == GEO_CONTEXT_HELD_OBJ) {
+    } else if (callContext == GEO_CONTEXT_HELD_OBJ && !NP_DRAWING_REMOTE()) { /* (the other player's hands are not this Mario's HOLP) */
         // ! The HOLP is set here, which is why it only updates when the held object is drawn.
         // This is why it won't update during a pause buffered hitstun or when the camera is very far
         // away.
@@ -611,14 +620,43 @@ Gfx *geo_render_mirror_mario(s32 callContext, struct GraphNode *node, UNUSED Mat
     switch (callContext) {
         case GEO_CONTEXT_CREATE:
             init_graph_node_object(NULL, &gMirrorMario, NULL, gVec3fZero, gVec3sZero, gVec3fOne);
+            init_graph_node_object(NULL, &gMirrorRemote, NULL, gVec3fZero, gVec3sZero, gVec3fOne);
             break;
         case GEO_CONTEXT_AREA_LOAD:
             geo_add_child(node, &gMirrorMario.node);
+            geo_add_child(node, &gMirrorRemote.node);
             break;
         case GEO_CONTEXT_AREA_UNLOAD:
             geo_remove_child(&gMirrorMario.node);
+            geo_remove_child(&gMirrorRemote.node);
+            /* The mirror room has two of these nodes, and both add the same reflections: the second one takes them from the first, whose child
+             * pointer keeps naming them. With Mario's reflection alone that was harmless, but with two of them the first node's stale list no longer
+             * came back to where it started once they were removed, and the walk over the area's nodes that follows (leaving the room through the
+             * Snowman's Land painting) went round forever. Both reflections are left alone in their own ring, and this node with no children. */
+            gMirrorMario.node.prev = gMirrorMario.node.next = &gMirrorMario.node;
+            gMirrorRemote.node.prev = gMirrorRemote.node.next = &gMirrorRemote.node;
+            node->children = NULL;
             break;
         case GEO_CONTEXT_RENDER:
+            {
+                /* the other player's reflection, made the same way from its model */
+                struct Object *remote = psp_np_game_remote();
+                if (remote != NULL && remote->header.gfx.sharedChild != NULL && remote->header.gfx.pos[0] > 1700.0f
+                    && !(remote->header.gfx.node.flags & GRAPH_RENDER_INVISIBLE)) {
+                    gMirrorRemote.sharedChild = remote->header.gfx.sharedChild;
+                    gMirrorRemote.unk18 = remote->header.gfx.unk18;
+                    vec3s_copy(gMirrorRemote.angle, remote->header.gfx.angle);
+                    vec3f_copy(gMirrorRemote.pos, remote->header.gfx.pos);
+                    vec3f_copy(gMirrorRemote.scale, remote->header.gfx.scale);
+                    gMirrorRemote.unk38 = *(struct GraphNodeObject_sub *) &remote->header.gfx.unk38.animID;
+                    gMirrorRemote.pos[0] = (MIRROR_X - gMirrorRemote.pos[0]) + MIRROR_X;
+                    gMirrorRemote.angle[1] = -gMirrorRemote.angle[1];
+                    gMirrorRemote.scale[0] *= -1.0f;
+                    gMirrorRemote.node.flags |= GRAPH_RENDER_ACTIVE;
+                } else {
+                    gMirrorRemote.node.flags &= ~GRAPH_RENDER_ACTIVE;
+                }
+            }
             if (mario->header.gfx.pos[0] > 1700.0f) {
                 // TODO: Is this a geo layout copy or a graph node copy?
                 gMirrorMario.sharedChild = mario->header.gfx.sharedChild;
@@ -654,10 +692,13 @@ Gfx *geo_mirror_mario_backface_culling(s32 callContext, struct GraphNode *node, 
     struct GraphNodeGenerated *asGenerated = (struct GraphNodeGenerated *) node;
     Gfx *gfx = NULL;
 
-    if (callContext == GEO_CONTEXT_RENDER && gCurGraphNodeObject == &gMirrorMario) {
+    if (callContext == GEO_CONTEXT_RENDER && (gCurGraphNodeObject == &gMirrorMario || gCurGraphNodeObject == &gMirrorRemote)) {
+        u32 layer;
         gfx = alloc_display_list(3 * sizeof(*gfx));
 
-        if (asGenerated->parameter == 0) {
+        /* bit 0: 0 = before the body, 1 = after it. Bits 2 and up (sm64coopdx's Luigi model): the layer this node is for, one node per layer, so the
+         * culling is turned around in the translucent and alpha layers too (Mario's model only has the opaque one: its parameters are 0 and 1). */
+        if ((asGenerated->parameter & 0x01) == 0) {
             gSPClearGeometryMode(&gfx[0], G_CULL_BACK);
             gSPSetGeometryMode(&gfx[1], G_CULL_FRONT);
             gSPEndDisplayList(&gfx[2]);
@@ -666,7 +707,11 @@ Gfx *geo_mirror_mario_backface_culling(s32 callContext, struct GraphNode *node, 
             gSPSetGeometryMode(&gfx[1], G_CULL_BACK);
             gSPEndDisplayList(&gfx[2]);
         }
-        asGenerated->fnNode.node.flags = (asGenerated->fnNode.node.flags & 0xFF) | (LAYER_OPAQUE << 8);
+        layer = ((asGenerated->parameter & 0x02) == 2) ? LAYER_TRANSPARENT : LAYER_OPAQUE;
+        if ((asGenerated->parameter & 0xFC) != 0) {
+            layer = asGenerated->parameter >> 2;
+        }
+        asGenerated->fnNode.node.flags = (asGenerated->fnNode.node.flags & 0xFF) | (layer << 8);
     }
     return gfx;
 }

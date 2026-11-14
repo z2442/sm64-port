@@ -915,8 +915,15 @@ static const f32 *sPspRemoteVoicePos; /* where the other player's voice comes fr
 u8 gPspVoiceNoRemap = 0;  /* set while a voice of the OTHER player is played (it already is the right one) */
 u32 gPspVoiceLast = 0;    /* the local Mario's last voice request (as Mario's id) and a counter that changes with each: sent to the other console */
 u8 gPspVoiceSeq = 0;
+u32 gPspSfxRing[4];     /* the local Mario's last sounds of the action bank (steps, jumps, landings...) and their counter: sent to the other console */
+u8 gPspSfxSeq = 0;
 
 static s32 psp_voice_filter(s32 soundBits, const f32 *pos) {
+    if (((u32) soundBits & SOUNDARGS_MASK_BANK) == 0 && gMarioState != NULL && gMarioState->marioObj != NULL
+        && pos == gMarioState->marioObj->header.gfx.cameraToObject) {
+        gPspSfxRing[gPspSfxSeq & 3] = (u32) soundBits;
+        gPspSfxSeq++;
+    }
     if (((u32) soundBits & SOUNDARGS_MASK_BANK) == (2u << SOUNDARGS_SHIFT_BANK) && !gPspVoiceNoRemap) {
         const u32 id = ((u32) soundBits & SOUNDARGS_MASK_SOUNDID) >> SOUNDARGS_SHIFT_SOUNDID;
         if (id < PSP_VOICE_MARIO_IDS) {
@@ -947,6 +954,14 @@ void psp_play_remote_voice(u32 soundBits, int luigi, f32 *pos) {
     gPspVoiceNoRemap = 1;
     play_sound((s32) soundBits, pos);
     gPspVoiceNoRemap = 0;
+}
+
+/* A sound of the action bank that the other console's player made (a step, a jump, a landing...): played from where its model is. */
+void psp_play_remote_sfx(u32 soundBits, f32 *pos) {
+    if ((soundBits & SOUNDARGS_MASK_BANK) != 0) {
+        return;
+    }
+    play_sound((s32) soundBits, pos);
 }
 
 void play_sound(s32 soundBits, f32 *pos) {
@@ -2180,7 +2195,20 @@ void get_currently_playing_sound(u8 bankIndex, u8 *numPlayingSounds, u8 *arg2, u
     }
 }
 
+static void psp_stop_sound_exact(u32 soundBits, f32 *vec);
+
+/* stop_sound: stops a sound by its id and the position it comes from. PSP: a voice of Mario's has a second id for Luigi (PSP_LUIGI_VOICE_OFFSET), and the
+ * sound that is playing is the one that was asked for: the snoring (a sound that goes on until it is stopped) of a Luigi that wakes up must be stopped under
+ * ITS id too, or it stays in the voice channel and blocks every voice of a lower priority until a damage voice replaces it. */
 void func_803205E8(u32 soundBits, f32 *vec) {
+    psp_stop_sound_exact(soundBits, vec);
+    if ((soundBits & SOUNDARGS_MASK_BANK) == (2u << SOUNDARGS_SHIFT_BANK)
+        && ((soundBits & SOUNDARGS_MASK_SOUNDID) >> SOUNDARGS_SHIFT_SOUNDID) < PSP_VOICE_MARIO_IDS) {
+        psp_stop_sound_exact(soundBits + ((u32) PSP_LUIGI_VOICE_OFFSET << SOUNDARGS_SHIFT_SOUNDID), vec);
+    }
+}
+
+static void psp_stop_sound_exact(u32 soundBits, f32 *vec) {
     u8 bankIndex;
     u8 item;
 

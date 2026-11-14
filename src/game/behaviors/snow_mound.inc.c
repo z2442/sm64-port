@@ -26,8 +26,9 @@ void bhv_sliding_snow_mound_loop(void) {
 void bhv_snow_mound_spawn_loop(void) {
     struct Object *sp1C;
 
-    if (!is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 6000)
-        || o->oPosY + 1000.0f < gMarioObject->header.gfx.pos[1])
+    /* sm64coopdx: it runs while ANY player is near (its schedule is the timer, so both consoles make the same mounds) */
+    struct Object *player = nearest_player_to_object(o);
+    if (dist_between_objects(o, player) > 6000.0f || o->oPosY + 1000.0f < player->header.gfx.pos[1])
         return;
 
     if (o->oTimer == 64 || o->oTimer == 128 || o->oTimer == 192 || o->oTimer == 224 || o->oTimer == 256)

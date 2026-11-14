@@ -220,6 +220,7 @@ static int psp_power_callback(UNUSED int unknown, int flags, UNUSED void *common
 }
 
 static int psp_callback_thread(UNUSED SceSize args, UNUSED void *argp) {
+    pspSdkDisableFPUExceptions(); /* (see main_func: every thread starts with the FPU exceptions on) */
     int cbid = sceKernelCreateCallback("Exit Callback", psp_exit_callback, NULL);
     sceKernelRegisterExitCallback(cbid);
     scePowerRegisterCallback(0, sceKernelCreateCallback("Power Callback", psp_power_callback, NULL));
@@ -363,6 +364,12 @@ static void on_fullscreen_changed(bool is_now_fullscreen) {
 
 void main_func(const char *argv0) {
 #if defined(TARGET_PSP)
+    /* A PSP thread starts with the FPU exceptions for invalid operations, division by zero and overflow ON (FCSR 0x00000E00): a float that goes
+     * NaN or infinite stops the game right there on a real PSP, while PPSSPP (which never raises them) just carries on with the NaN / infinity.
+     * The N64 does not trap division by zero or overflow, and code built for the PSP may compute such a value in a path the N64 never took (before the
+     * check that guards it, for instance). Every thread of the game turns them off, so a real PSP behaves as PPSSPP does (the likely cause of the
+     * crash when waking up Whomp's Fortress' Hoot, seen only on a real PSP-3000) */
+    pspSdkDisableFPUExceptions();
     (void)psp_me_boot();
     psp_setup_exit_callback();
 #endif

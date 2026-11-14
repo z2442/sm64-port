@@ -185,6 +185,9 @@ void bhv_generic_bowling_ball_spawner_loop(void) {
     if (o->oTimer == 256)
         o->oTimer = 0;
 
+    if (!psp_np_world_spawner_mine(o)) /* (the console of the nearest player makes the balls and announces them) */
+        return;
+
     if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 1000)
         || (o->oPosY < gMarioObject->header.gfx.pos[1]))
         return;
@@ -205,6 +208,9 @@ void bhv_thi_bowling_ball_spawner_loop(void) {
 
     if (o->oTimer == 256)
         o->oTimer = 0;
+
+    if (!psp_np_world_spawner_mine(o))
+        return;
 
     if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 800)
         || (o->oPosY < gMarioObject->header.gfx.pos[1]))

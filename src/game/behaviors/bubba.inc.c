@@ -75,7 +75,7 @@ void bubba_act_1(void) {
             obj_move_pitch_approach(o->oBubbaUnk1AC, 400);
         }
     } else {
-        if (abs_angle_diff(gMarioObject->oFaceAngleYaw, o->oAngleToMario) < 0x3000) {
+        if (abs_angle_diff(nearest_player_to_object(o)->oFaceAngleYaw, o->oAngleToMario) < 0x3000) {
             val04 = 0x4000 - atan2s(800.0f, o->oDistanceToMario - 800.0f);
             if ((s16)(o->oMoveAngleYaw - o->oAngleToMario) < 0) {
                 val04 = -val04;

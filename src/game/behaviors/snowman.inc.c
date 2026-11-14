@@ -65,9 +65,11 @@ void snowmans_bottom_act_1(void) {
         o->oForwardVel = 70.0f;
 
     if (sp20 == -1) {
-        sp1E = (u16) o->oAngleToMario - (u16) o->oMoveAngleYaw;
-        if (obj_check_if_facing_toward_angle(o->oMoveAngleYaw, o->oAngleToMario, 0x2000) == 1 && o->oSnowmansBottomUnk1AC == 1) {
-            o->oSnowmansBottomUnkF8 = o->oAngleToMario;
+        /* sm64coopdx: it rolls toward the nearest player */
+        const s16 angleToPlayer = obj_angle_to_object(o, nearest_player_to_object(o));
+        sp1E = (u16) angleToPlayer - (u16) o->oMoveAngleYaw;
+        if (obj_check_if_facing_toward_angle(o->oMoveAngleYaw, angleToPlayer, 0x2000) == 1 && o->oSnowmansBottomUnk1AC == 1) {
+            o->oSnowmansBottomUnkF8 = angleToPlayer;
         } else {
             o->oSnowmansBottomUnkF8 = o->oMoveAngleYaw;
         }

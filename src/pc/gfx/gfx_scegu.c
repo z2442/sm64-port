@@ -2,6 +2,7 @@
 #if defined(TARGET_SCEGU) || defined(TARGET_PSP)
 
 #define PSP_ARENA_C18 0
+#include <pspsdk.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -1699,6 +1700,7 @@ static SceUID sVblReq = -1, sVblDone = -1, sVblThread = -1;
 static volatile int sVblBusy;
 
 static int gfx_scegu_vbl_helper(SceSize args, void *argp) {
+    pspSdkDisableFPUExceptions(); /* (see main_func: every thread starts with the FPU exceptions on) */
     (void) args;
     (void) argp;
     for (;;) {
@@ -2270,6 +2272,7 @@ static void gfx_scegu_present_drain(void) {
 
 #if PSP_ASYNC_PRESENT
 static int gfx_scegu_present_thread(SceSize args, void *argp) {
+    pspSdkDisableFPUExceptions(); /* (see main_func: every thread starts with the FPU exceptions on) */
     (void) args;
     (void) argp;
     for (;;) {

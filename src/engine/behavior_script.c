@@ -166,6 +166,9 @@ static s32 bhv_cmd_spawn_child(void) {
 
     struct Object *child = spawn_object_at_origin(gCurrentObject, 0, model, behavior);
     obj_copy_pos_and_angle(child, gCurrentObject);
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_spawned(gCurrentObject, child, model, segmented_to_virtual(behavior)); /* (like spawn_object: the coins of a box, see there) */
+#endif
 
     gCurBhvCommand += 3;
     return BHV_PROC_CONTINUE;

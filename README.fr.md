@@ -256,6 +256,7 @@ Tout est stocké sur le Memory Stick dans `PSP\SAVEDATA\SM64PORT\` :
 | `sm64_save_file.bin` | Votre progression (étoiles, pièces…) |
 | `sm64config.txt` | Tous vos réglages (graphismes, audio, commandes) en texte brut |
 | `freeze.txt` | Seulement après un blocage : un petit rapport de ce que faisait le jeu (voir Dépannage) |
+| `crash.txt` | Seulement après un plantage : où le jeu s'est arrêté (voir Dépannage) |
 
 `sm64config.txt` s'ouvre avec le Bloc-notes. Chaque ligne est de la forme `nom = valeur`. Pour repartir de zéro, supprimez le fichier (ou utilisez *Reset to Defaults*).
 
@@ -301,6 +302,8 @@ Relancez le jeu : si la TV a été activée et n'a pas tenu environ 5 secondes, 
 
 **Le jeu se fige**
 Si le jeu cesse d'afficher des images pendant environ 4 secondes, un petit chien de garde écrit `freeze.txt` dans `PSP\SAVEDATA\SM64PORT\` (et le réécrit toutes les 4 s tant que le blocage dure, jusqu'à 12 s). Il indique où se trouvait le thread principal, ce qu'attend chaque thread, l'état du GPU et du processeur audio, le niveau / l'action de Mario, ainsi que le niveau et la tension de la batterie. Joignez ce fichier à votre issue. Si la console se bloque au point qu'aucun code ne s'exécute, aucun fichier ne peut être écrit : dans ce cas, l'*absence* de `freeze.txt` est elle-même une information utile.
+
+Si le jeu plante (il revient tout seul au menu du système), il écrit d'abord `crash.txt` dans le même dossier : l'erreur, le code du jeu où elle s'est produite et les adresses de code sur la pile de ce thread. Joignez-le aussi, en précisant la version compilée (les adresses n'ont de sens qu'avec cette compilation).
 
 **Autre problème**
 Ouvrez une *Issue* sur la page GitHub du dépôt et joignez les 20 à 30 dernières lignes de la sortie de compilation.
