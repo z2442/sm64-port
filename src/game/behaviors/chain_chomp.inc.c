@@ -54,7 +54,7 @@ static void chain_chomp_act_uninitialized(void) {
     struct ChainSegment *segments;
     s32 i;
 
-    if (psp_obj_near(o->oDistanceToMario, 3000.0f, 8)) {
+    if (psp_obj_near(dist_between_objects(o, nearest_player_to_object(o)), 3000.0f, 8)) { /* (sm64coopdx: the nearest player) */
         segments = mem_pool_alloc(gObjectMemoryPool, 5 * sizeof(struct ChainSegment));
         if (segments != NULL) {
             // Each segment represents the offset of a chain part to the pivot.
@@ -175,8 +175,11 @@ static void chain_chomp_sub_act_turn(void) {
     obj_move_pitch_approach(0, 0x100);
 
     if (o->oMoveFlags & OBJ_MOVE_MASK_ON_GROUND) {
-        cur_obj_rotate_yaw_toward(o->oAngleToMario, 0x400);
-        if (abs_angle_diff(o->oAngleToMario, o->oMoveAngleYaw) < 0x800) {
+        /* sm64coopdx: it turns toward the nearest player, and only lunges at one within 3000 */
+        struct Object *player = nearest_player_to_object(o);
+        const s16 angleToPlayer = obj_angle_to_object(o, player);
+        cur_obj_rotate_yaw_toward(angleToPlayer, 0x400);
+        if (abs_angle_diff(angleToPlayer, o->oMoveAngleYaw) < 0x800 && dist_between_objects(o, player) < 3000.0f) {
             if (o->oTimer > 30) {
                 if (cur_obj_check_anim_frame(0)) {
                     cur_obj_reverse_animation();
@@ -205,7 +208,7 @@ static void chain_chomp_sub_act_turn(void) {
             o->oVelY = 20.0f;
         }
     } else {
-        cur_obj_rotate_yaw_toward(o->oAngleToMario, 0x190);
+        cur_obj_rotate_yaw_toward(obj_angle_to_object(o, nearest_player_to_object(o)), 0x190);
         o->oTimer = 0;
     }
 }
@@ -255,14 +258,30 @@ static void chain_chomp_sub_act_lunge(void) {
 /**
  * Fall to the ground and interrupt mario into a cutscene action.
  */
+/* sm64coopdx: only the player nearest to the wooden post is taken into the cutscene; the other one just sees the chain chomp run loose. This says whether it is
+ * this console's player (decided when the cutscene starts, so it cannot flip halfway). */
+static s32 sChompCutsceneHere;
+static s32 sChompCutsceneSet;
+
 static void chain_chomp_released_trigger_cutscene(void) {
     o->oForwardVel = 0.0f;
     o->oGravity = -4.0f;
 
-    //! Can delay this if we get into a cutscene-unfriendly action after the
-    //  last post ground pound and before this
-    if (set_mario_npc_dialog(2) == 2 && (o->oMoveFlags & OBJ_MOVE_MASK_ON_GROUND)
-        && cutscene_object(CUTSCENE_STAR_SPAWN, o) == 1) {
+    if (!sChompCutsceneSet) {
+        struct Object *woodenPost = cur_obj_nearest_object_with_behavior(bhvWoodenPost);
+        sChompCutsceneHere = (woodenPost == NULL) || nearest_player_to_object(woodenPost) == gMarioObject;
+        sChompCutsceneSet = TRUE;
+    }
+
+    if (sChompCutsceneHere) {
+        //! Can delay this if we get into a cutscene-unfriendly action after the
+        //  last post ground pound and before this
+        if (set_mario_npc_dialog(2) == 2 && (o->oMoveFlags & OBJ_MOVE_MASK_ON_GROUND)
+            && cutscene_object(CUTSCENE_STAR_SPAWN, o) == 1) {
+            o->oChainChompReleaseStatus = CHAIN_CHOMP_RELEASED_LUNGE_AROUND;
+            o->oTimer = 0;
+        }
+    } else if (o->oMoveFlags & OBJ_MOVE_MASK_ON_GROUND) {
         o->oChainChompReleaseStatus = CHAIN_CHOMP_RELEASED_LUNGE_AROUND;
         o->oTimer = 0;
     }
@@ -277,21 +296,15 @@ static void chain_chomp_released_lunge_around(void) {
 
     // Finish bounce
     if (o->oMoveFlags & OBJ_MOVE_MASK_ON_GROUND) {
-        // Before first bounce, turn toward mario and wait 2 seconds
+        // (sm64coopdx: no wait before the first bounce, so both consoles start it at once)
         if (o->oChainChompNumLunges == 0) {
-            if (cur_obj_rotate_yaw_toward(o->oAngleToMario, 0x320)) {
-                if (o->oTimer > 60) {
-                    o->oChainChompNumLunges += 1;
-                    // enable wall collision
-                    o->oWallHitboxRadius = 200.0f;
-                }
-            } else {
-                o->oTimer = 0;
-            }
+            o->oChainChompNumLunges += 1;
+            // enable wall collision
+            o->oWallHitboxRadius = 200.0f;
         } else {
             if (++o->oChainChompNumLunges <= 5) {
                 cur_obj_play_sound_2(SOUND_GENERAL_CHAIN_CHOMP1);
-                o->oMoveAngleYaw = o->oAngleToMario + random_sign() * 0x2000;
+                o->oMoveAngleYaw = cur_obj_angle_to_home() + random_sign() * 0x2000;
                 o->oForwardVel = 30.0f;
                 o->oVelY = 50.0f;
             } else {
@@ -346,7 +359,9 @@ static void chain_chomp_released_jump_away(void) {
  * Release mario and transition to the unload chain action.
  */
 static void chain_chomp_released_end_cutscene(void) {
-    if (cutscene_object(CUTSCENE_STAR_SPAWN, o) == -1) {
+    if (!sChompCutsceneSet || !sChompCutsceneHere) { /* (sm64coopdx: the player that was not in the cutscene has nothing to wait for) */
+        o->oAction = CHAIN_CHOMP_ACT_UNLOAD_CHAIN;
+    } else if (cutscene_object(CUTSCENE_STAR_SPAWN, o) == -1) {
         set_mario_npc_dialog(0);
         o->oAction = CHAIN_CHOMP_ACT_UNLOAD_CHAIN;
     }
@@ -360,7 +375,7 @@ static void chain_chomp_act_move(void) {
     f32 maxDistToPivot;
 
     // Unload chain if mario is far enough
-    if (o->oChainChompReleaseStatus == CHAIN_CHOMP_NOT_RELEASED && o->oDistanceToMario > PSP_SPAWN_DIST(4000.0f)) {
+    if (o->oChainChompReleaseStatus == CHAIN_CHOMP_NOT_RELEASED && dist_between_objects(o, nearest_player_to_object(o)) > PSP_SPAWN_DIST(4000.0f)) {
         o->oAction = CHAIN_CHOMP_ACT_UNLOAD_CHAIN;
         o->oForwardVel = o->oVelY = 0.0f;
     } else {
@@ -459,6 +474,7 @@ static void chain_chomp_act_unload_chain(void) {
     mem_pool_free(gObjectMemoryPool, o->oChainChompSegments);
 
     o->oAction = CHAIN_CHOMP_ACT_UNINITIALIZED;
+    sChompCutsceneSet = FALSE;
 
     if (o->oChainChompReleaseStatus != CHAIN_CHOMP_NOT_RELEASED) {
         obj_mark_for_deletion(o);
@@ -502,6 +518,7 @@ void bhv_wooden_post_update(void) {
         if (o->parentObj != o) {
             play_puzzle_jingle();
             o->parentObj->oChainChompReleaseStatus = CHAIN_CHOMP_RELEASED_TRIGGER_CUTSCENE;
+            psp_np_world_chomp_freed(o->parentObj); /* (WLAN multiplayer: the other console sets its chomp free too) */
             o->parentObj = o;
         }
     }
@@ -509,20 +526,22 @@ void bhv_wooden_post_update(void) {
     if (o->oWoodenPostOffsetY != 0.0f) {
         o->oPosY = o->oHomeY + o->oWoodenPostOffsetY;
     } else if (!(o->oBehParams & WOODEN_POST_BP_NO_COINS_MASK)) {
-        // Reset the timer once mario is far enough
-        if (o->oDistanceToMario > 400.0f) {
+        // Reset the timer once mario is far enough (sm64coopdx: the nearest player)
+        struct Object *player = nearest_player_to_object(o);
+        const s16 angleToPlayer = obj_angle_to_object(o, player);
+        if (dist_between_objects(o, player) > 400.0f) {
             o->oTimer = o->oWoodenPostTotalMarioAngle = 0;
         } else {
             // When mario runs around the post 3 times within 200 frames, spawn
             // coins
-            o->oWoodenPostTotalMarioAngle += (s16)(o->oAngleToMario - o->oWoodenPostPrevAngleToMario);
+            o->oWoodenPostTotalMarioAngle += (s16)(angleToPlayer - o->oWoodenPostPrevAngleToMario);
             if (absi(o->oWoodenPostTotalMarioAngle) > 0x30000 && o->oTimer < 200) {
                 obj_spawn_loot_yellow_coins(o, 5, 20.0f);
                 set_object_respawn_info_bits(o, 1);
             }
         }
 
-        o->oWoodenPostPrevAngleToMario = o->oAngleToMario;
+        o->oWoodenPostPrevAngleToMario = angleToPlayer;
     }
 }
 
@@ -537,7 +556,7 @@ void bhv_chain_chomp_gate_init(void) {
  * Update function for chain chomp gate
  */
 void bhv_chain_chomp_gate_update(void) {
-    if (o->parentObj->oChainChompHitGate) {
+    if (o->parentObj != NULL && o->parentObj->oChainChompHitGate) {
         spawn_mist_particles_with_sound(SOUND_GENERAL_WALL_EXPLOSION);
         set_camera_shake_from_point(SHAKE_POS_SMALL, o->oPosX, o->oPosY, o->oPosZ);
         spawn_mist_particles_variable(0, 0x7F, 200.0f);

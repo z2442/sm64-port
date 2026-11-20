@@ -2199,6 +2199,12 @@ s32 cur_obj_is_mario_ground_pounding_platform(void) {
             return TRUE;
         }
     }
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    /* sm64coopdx checks every player: the other one pounding on the platform counts too (the post of the chain chomp, the Whomp, the water pillar...) */
+    if (psp_np_world_remote_on(o) && psp_np_game_remote_action() == ACT_GROUND_POUND_LAND) {
+        return TRUE;
+    }
+#endif
 
     return FALSE;
 }
@@ -2311,6 +2317,76 @@ s32 cur_obj_is_mario_on_platform(void) {
     } else {
         return FALSE;
     }
+}
+
+/* sm64coopdx: is_point_within_radius_of_mario for every player (the other player's model too) */
+s32 is_point_within_radius_of_any_player(f32 x, f32 y, f32 z, s32 dist) {
+    f32 dx = x - gMarioObject->header.gfx.pos[0];
+    f32 dy = y - gMarioObject->header.gfx.pos[1];
+    f32 dz = z - gMarioObject->header.gfx.pos[2];
+    if (sqrtf(dx * dx + dy * dy + dz * dz) < (f32) dist) { /* (what is_point_within_radius_of_mario does) */
+        return TRUE;
+    }
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    if (psp_np_world_remote_within(x, y, z, (float) dist)) {
+        return TRUE;
+    }
+#endif
+    return FALSE;
+}
+
+/* Like sm64coopdx: any player standing on the object counts (in the WLAN multiplayer, the other player's model too). */
+s32 cur_obj_is_any_player_on_platform(void) {
+    if (gMarioObject->platform == o) {
+        return TRUE;
+    }
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    if (psp_np_world_remote_on(o)) {
+        return TRUE;
+    }
+#endif
+    return FALSE;
+}
+
+/* How many players stand on the object, and the average of their positions (what sm64coopdx's tilting platforms follow). */
+s32 cur_obj_players_on_platform(f32 *x, f32 *y, f32 *z) {
+    s32 n = 0;
+    *x = *y = *z = 0.0f;
+    if (gMarioObject->platform == o) {
+        *x += gMarioObject->oPosX;
+        *y += gMarioObject->oPosY;
+        *z += gMarioObject->oPosZ;
+        n++;
+    }
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    {
+        struct Object *r = psp_np_game_remote();
+        if (r != NULL && psp_np_world_remote_on(o)) {
+            *x += r->oPosX;
+            *y += r->oPosY;
+            *z += r->oPosZ;
+            n++;
+        }
+    }
+#endif
+    if (n > 1) {
+        *x /= (f32) n;
+        *y /= (f32) n;
+        *z /= (f32) n;
+    }
+    return n;
+}
+
+/* The player nearest to the object: Mario's object, or in the WLAN multiplayer the other player's model if it is nearer. */
+struct Object *nearest_player_to_object(struct Object *obj) {
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    struct Object *p = psp_np_world_nearest_player(obj);
+    if (p != NULL) {
+        return p;
+    }
+#endif
+    (void) obj;
+    return gMarioObject;
 }
 
 s32 cur_obj_shake_y_until(s32 cycles, s32 amount) {
@@ -2543,6 +2619,29 @@ void enable_time_stop(void) {
     gTimeStopState |= TIME_STOP_ENABLED;
 }
 
+/* (WLAN multiplayer) sm64coopdx stops time for a text, a sign or a star dance only while the player is alone: with two players the other one goes on
+ * playing, and the objects it drives would freeze on this console only (a boss stopped halfway here while the other console moves it on left this player
+ * stuck in the text). The object that started the text keeps its ACTIVE_FLAG_INITIATED_TIME_STOP: it still says "a text is running in this copy". */
+s32 time_stop_alone(void) {
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    return psp_netplay_state() != PSP_NP_CONNECTED;
+#else
+    return TRUE;
+#endif
+}
+
+void enable_time_stop_if_alone(void) {
+    if (time_stop_alone()) {
+        gTimeStopState |= TIME_STOP_ENABLED;
+    }
+}
+
+void set_time_stop_flags_if_alone(s32 flags) {
+    if (time_stop_alone()) {
+        gTimeStopState |= flags;
+    }
+}
+
 void disable_time_stop(void) {
     gTimeStopState &= ~TIME_STOP_ENABLED;
 }
@@ -2598,7 +2697,7 @@ s32 cur_obj_update_dialog(s32 actionArg, s32 dialogFlags, s32 dialogID, UNUSED s
             //  allows us to move during time stop as long as Mario never enters
             //  an action that can be interrupted with text.
             if (psp_np_world_dialog_ok(o) && gMarioState->health >= 0x100) {
-                gTimeStopState |= TIME_STOP_ENABLED;
+                enable_time_stop_if_alone();
                 o->activeFlags |= ACTIVE_FLAG_INITIATED_TIME_STOP;
                 o->oDialogState++;
             }
@@ -2608,7 +2707,7 @@ s32 cur_obj_update_dialog(s32 actionArg, s32 dialogFlags, s32 dialogID, UNUSED s
             // Patched :(
             // Wait for Mario to be ready to speak, and then enable time stop
             if (psp_np_world_dialog_ok(o) && (mario_ready_to_speak() || gMarioState->action == ACT_READING_NPC_DIALOG)) {
-                gTimeStopState |= TIME_STOP_ENABLED;
+                enable_time_stop_if_alone();
                 o->activeFlags |= ACTIVE_FLAG_INITIATED_TIME_STOP;
                 o->oDialogState++;
             } else {
@@ -2675,7 +2774,7 @@ s32 cur_obj_update_dialog_with_cutscene(s32 actionArg, s32 dialogFlags, s32 cuts
             //  allows us to move during time stop as long as Mario never enters
             //  an action that can be interrupted with text.
             if (psp_np_world_dialog_ok(o) && gMarioState->health >= 0x0100) {
-                gTimeStopState |= TIME_STOP_ENABLED;
+                enable_time_stop_if_alone();
                 o->activeFlags |= ACTIVE_FLAG_INITIATED_TIME_STOP;
                 o->oDialogState++;
                 o->oDialogResponse = 0;
@@ -2685,7 +2784,7 @@ s32 cur_obj_update_dialog_with_cutscene(s32 actionArg, s32 dialogFlags, s32 cuts
         case DIALOG_UNK2_ENABLE_TIME_STOP:
             // Wait for Mario to be ready to speak, and then enable time stop
             if (psp_np_world_dialog_ok(o) && (mario_ready_to_speak() || gMarioState->action == ACT_READING_NPC_DIALOG)) {
-                gTimeStopState |= TIME_STOP_ENABLED;
+                enable_time_stop_if_alone();
                 o->activeFlags |= ACTIVE_FLAG_INITIATED_TIME_STOP;
                 o->oDialogState++;
                 o->oDialogResponse = 0;

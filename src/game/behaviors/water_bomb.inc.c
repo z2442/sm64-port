@@ -31,13 +31,34 @@ static struct ObjectHitbox sWaterBombHitbox = {
 void bhv_water_bomb_spawner_update(void) {
     f32 latDistToMario;
     f32 spawnerRadius;
+    /* sm64coopdx: the bomb falls on the player nearest to the spawner, this console's or the other one */
+    struct Object *player = gMarioObject;
+    f32 playerVel = gMarioStates[0].forwardVel;
+    s16 playerYaw = gMarioObject->oMoveAngleYaw;
 
     spawnerRadius = 50 * (u16)(o->oBehParams >> 16) + 200.0f;
     latDistToMario = lateral_dist_between_objects(o, gMarioObject);
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    {
+        struct Object *remote = psp_np_game_remote();
+        struct MarioState *remoteState = psp_np_game_remote_state();
+        if (remote != NULL && remoteState != NULL && lateral_dist_between_objects(o, remote) < latDistToMario) {
+            player = remote;
+            playerVel = remoteState->forwardVel;
+            playerYaw = remoteState->faceAngle[1];
+            latDistToMario = lateral_dist_between_objects(o, remote);
+        }
+    }
+#endif
+
+    /* sm64coopdx: one bomb at a time, for the nearest player: only the console of that player makes it (the other one gets it announced) */
+    if (!psp_np_world_spawner_mine(o)) {
+        return;
+    }
 
     // When mario is in range and a water bomb isn't already active
     if (!o->oWaterBombSpawnerBombActive && latDistToMario < spawnerRadius
-        && gMarioObject->oPosY - o->oPosY < 1000.0f) {
+        && player->oPosY - o->oPosY < 1000.0f) {
         if (o->oWaterBombSpawnerTimeToSpawn != 0) {
             o->oWaterBombSpawnerTimeToSpawn -= 1;
         } else {
@@ -46,16 +67,19 @@ void bhv_water_bomb_spawner_update(void) {
 
             if (waterBomb != NULL) {
                 // Drop farther ahead of mario when he is moving faster
-                f32 waterBombDistToMario = 28.0f * gMarioStates[0].forwardVel + 100.0f;
+                f32 waterBombDistToMario = 28.0f * playerVel + 100.0f;
 
                 waterBomb->oAction = WATER_BOMB_ACT_INIT;
 
-                waterBomb->oPosX =
-                    gMarioObject->oPosX + waterBombDistToMario * sins(gMarioObject->oMoveAngleYaw);
-                waterBomb->oPosZ =
-                    gMarioObject->oPosZ + waterBombDistToMario * coss(gMarioObject->oMoveAngleYaw);
+                waterBomb->oPosX = player->oPosX + waterBombDistToMario * sins(playerYaw);
+                waterBomb->oPosZ = player->oPosZ + waterBombDistToMario * coss(playerYaw);
 
                 spawn_object(waterBomb, MODEL_WATER_BOMB_SHADOW, bhvWaterBombShadow);
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+                /* (WLAN multiplayer, sm64coopdx network_send_spawn_objects) the other console makes the same bomb: spawn_object_relative does not
+                 * go through psp_np_world_spawned by itself */
+                psp_np_world_spawned(o, waterBomb, MODEL_WATER_BOMB, segmented_to_virtual(bhvWaterBomb));
+#endif
 
                 o->oWaterBombSpawnerBombActive = TRUE;
                 o->oWaterBombSpawnerTimeToSpawn = random_linear_offset(0, 50);
@@ -109,8 +133,23 @@ static void water_bomb_act_drop(void) {
 
     obj_set_hitbox(o, &sWaterBombHitbox);
 
+    s32 touched = (o->oInteractStatus & INT_STATUS_INTERACTED) != 0;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    /* (WLAN multiplayer) the bomb that lands on the other player explodes on this screen too, as it does on that player's console (where it hurts
+     * them); before, here it went through their model and kept bouncing */
+    if (!touched && psp_np_game_remote() != NULL && psp_np_game_remote_touches(o)) {
+        /* (only when the hit counts there: not while that player blinks after a hit, wears the vanish cap or is in an invulnerable or intangible
+         * action, where the bomb goes on bouncing on its console as well, see take_damage_and_knock_back) */
+        const struct MarioState *r = psp_np_game_remote_state();
+        if (r != NULL && r->invincTimer == 0 && !(r->flags & MARIO_VANISH_CAP)
+            && !(r->action & (ACT_FLAG_INVULNERABLE | ACT_FLAG_INTANGIBLE))) {
+            touched = TRUE;
+        }
+    }
+#endif
+
     // Explode if touched or if hit water
-    if ((o->oInteractStatus & INT_STATUS_INTERACTED) || (o->oMoveFlags & OBJ_MOVE_ENTERED_WATER)) {
+    if (touched || (o->oMoveFlags & OBJ_MOVE_ENTERED_WATER)) {
         create_sound_spawner(SOUND_OBJ_DIVING_IN_WATER);
         set_camera_shake_from_point(SHAKE_POS_SMALL, o->oPosX, o->oPosY, o->oPosZ);
         o->oAction = WATER_BOMB_ACT_EXPLODE;
@@ -127,8 +166,8 @@ static void water_bomb_act_drop(void) {
 
             set_camera_shake_from_point(SHAKE_POS_SMALL, o->oPosX, o->oPosY, o->oPosZ);
 
-            // Move toward mario
-            o->oMoveAngleYaw = o->oAngleToMario;
+            // Move toward the nearest player (sm64coopdx: it can be the other one)
+            o->oMoveAngleYaw = obj_angle_to_object(o, nearest_player_to_object(o));
             o->oForwardVel = 10.0f;
             o->oWaterBombStretchSpeed = -40.0f;
         }
@@ -167,7 +206,9 @@ static void water_bomb_act_drop(void) {
  */
 static void water_bomb_act_explode(void) {
     water_bomb_spawn_explode_particles(25, 60, 10);
-    o->parentObj->oWaterBombSpawnerBombActive = FALSE;
+    if (o->parentObj != NULL) {
+        o->parentObj->oWaterBombSpawnerBombActive = FALSE;
+    }
     obj_mark_for_deletion(o);
 }
 

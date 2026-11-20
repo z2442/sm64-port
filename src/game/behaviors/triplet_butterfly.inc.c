@@ -26,13 +26,21 @@ static void triplet_butterfly_act_init(void) {
     s32 i;
 
     butterflyNum = o->oBehParams2ndByte & TRIPLET_BUTTERFLY_BP_BUTTERFLY_NUM;
-    if (butterflyNum != 0 || o->oDistanceToMario < 200.0f) {
+    /* sm64coopdx: any player wakes them up (both consoles make the same three) */
+    if (butterflyNum != 0 || dist_between_objects(o, nearest_player_to_object(o)) < 200.0f) {
         if (butterflyNum == 0) {
             for (i = 1; i <= 2; i++) {
                 spawn_object_relative(i, 0, 0, 0, o, MODEL_BUTTERFLY, bhvTripletButterfly);
             }
 
             o->oTripletButterflySelectedButterfly = random_u16() % 3;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+            if (psp_netplay_state() == PSP_NP_CONNECTED) {
+                /* which of the three carries the 1-up: the same one on both consoles (from where they are), or each console would make its own 1-up
+                 * in a different butterfly and there would be two */
+                o->oTripletButterflySelectedButterfly = (u32) ((s32) o->oHomeX * 7 + (s32) o->oHomeZ * 13 + (s32) o->oHomeY) % 3;
+            }
+#endif
         }
 
         //! TODO: Describe this glitch
@@ -54,7 +62,8 @@ static void triplet_butterfly_act_init(void) {
 }
 
 static void triplet_butterfly_act_wander(void) {
-    if (o->oDistanceToMario > 1500.0f) {
+    const f32 distanceToPlayer = dist_between_objects(o, nearest_player_to_object(o)); /* (sm64coopdx: the nearest player) */
+    if (distanceToPlayer > 1500.0f) {
         obj_mark_for_deletion(o);
     } else {
         approach_f32_ptr(&o->oTripletButterflySpeed, 8.0f, 0.5f);
@@ -63,7 +72,7 @@ static void triplet_butterfly_act_wander(void) {
         } else {
             o->oTripletButterflyTargetYaw = (s32) o->oTripletButterflyBaseYaw;
 
-            if (o->oTimer > 110 && o->oDistanceToMario < 200.0f
+            if (o->oTimer > 110 && distanceToPlayer < 200.0f
                 && o->oTripletButterflyType > TRIPLET_BUTTERFLY_TYPE_NORMAL) {
                 o->oAction = TRIPLET_BUTTERFLY_ACT_ACTIVATE;
                 o->oTripletButterflySpeed = 0.0f;
@@ -138,7 +147,7 @@ static void triplet_butterfly_act_explode(void) {
         }
 
         approach_f32_ptr(&o->oTripletButterflySpeed, 20.0f, 1.0f);
-        cur_obj_rotate_yaw_toward(o->oAngleToMario, 800);
+        cur_obj_rotate_yaw_toward(obj_angle_to_object(o, nearest_player_to_object(o)), 800);
         obj_turn_pitch_toward_mario(-100.0f, 800);
     }
 }

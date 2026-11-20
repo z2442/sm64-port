@@ -5,6 +5,33 @@ void bhv_water_air_bubble_init(void) {
     cur_obj_scale(4.0f);
 }
 
+/* WLAN multiplayer (sm64coopdx's bhv_bubble_player_loop): it follows its player (the local Mario or the other player's model) and pops when that player
+ * is out of the bubble */
+void bhv_bubble_player_loop(void) {
+    struct Object *player = o->parentObj;
+    u32 action;
+    f32 scale;
+    if (player == NULL || player == o || player->activeFlags == ACTIVE_FLAG_DEACTIVATED) {
+        obj_mark_for_deletion(o);
+        return;
+    }
+    action = (player == gMarioObject) ? gMarioState->action : psp_np_game_remote_action();
+    if (action != ACT_BUBBLED || (player != gMarioObject && player != psp_np_game_remote())) {
+        spawn_mist_particles();
+        create_sound_spawner(SOUND_OBJ_DIVING_IN_WATER);
+        obj_mark_for_deletion(o);
+        return;
+    }
+    /* (the bubble sprite is 32 units, standing on its bottom edge: it is scaled to wrap the model and centred on its middle) */
+    scale = sins(gGlobalTimer * 800) * 0.3f + 7.0f;
+    o->header.gfx.scale[0] = scale;
+    o->header.gfx.scale[1] = sins(gGlobalTimer * 1500) * 0.4f + scale;
+    o->header.gfx.scale[2] = scale;
+    o->oPosX = player->header.gfx.pos[0];
+    o->oPosY = player->header.gfx.pos[1] + 60.0f - 16.0f * o->header.gfx.scale[1];
+    o->oPosZ = player->header.gfx.pos[2];
+}
+
 // Fields 0xF4 & 0xF8 seem to be angles for bubble and cannon
 
 void bhv_water_air_bubble_loop(void) {

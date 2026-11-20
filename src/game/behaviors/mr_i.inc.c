@@ -135,8 +135,8 @@ void mr_i_act_2(void) {
         o->oMrIUnk100 = 0;
         o->oMrIUnk104 = 0;
     }
-    obj_turn_toward_object(o, gMarioObject, 0x10, 0x800);
-    obj_turn_toward_object(o, gMarioObject, 0x0F, 0x400);
+    obj_turn_toward_object(o, nearest_player_to_object(o), 0x10, 0x800);
+    obj_turn_toward_object(o, nearest_player_to_object(o), 0x0F, 0x400);
     sp1C = sp1E - (s16)(o->oMoveAngleYaw);
     if (!sp1C) {
         o->oMrIUnkFC = 0;
@@ -184,9 +184,9 @@ void mr_i_act_1(void) {
     s16 sp1E;
     s16 sp1C;
     s16 sp1A;
-    sp1E = obj_angle_to_object(o, gMarioObject);
+    sp1E = obj_angle_to_object(o, nearest_player_to_object(o));
     sp1C = abs_angle_diff(o->oMoveAngleYaw, sp1E);
-    sp1A = abs_angle_diff(o->oMoveAngleYaw, gMarioObject->oFaceAngleYaw);
+    sp1A = abs_angle_diff(o->oMoveAngleYaw, nearest_player_to_object(o)->oFaceAngleYaw);
     if (o->oTimer == 0) {
         cur_obj_become_tangible();
         o->oMoveAnglePitch = 0;

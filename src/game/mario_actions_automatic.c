@@ -8,6 +8,10 @@
 #include "mario.h"
 #include "mario_step.h"
 #include "engine/math_util.h"
+#include "level_update.h"
+#include "object_helpers.h"
+#include "model_ids.h"
+#include "pc/psp_netplay.h"
 #include "memory.h"
 #include "engine/graph_node.h"
 #include "save_file.h"
@@ -847,6 +851,152 @@ s32 act_tornado_twirling(struct MarioState *m) {
     return FALSE;
 }
 
+/*
+ * WLAN multiplayer, sm64coopdx's bubble: a player that dies (or falls into the void) while the other one is in the same area, alive, becomes a bubble
+ * (one life less) that floats wherever its stick takes it (A up, Z down) and looks at the other player; it pops when it touches that player, and this one
+ * is back with a little health. If the other player dies too, or goes away, the death goes on as in the game.
+ */
+static s32 sBubbleCounter; /* frames before a fresh bubble can be popped */
+static struct Object *sBubble; /* the bubble around this player (bhvBubblePlayer) */
+
+s32 mario_can_bubble(struct MarioState *m) {
+    float pos[3];
+    if (m != gMarioState || m->action == ACT_BUBBLED || m->numLives <= 0) {
+        return FALSE;
+    }
+    return psp_np_world_rescuer(pos);
+}
+
+void mario_set_bubbled(struct MarioState *m) {
+    if (m->action == ACT_BUBBLED) {
+        return;
+    }
+    sBubbleCounter = 20;
+    drop_and_set_mario_action(m, ACT_BUBBLED, 0);
+    if (m->numLives > 0) {
+        m->numLives--;
+    }
+    m->healCounter = 0;
+    m->hurtCounter = 31;
+    gCamera->cutscene = 0;
+    m->statusForCamera->action = m->action;
+    m->statusForCamera->cameraEvent = 0;
+    m->marioObj->activeFlags |= ACTIVE_FLAG_MOVE_THROUGH_GRATE;
+}
+
+static void mario_pop_bubble(struct MarioState *m) {
+    m->marioObj->activeFlags &= ~ACTIVE_FLAG_MOVE_THROUGH_GRATE;
+    m->hurtCounter = 0;
+    m->healCounter = 31;
+    m->health = 0x100;
+    m->marioObj->oIntangibleTimer = 0;
+    m->peakHeight = m->pos[1];
+    mario_set_forward_vel(m, 0.0f);
+    m->vel[1] = 0.0f;
+    m->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
+    m->invincTimer = 30 * 3;
+    m->statusForCamera->action = m->action;
+    set_mario_action(m, (m->pos[1] < m->waterLevel) ? ACT_WATER_IDLE : ACT_FREEFALL, 0);
+}
+
+/* the model is drawn in the middle of the bubble (sm64coopdx's bubbled_offset_visual) */
+static void bubbled_offset_visual(struct MarioState *m) {
+    Vec3f forward, right, up;
+    Vec3f globalUp = { 0.0f, 1.0f, 0.0f };
+    forward[0] = sins(m->faceAngle[1]) * coss(m->faceAngle[0]);
+    forward[1] = -sins(m->faceAngle[0]);
+    forward[2] = coss(m->faceAngle[1]) * coss(m->faceAngle[0]);
+    vec3f_normalize(forward);
+    vec3f_cross(right, forward, globalUp);
+    vec3f_normalize(right);
+    vec3f_cross(up, right, forward);
+    vec3f_normalize(up);
+    m->marioObj->header.gfx.pos[0] += forward[0] * 25.0f - up[0] * 35.0f;
+    m->marioObj->header.gfx.pos[1] += forward[1] * 25.0f - up[1] * 35.0f + 35.0f;
+    m->marioObj->header.gfx.pos[2] += forward[2] * 25.0f - up[2] * 35.0f;
+}
+
+static s32 act_bubbled(struct MarioState *m) {
+    float target[3];
+    s16 oldPitch = m->faceAngle[0], oldYaw = m->faceAngle[1];
+    s16 angleToPlayer, pitchToPlayer;
+    f32 dx, dy, dz, distanceToPlayer;
+    Vec3f oldVel;
+    s32 i;
+
+    if (!psp_np_world_rescuer(target)) {
+        /* nobody left to pop it (the other player died too, or left): the death goes on */
+        m->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
+        level_trigger_warp(m, WARP_OP_DEATH);
+        return set_mario_action(m, ACT_SOFT_BONK, 0);
+    }
+    if (m->area->camera->mode == CAMERA_MODE_WATER_SURFACE) {
+        set_camera_mode(m->area->camera, CAMERA_MODE_FREE_ROAM, 1);
+    }
+    dx = target[0] - m->pos[0];
+    dy = target[1] - m->pos[1];
+    dz = target[2] - m->pos[2];
+    distanceToPlayer = sqrtf(dx * dx + dy * dy + dz * dz);
+    angleToPlayer = atan2s(dz, dx);
+    pitchToPlayer = atan2s(sqrtf(dx * dx + dz * dz), -dy);
+
+    if (m->heldObj != NULL) {
+        mario_drop_held_object(m);
+    }
+    m->marioObj->oIntangibleTimer = -1;
+    m->squishTimer = 0;
+    m->bounceSquishTimer = 0;
+    set_mario_animation(m, MARIO_ANIM_SLEEP_IDLE);
+
+    /* the stick moves it, A up, Z down */
+    m->faceAngle[0] = 0;
+    m->faceAngle[1] = m->intendedYaw;
+    m->forwardVel = m->intendedMag * 1.6f;
+    if (m->input & INPUT_A_DOWN) {
+        m->vel[1] += 5.5f;
+    }
+    if (m->input & INPUT_Z_DOWN) {
+        m->vel[1] -= 5.5f;
+    }
+    vec3f_copy(oldVel, m->vel);
+    set_vel_from_pitch_and_yaw(m);
+    for (i = 0; i < 3; i++) {
+        m->vel[i] = oldVel[i] * 0.9f + m->vel[i] * 0.1f;
+    }
+    switch (perform_air_step(m, 0)) {
+        case AIR_STEP_LANDED:
+            m->vel[1] += 10.0f;
+            break;
+        case AIR_STEP_HIT_WALL:
+        case AIR_STEP_HIT_LAVA_WALL:
+            m->vel[0] *= -0.99f;
+            m->vel[2] *= -0.99f;
+            break;
+    }
+
+    /* it always looks at the other player */
+    m->faceAngle[0] = pitchToPlayer - approach_s32((s16) (pitchToPlayer - oldPitch), 0, 0x600, 0x600);
+    m->faceAngle[1] = angleToPlayer - approach_s32((s16) (angleToPlayer - oldYaw), 0, 0x600, 0x600);
+    m->marioObj->header.gfx.angle[0] = m->faceAngle[0];
+    m->marioObj->header.gfx.angle[1] = m->faceAngle[1];
+    bubbled_offset_visual(m);
+    m->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
+
+    /* its bubble */
+    if (sBubble == NULL || sBubble->behavior != segmented_to_virtual(bhvBubblePlayer) || sBubble->activeFlags == ACTIVE_FLAG_DEACTIVATED
+        || sBubble->parentObj != m->marioObj) {
+        sBubble = spawn_object(m->marioObj, MODEL_BUBBLE, bhvBubblePlayer);
+    }
+
+    if (sBubbleCounter > 0) {
+        sBubbleCounter--;
+    } else if (distanceToPlayer < 120.0f) {
+        mario_pop_bubble(m);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 s32 check_common_automatic_cancels(struct MarioState *m) {
     if (m->pos[1] < m->waterLevel - 100) {
         return set_water_plunge_action(m);
@@ -883,6 +1033,7 @@ s32 mario_execute_automatic_action(struct MarioState *m) {
         case ACT_GRABBED:                cancel = act_grabbed(m);                break;
         case ACT_IN_CANNON:              cancel = act_in_cannon(m);              break;
         case ACT_TORNADO_TWIRLING:       cancel = act_tornado_twirling(m);       break;
+        case ACT_BUBBLED:                cancel = act_bubbled(m);                break;
     }
     /* clang-format on */
 

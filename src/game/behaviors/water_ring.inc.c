@@ -1,9 +1,20 @@
 // water_ring.c.inc
 
+/* sm64coopdx: a ring is passed by the player nearest to it (the other player's model too), so both consoles count the same rings.
+ * The rings of the manta ray are the exception: each console counts its own player there and tells the other one (the count
+ * is the manta's, see psp_np_world_signal_ex), since its rings are made by one console and copied to the other. */
+static struct Object *water_ring_player(void) {
+    if (o->behavior == segmented_to_virtual(bhvMantaRayWaterRing)) {
+        return gMarioObject;
+    }
+    return nearest_player_to_object(o);
+}
+
 f32 water_ring_calc_mario_dist(void) {
-    f32 marioDistX = o->oPosX - gMarioObject->header.gfx.pos[0];
-    f32 marioDistY = o->oPosY - (gMarioObject->header.gfx.pos[1] + 80.0f);
-    f32 marioDistZ = o->oPosZ - gMarioObject->header.gfx.pos[2];
+    struct Object *player = water_ring_player();
+    f32 marioDistX = o->oPosX - player->header.gfx.pos[0];
+    f32 marioDistY = o->oPosY - (player->header.gfx.pos[1] + 80.0f);
+    f32 marioDistZ = o->oPosZ - player->header.gfx.pos[2];
     f32 marioDistInFront = marioDistX * o->oWaterRingNormalX + marioDistY * o->oWaterRingNormalY
                            + marioDistZ * o->oWaterRingNormalZ;
 
@@ -47,9 +58,10 @@ void bhv_jet_stream_water_ring_init(void) {
 void water_ring_check_collection(f32 avgScale, struct Object *ringManager) {
     f32 marioDistInFront = water_ring_calc_mario_dist();
     struct Object *ringSpawner;
+    struct Object *player = water_ring_player();
 
-    if (!is_point_close_to_object(o, gMarioObject->header.gfx.pos[0],
-                              gMarioObject->header.gfx.pos[1] + 80.0f, gMarioObject->header.gfx.pos[2],
+    if (!is_point_close_to_object(o, player->header.gfx.pos[0],
+                              player->header.gfx.pos[1] + 80.0f, player->header.gfx.pos[2],
                               (avgScale + 0.2) * 120.0)) {
         o->oWaterRingMarioDistInFront = marioDistInFront;
         return;
@@ -75,6 +87,11 @@ void water_ring_check_collection(f32 avgScale, struct Object *ringManager) {
                 ringManager->oWaterRingMgrLastRingCollected = o->oWaterRingIndex;
             } else
                 ringSpawner->oWaterRingSpawnerRingsCollected = 0;
+            if (o->behavior == segmented_to_virtual(bhvMantaRayWaterRing)) {
+                // (WLAN multiplayer: the other console's manta counts it too, and its copy of this ring goes away)
+                psp_np_world_signal_ex(ringSpawner, PSP_NP_SIG_MANTA_RING, ringSpawner->oWaterRingSpawnerRingsCollected,
+                                       o->oWaterRingIndex);
+            }
         }
 
         o->oAction = WATER_RING_ACT_COLLECTED;

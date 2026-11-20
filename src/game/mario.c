@@ -1178,6 +1178,9 @@ s32 transition_submerged_to_walking(struct MarioState *m) {
  * non-submerged action. This also applies the water surface camera preset.
  */
 s32 set_water_plunge_action(struct MarioState *m) {
+    if (m->action == ACT_BUBBLED) {
+        return FALSE; /* (sm64coopdx: a bubble floats through the water) */
+    }
     m->forwardVel = m->forwardVel / 4.0f;
     m->vel[1] = m->vel[1] / 2.0f;
 
@@ -1735,7 +1738,9 @@ static s32 execute_mario_action_impl(UNUSED struct Object *o) {
     }
 
     if (gMarioState->action) {
-        gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
+        if (gMarioState->action != ACT_BUBBLED) {
+            gMarioState->marioObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
+        }
         mario_reset_bodystate(gMarioState);
         update_mario_inputs(gMarioState);
         mario_handle_special_floors(gMarioState);

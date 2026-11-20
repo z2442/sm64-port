@@ -27,7 +27,7 @@ void bhv_controllable_platform_sub_loop(void) {
             if (o->oTimer < 30)
                 break;
 
-            if (gMarioObject->platform == o) {
+            if (cur_obj_is_any_player_on_platform()) {
                 D_80331694 = o->oBehParams2ndByte;
                 o->oAction = 1;
                 cur_obj_play_sound_2(SOUND_GENERAL_MOVING_PLATFORM_SWITCH);

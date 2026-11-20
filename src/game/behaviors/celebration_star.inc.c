@@ -1,10 +1,16 @@
 // celebration_star.c.inc
 
+/* (sm64coopdx: around the player that spawned it, which in the WLAN multiplayer may be the other player's model, see psp_np_game_apply) */
+static struct Object *celeb_star_player(void) {
+    return (o->parentObj != NULL && o->parentObj != o) ? o->parentObj : gMarioObject;
+}
+
 void bhv_celebration_star_init(void) {
-    o->oHomeX = gMarioObject->header.gfx.pos[0];
-    o->oPosY = gMarioObject->header.gfx.pos[1] + 30.0f;
-    o->oHomeZ = gMarioObject->header.gfx.pos[2];
-    o->oMoveAngleYaw = gMarioObject->header.gfx.angle[1] + 0x8000;
+    struct Object *player = celeb_star_player();
+    o->oHomeX = player->header.gfx.pos[0];
+    o->oPosY = player->header.gfx.pos[1] + 30.0f;
+    o->oHomeZ = player->header.gfx.pos[2];
+    o->oMoveAngleYaw = player->header.gfx.angle[1] + 0x8000;
     o->oCelebStarDiameterOfRotation = 100;
 #if BUGFIX_STAR_BOWSER_KEY
     if (gCurrLevelNum == LEVEL_BOWSER_1 || gCurrLevelNum == LEVEL_BOWSER_2) {
@@ -58,7 +64,7 @@ void celeb_star_act_face_camera(void) {
 #endif
         o->oFaceAngleYaw += 0x1000;
     } else {
-        o->oFaceAngleYaw = gMarioObject->header.gfx.angle[1];
+        o->oFaceAngleYaw = celeb_star_player()->header.gfx.angle[1];
     }
 
     if (o->oTimer == 59)

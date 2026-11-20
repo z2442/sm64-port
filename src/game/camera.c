@@ -1565,10 +1565,29 @@ s32 update_boss_fight_camera(struct Camera *c, Vec3f focus, Vec3f pos) {
     }
 
     yaw = sModeOffsetYaw + DEGREES(45);
+    {
+        /* WLAN multiplayer: the boss camera follows Bowser's key, and when the other player takes it this console deletes its copy. The pointer stayed,
+         * on an empty slot that the next objects (sparkles, smoke) took over one after another, and the camera jumped after them. A focus that is gone
+         * (deleted, or its slot now holds another kind of object) is dropped: the camera goes round the arena's center, as with no boss */
+        static struct Object *sFocusObj;
+        static const BehaviorScript *sFocusBhv;
+        if (gSecondCameraFocus != sFocusObj) {
+            sFocusObj = gSecondCameraFocus;
+            sFocusBhv = (sFocusObj != NULL) ? sFocusObj->behavior : NULL;
+        }
+        if (gSecondCameraFocus != NULL && (gSecondCameraFocus->activeFlags == ACTIVE_FLAG_DEACTIVATED || gSecondCameraFocus->behavior != sFocusBhv)) {
+            gSecondCameraFocus = sFocusObj = NULL;
+        }
+    }
     // Get boss's position and whether Mario is holding it.
     if ((o = gSecondCameraFocus) != NULL) {
         object_pos_to_vec3f(secondFocus, o);
         heldState = o->oHeldState;
+
+        // for coop: if bowser is being held by someone else, don't alter the camera to prevent camera oscillations (sm64coopdx)
+        if (gMarioStates[0].heldObj == NULL) {
+            heldState = 0;
+        }
     } else {
     // If no boss is there, just rotate around the area's center point.
         secondFocus[0] = c->areaCenX;
@@ -8930,7 +8949,7 @@ BAD_RETURN(s32) cutscene_dialog_start(struct Camera *c) {
 
 
     cutscene_soften_music(c);
-    set_time_stop_flags(TIME_STOP_ENABLED | TIME_STOP_DIALOG);
+    set_time_stop_flags_if_alone(TIME_STOP_ENABLED | TIME_STOP_DIALOG); /* (sm64coopdx: only alone) */
 
 #ifndef VERSION_JP
     if (c->mode == CAMERA_MODE_BOSS_FIGHT) {
@@ -9092,7 +9111,7 @@ BAD_RETURN(s32) cutscene_read_message(struct Camera *c) {
         case 0:
             if (get_dialog_id() != -1) {
                 sCutsceneVars[0].angle[0] += 1;
-                set_time_stop_flags(TIME_STOP_ENABLED | TIME_STOP_DIALOG);
+                set_time_stop_flags_if_alone(TIME_STOP_ENABLED | TIME_STOP_DIALOG); /* (sm64coopdx: only alone) */
             }
             break;
         // Leave the dialog.

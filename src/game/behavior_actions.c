@@ -43,6 +43,7 @@
 #include "sm64.h"
 #include "spawn_object.h"
 #include "spawn_sound.h"
+#include "sound_init.h"
 #include "thread6.h"
 
 #define o gCurrentObject

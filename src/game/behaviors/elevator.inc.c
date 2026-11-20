@@ -6,28 +6,30 @@ void elevator_starting_shake(void) {
 }
 
 void elevator_act_0(void) {
+    struct Object *player = nearest_player_to_object(o); /* (sm64coopdx: the nearest player decides which way it goes, any player on it sets it off) */
+    const s32 onPlatform = cur_obj_is_any_player_on_platform();
     o->oVelY = 0;
     if (o->oElevatorUnk100 == 2) {
-        if (gMarioObject->platform == o) {
+        if (onPlatform) {
             if (o->oPosY > o->oElevatorUnkFC)
                 o->oAction = 2;
             else
                 o->oAction = 1;
         }
-    } else if (gMarioObject->oPosY > o->oElevatorUnkFC || o->oElevatorUnk100 == 1) {
+    } else if (player->oPosY > o->oElevatorUnkFC || o->oElevatorUnk100 == 1) {
         o->oPosY = o->oElevatorUnkF8;
-        if (gMarioObject->platform == o)
+        if (onPlatform)
             o->oAction = 2;
     } else {
         o->oPosY = o->oElevatorUnkF4;
-        if (gMarioObject->platform == o)
+        if (onPlatform)
             o->oAction = 1;
     }
 }
 
 void elevator_act_1(void) {
     cur_obj_play_sound_1(SOUND_ENV_ELEVATOR1);
-    if (o->oTimer == 0 && cur_obj_is_mario_on_platform())
+    if (o->oTimer == 0 && cur_obj_is_any_player_on_platform())
         elevator_starting_shake();
     approach_f32_signed(&o->oVelY, 10.0f, 2.0f);
     o->oPosY += o->oVelY;
@@ -45,7 +47,7 @@ void elevator_act_1(void) {
 void elevator_act_2(void) // Pretty similar code to action 1
 {
     cur_obj_play_sound_1(SOUND_ENV_ELEVATOR1);
-    if (o->oTimer == 0 && cur_obj_is_mario_on_platform())
+    if (o->oTimer == 0 && cur_obj_is_any_player_on_platform())
         elevator_starting_shake();
     approach_f32_signed(&o->oVelY, -10.0f, -2.0f);
     o->oPosY += o->oVelY;
@@ -68,7 +70,7 @@ void elevator_act_4(void) {
         cur_obj_shake_screen(SHAKE_POS_SMALL);
         cur_obj_play_sound_2(SOUND_GENERAL_METAL_POUND);
     }
-    if (!mario_is_in_air_action() && !cur_obj_is_mario_on_platform())
+    if (!mario_is_in_air_action() && !cur_obj_is_any_player_on_platform())
         o->oAction = 1;
 }
 
@@ -79,7 +81,7 @@ void elevator_act_3(void) // nearly identical to action 2
         cur_obj_shake_screen(SHAKE_POS_SMALL);
         cur_obj_play_sound_2(SOUND_GENERAL_METAL_POUND);
     }
-    if (!mario_is_in_air_action() && !cur_obj_is_mario_on_platform())
+    if (!mario_is_in_air_action() && !cur_obj_is_any_player_on_platform())
         o->oAction = 0;
 }
 

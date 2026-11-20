@@ -112,7 +112,8 @@ void bhv_moving_blue_coin_loop(void) {
 
     switch (o->oAction) {
         case MOV_BCOIN_ACT_STILL:
-            if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 1500))
+            if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 1500)
+                || psp_np_world_remote_within(o->oPosX, o->oPosY, o->oPosZ, 1500)) // (either player, sm64coopdx)
                 o->oAction = 1;
             break;
 
@@ -152,14 +153,15 @@ void blue_coin_sliding_away_from_mario(void) {
     s16 collisionFlags;
 
     o->oForwardVel = 15.0;
-    o->oMoveAngleYaw = o->oAngleToMario + 0x8000;
+    o->oMoveAngleYaw = obj_angle_to_object(o, nearest_player_to_object(o)) + 0x8000; // (away from the nearest player, sm64coopdx)
 
     if (coin_step(&collisionFlags) != 0)
         o->oVelY += 18.0f;
     if ((collisionFlags & 0x2) != 0)
         o->oAction = 3; /* bit 1 */
 
-    if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 1000) == 0)
+    if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 1000) == 0
+        && !psp_np_world_remote_within(o->oPosX, o->oPosY, o->oPosZ, 1000))
         o->oAction = 2;
 }
 
@@ -168,7 +170,8 @@ void blue_coin_sliding_slow_down(void) {
 
     coin_step(&collisionFlags);
 
-    if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 500) == 1)
+    if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 500) == 1
+        || psp_np_world_remote_within(o->oPosX, o->oPosY, o->oPosZ, 500))
         o->oAction = 1;
 
     if (o->oTimer >= 151)
@@ -180,7 +183,8 @@ void bhv_blue_coin_sliding_loop(void) {
 
     switch (o->oAction) {
         case 0:
-            if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 500) == 1)
+            if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 500) == 1
+                || psp_np_world_remote_within(o->oPosX, o->oPosY, o->oPosZ, 500))
                 o->oAction = 1;
 
             set_object_visibility(o, 3000);

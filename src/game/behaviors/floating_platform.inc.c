@@ -17,12 +17,15 @@ f32 floating_platform_find_home_y(void) {
 }
 
 void floating_platform_act_0(void) {
-    s16 sp6 = (gMarioObject->header.gfx.pos[0] - o->oPosX) * coss(-1*o->oMoveAngleYaw)
-              + (gMarioObject->header.gfx.pos[2] - o->oPosZ) * sins(-1*o->oMoveAngleYaw);
-    s16 sp4 = (gMarioObject->header.gfx.pos[2] - o->oPosZ) * coss(-1*o->oMoveAngleYaw)
-              - (gMarioObject->header.gfx.pos[0] - o->oPosX) * sins(-1*o->oMoveAngleYaw);
+    /* sm64coopdx: it tilts toward the average position of the players on it */
+    f32 px, py, pz;
+    const s32 playersOn = cur_obj_players_on_platform(&px, &py, &pz);
+    s16 sp6 = (px - o->oPosX) * coss(-1*o->oMoveAngleYaw)
+              + (pz - o->oPosZ) * sins(-1*o->oMoveAngleYaw);
+    s16 sp4 = (pz - o->oPosZ) * coss(-1*o->oMoveAngleYaw)
+              - (px - o->oPosX) * sins(-1*o->oMoveAngleYaw);
 
-    if (gMarioObject->platform == o) {
+    if (playersOn > 0) {
         o->oFaceAnglePitch = sp4 * 2;
         o->oFaceAngleRoll = -sp6 * 2;
         o->oVelY -= 1.0f;

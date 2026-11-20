@@ -39,7 +39,7 @@ void moneybag_check_mario_collision(void) {
     {
         if (o->oInteractStatus & INT_STATUS_ATTACKED_MARIO) /* bit 13 */
         {
-            o->oMoveAngleYaw = o->oAngleToMario + 0x8000;
+            o->oMoveAngleYaw = obj_angle_to_object(o, nearest_player_to_object(o)) + 0x8000; /* (sm64coopdx: away from the nearest player) */
             o->oVelY = 30.0f;
         }
 
@@ -216,7 +216,7 @@ void bhv_moneybag_hidden_loop(void) {
 
     switch (o->oAction) {
         case FAKE_MONEYBAG_COIN_ACT_IDLE:
-            if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 400)) {
+            if (is_point_within_radius_of_any_player(o->oPosX, o->oPosY, o->oPosZ, 400)) { /* (sm64coopdx: any player; both consoles make it at the same spot) */
                 spawn_object(o, MODEL_MONEYBAG, bhvMoneybag);
 #ifndef VERSION_JP
                 cur_obj_play_sound_2(SOUND_GENERAL_VANISH_SFX);

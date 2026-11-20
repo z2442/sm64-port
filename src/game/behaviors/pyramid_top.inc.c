@@ -147,7 +147,16 @@ void bhv_pyramid_top_fragment_loop(void) {
  */
 void bhv_pyramid_pillar_touch_detector_loop(void) {
     cur_obj_become_tangible();
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    /* sm64coopdx: a pillar either player touches counts for both */
+    const s32 byOther = (o->oInteractStatus & INT_STATUS_INTERACTED) != 0;
+    if (byOther || obj_check_if_collided_with_object(o, gMarioObject) == 1) {
+        if (!byOther) {
+            psp_np_world_collected(gMarioState, o, PSP_NP_EV_ITEM);
+        }
+#else
     if (obj_check_if_collided_with_object(o, gMarioObject) == 1) {
+#endif
         // Increase the pyramid top's count of pillars touched.
         o->parentObj->oPyramidTopPillarsTouched++;
         o->activeFlags = ACTIVE_FLAG_DEACTIVATED;

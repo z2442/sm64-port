@@ -1,7 +1,16 @@
 // hoot.c.inc
 
+/* PSP WLAN multiplayer: whether this console's player is the one that talks to the Hoot (0 no, 1 talking, 2 done): the player that woke it up.
+ * The other one just sees it awake (its state comes from the other console, see sPlatKind), like sm64coopdx's one shared Hoot. */
+static s32 sLocalTalkToHoot;
+static s32 sHootSanity; /* it became ready to fly on the other console: made tangible here once */
+static s32 sHootMaxAvail; /* it only ever wakes up: once awake on either console it never goes back to sleep in its tree (sm64coopdx: one shared Hoot) */
+
 void bhv_hoot_init(void) {
     cur_obj_init_animation(0);
+    sLocalTalkToHoot = 0;
+    sHootSanity = TRUE;
+    sHootMaxAvail = HOOT_AVAIL_ASLEEP_IN_TREE;
 
     o->oHomeX = o->oPosX + 800.0f;
     o->oHomeY = o->oPosY - 150.0f;
@@ -186,7 +195,7 @@ void hoot_action_loop(void) {
             o->oMoveAnglePitch = 0x71C;
 
             if (o->oPosY < 2700.0f) {
-                set_time_stop_flags(TIME_STOP_ENABLED | TIME_STOP_MARIO_AND_DOORS);
+                set_time_stop_flags_if_alone(TIME_STOP_ENABLED | TIME_STOP_MARIO_AND_DOORS); /* (sm64coopdx: no time stop here with two players) */
 
                 if (cutscene_object_with_dialog(CUTSCENE_DIALOG, o, DIALOG_045)) {
                     clear_time_stop_flags(TIME_STOP_ENABLED | TIME_STOP_MARIO_AND_DOORS);
@@ -224,8 +233,35 @@ void hoot_turn_to_home(void) {
     o->oMoveAnglePitch = approach_s16_symmetric(o->oMoveAnglePitch, vAngleToHome, 0x140);
 }
 
+/* PSP WLAN multiplayer (sm64coopdx syncs the Hoot): while the other player rides it, this console's Hoot is where that player hangs (ACT_RIDING_HOOT puts
+ * Mario 92.5 below the Hoot and faces it the Hoot's way), instead of flying on its own somewhere else. Returns TRUE while that is the case. */
+static s32 hoot_follow_remote_rider(void) {
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    struct Object *rider = psp_np_game_remote();
+    if (rider != NULL && psp_np_game_remote_action() == ACT_RIDING_HOOT && o->oInteractStatus != INT_STATUS_HOOT_GRABBED_BY_MARIO
+        && dist_between_objects(o, rider) < 3000.0f) {
+        o->oPosX = rider->oPosX;
+        o->oPosY = rider->oPosY + 92.5f;
+        o->oPosZ = rider->oPosZ;
+        o->oMoveAngleYaw = o->oFaceAngleYaw = rider->header.gfx.angle[1];
+        o->oForwardVel = 0.0f;
+        o->oVelY = 0.0f;
+        cur_obj_init_animation(1);
+        o->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
+        return TRUE;
+    }
+#endif
+    return FALSE;
+}
+
 void hoot_awake_loop(void) {
+    if (hoot_follow_remote_rider()) {
+        return;
+    }
     if (o->oInteractStatus == INT_STATUS_HOOT_GRABBED_BY_MARIO) {
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+        psp_np_world_drive(o); /* (this console's player flies it: the other console follows this copy, whoever it thinks is nearer) */
+#endif
         hoot_action_loop();
         cur_obj_init_animation(1);
     } else {
@@ -243,27 +279,52 @@ void hoot_awake_loop(void) {
 }
 
 void bhv_hoot_loop(void) {
+    /* never backwards: a console that still had it asleep (its state comes from the console of the nearest player) does not put it back in the tree */
+    if (o->oHootAvailability < sHootMaxAvail) {
+        o->oHootAvailability = sHootMaxAvail;
+    } else {
+        sHootMaxAvail = o->oHootAvailability;
+    }
+
     switch (o->oHootAvailability) {
         case HOOT_AVAIL_ASLEEP_IN_TREE:
+            if (hoot_follow_remote_rider()) { /* the other player is riding it, so it is awake and done talking: it stays that way here too */
+                o->oHootAvailability = sHootMaxAvail = HOOT_AVAIL_READY_TO_FLY;
+                break;
+            }
             if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 50)) {
                 o->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
                 o->oHootAvailability = HOOT_AVAIL_WANTS_TO_TALK;
+                sLocalTalkToHoot = 1; /* this player woke it up: this player is the one it talks to */
             }
             break;
 
         case HOOT_AVAIL_WANTS_TO_TALK:
             hoot_awake_loop();
 
-            if (set_mario_npc_dialog(2) == 2 && cutscene_object_with_dialog(CUTSCENE_DIALOG, o, DIALOG_044)) {
+            /* (only the player that woke it talks to it: the other one gets it awake from the other console and just waits for it to be ready to fly) */
+            if (sLocalTalkToHoot == 1 && set_mario_npc_dialog(2) == 2 && cutscene_object_with_dialog(CUTSCENE_DIALOG, o, DIALOG_044)) {
+                sLocalTalkToHoot = 2;
                 set_mario_npc_dialog(0);
 
                 cur_obj_become_tangible();
+                sHootSanity = FALSE;
 
                 o->oHootAvailability = HOOT_AVAIL_READY_TO_FLY;
             }
             break;
 
         case HOOT_AVAIL_READY_TO_FLY:
+            if (sLocalTalkToHoot == 1) { /* the other player's console said it is ready while this player was still talking: the dialog is finished */
+                if (set_mario_npc_dialog(2) == 2 && cutscene_object_with_dialog(CUTSCENE_DIALOG, o, DIALOG_044)) {
+                    sLocalTalkToHoot = 2;
+                    set_mario_npc_dialog(0);
+                }
+            }
+            if (sHootSanity) { /* (it got ready on the other console) */
+                cur_obj_become_tangible();
+                sHootSanity = FALSE;
+            }
             hoot_awake_loop();
             break;
     }

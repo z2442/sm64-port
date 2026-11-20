@@ -32,7 +32,7 @@ void bhv_bouncing_fireball_loop(void) {
     f32 sp28;
     switch (o->oAction) {
         case 0:
-            if (o->oDistanceToMario < 2000.0f)
+            if (dist_between_objects(o, nearest_player_to_object(o)) < 2000.0f) // (the nearest player, sm64coopdx)
                 o->oAction = 1;
             break;
         case 1:

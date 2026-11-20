@@ -51,6 +51,9 @@ void bhv_big_boulder_generator_loop(void) {
         o->oTimer = 0;
     }
 
+    if (!psp_np_world_spawner_mine(o)) /* (sm64coopdx: only the owner makes the boulders and sends them; the other console gets them announced) */
+        return;
+
     if (!current_mario_room_check(4) || is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 1500))
         return;
 

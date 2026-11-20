@@ -5434,6 +5434,16 @@ const BehaviorScript bhvWaterBomb[] = {
     END_LOOP(),
 };
 
+/* WLAN multiplayer (sm64coopdx): the bubble around a player that died and floats to the other one (its parent: that player's object) */
+const BehaviorScript bhvBubblePlayer[] = {
+    BEGIN(OBJ_LIST_DEFAULT),
+    OR_INT(oFlags, OBJ_FLAG_UPDATE_GFX_POS_AND_ANGLE),
+    BILLBOARD(),
+    BEGIN_LOOP(),
+        CALL_NATIVE(bhv_bubble_player_loop),
+    END_LOOP(),
+};
+
 const BehaviorScript bhvWaterBombShadow[] = {
     BEGIN(OBJ_LIST_GENACTOR),
     OR_INT(oFlags, OBJ_FLAG_UPDATE_GFX_POS_AND_ANGLE),

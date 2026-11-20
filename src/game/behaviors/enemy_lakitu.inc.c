@@ -45,7 +45,7 @@ static void enemy_lakitu_update_vel_y(f32 offsetY) {
         margin = 3.0f;
     }
 
-    if (o->oPosY < gMarioObject->oPosY + offsetY + margin) {
+    if (o->oPosY < nearest_player_to_object(o)->oPosY + offsetY + margin) {
         obj_y_vel_approach(4.0f, 0.4f);
     } else {
         obj_y_vel_approach(-4.0f, 0.4f);

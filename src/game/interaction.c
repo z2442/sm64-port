@@ -25,6 +25,7 @@
 #include "thread6.h"
 #ifdef TARGET_PSP
 #include "pc/psp_netplay.h"
+#include "mario_actions_automatic.h"
 #endif
 
 #define INT_GROUND_POUND_OR_TWIRL (1 << 0) // 0x01
@@ -132,7 +133,7 @@ static u32 sBackwardKnockbackActions[][3] = {
 
 static u8 sDisplayingDoorText = FALSE;
 static u8 sJustTeleported = FALSE;
-static u8 sPssSlideStarted = FALSE;
+u8 sPssSlideStarted = FALSE; /* (not static: the WLAN multiplayer hands it to a player that comes in, see psp_netplay_game.c) */
 
 /**
  * Returns the type of hat Mario is wearing.
@@ -290,6 +291,11 @@ void mario_stop_riding_object(struct MarioState *m) {
 void mario_grab_used_object(struct MarioState *m) {
     if (m->heldObj == NULL) {
         m->heldObj = m->usedObj;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+        if (m->heldObj != NULL && m->heldObj->behavior == segmented_to_virtual(bhvKoopaShellUnderwater)) {
+            psp_np_world_collected(m, m->heldObj, PSP_NP_EV_ITEM); /* (WLAN multiplayer: the shell under water is taken from the other console too) */
+        }
+#endif
         obj_set_held_state(m->heldObj, bhvCarrySomething3);
     }
 }
@@ -1512,6 +1518,9 @@ u32 interact_koopa_shell(struct MarioState *m, UNUSED u32 interactType, struct O
             m->interactObj = o;
             m->usedObj = o;
             m->riddenObj = o;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+            psp_np_world_collected(m, o, PSP_NP_EV_ITEM); /* (WLAN multiplayer: the other console's copy of this shell goes away, sm64coopdx has one) */
+#endif
 
             attack_object(o, interaction);
             update_mario_sound_and_camera(m);
@@ -1832,6 +1841,47 @@ void check_kick_or_punch_wall(struct MarioState *m) {
 
 static u8 sPspHitCooldown; /* frames in which this Mario's hit on the other player is not repeated (its own console has the last word) */
 
+/* Lag compensation, after sm64coopdx (pc/network/lag_compensation.c): the other console decided to attack from what it saw of this Mario, and what it saw
+ * is where this Mario was some time ago (the packet travels). So when this Mario is the victim, the hit is checked against where it was then, from a
+ * history of its last states, instead of where it is now; otherwise a hit that clearly landed on the attacker's screen misses here as soon as there is
+ * any delay. sm64coopdx goes back the whole ping; here the other player's model is already carried forward by the extrapolation (NP_EXTRAP_MAX in
+ * psp_netplay_game.c), so it goes back half of it (the trip of the attacker's packet). Only the hit test uses the old state: the damage and the knockback
+ * are applied to this Mario as it is now. */
+#define PSP_LAG_HISTORY 16 /* ticks (30 a second): up to about half a second back */
+static struct MarioState sPspLagState[PSP_LAG_HISTORY];
+static struct Object sPspLagObj[PSP_LAG_HISTORY];
+static u8 sPspLagIndex, sPspLagCount;
+
+static void psp_np_lag_store(const struct MarioState *m) {
+    if (m->marioObj == NULL) {
+        return;
+    }
+    sPspLagState[sPspLagIndex] = *m;
+    sPspLagObj[sPspLagIndex] = *m->marioObj;
+    sPspLagState[sPspLagIndex].marioObj = &sPspLagObj[sPspLagIndex];
+    sPspLagIndex = (sPspLagIndex + 1) % PSP_LAG_HISTORY;
+    if (sPspLagCount < PSP_LAG_HISTORY) {
+        sPspLagCount++;
+    }
+}
+
+static struct MarioState *psp_np_lag_state(struct MarioState *now) {
+    const int rtt = psp_netplay_rtt_ms();
+    int ticks, index;
+    if (rtt <= 0) {
+        return now;
+    }
+    ticks = (rtt * 30 + 1000) / 2000; /* half the round trip, rounded */
+    if (ticks > PSP_LAG_HISTORY - 1) {
+        ticks = PSP_LAG_HISTORY - 1;
+    }
+    if (ticks <= 0 || ticks >= sPspLagCount) {
+        return now;
+    }
+    index = ((int) sPspLagIndex - 1 - ticks + 2 * PSP_LAG_HISTORY) % PSP_LAG_HISTORY; /* (the newest one is this tick's) */
+    return &sPspLagState[index];
+}
+
 static f32 psp_np_vec3_length(const f32 *v) {
     return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
@@ -1947,6 +1997,13 @@ static void psp_np_player_collision(struct MarioState *m) {
     if (dist >= radius) {
         return;
     }
+    if (dist < 1.0f) {
+        /* exactly on top of each other (both came into the level at its start): there is no direction to push in, so the two consoles push apart along x
+         * (the host one way, the client the other), or they would stay inside each other and bounce off each other's heads */
+        relX = psp_np_world_is_host() ? 1.0f : -1.0f;
+        relZ = 0.0f;
+        dist = 1.0f;
+    }
 
     /* the other player comes down on this one: this Mario is squashed for a moment (the other console makes it bounce) */
     if (determine_interaction(r, m->marioObj) & INT_HIT_FROM_ABOVE) {
@@ -1956,7 +2013,9 @@ static void psp_np_player_collision(struct MarioState *m) {
     }
 
     interaction = determine_interaction(m, o);
-    if (interaction & INT_HIT_FROM_ABOVE) {
+    /* no bounce off a player that is itself going up: what this console shows of it is a few frames old, so two players jumping in the same place would each land
+     * on the other's (late) head again and again and climb into the sky without end */
+    if ((interaction & INT_HIT_FROM_ABOVE) && !((r->action & ACT_FLAG_AIR) && r->vel[1] > 0.0f)) {
         f32 velY;
         psp_np_game_remote_squish(4);
         if (r->action == ACT_CROUCHING) { /* a crouching player is a trampoline */
@@ -2008,11 +2067,21 @@ static void psp_np_player_collision(struct MarioState *m) {
 static void psp_np_pvp(struct MarioState *attacker, struct MarioState *victim) {
     const u8 victimIsLocal = (victim == gMarioState);
     struct Object *attackerObj = attacker->marioObj;
+    struct MarioState *realVictim = victim;
     u32 interaction;
 
 #define PSP_PVP_ROLLOUT_FLIP(s) (((s)->action == ACT_FORWARD_ROLLOUT || (s)->action == ACT_BACKWARD_ROLLOUT) && (s)->actionState == 1)
 
-    if (!psp_np_pvp_checks(attacker, victim) || !psp_np_players_overlap(attacker, victim, victimIsLocal ? 1.0f : 0.6f)) {
+    if (!psp_np_pvp_checks(attacker, victim)) { /* (sm64coopdx checks the present state first, then the old one) */
+        return;
+    }
+    if (victimIsLocal) {
+        victim = psp_np_lag_state(victim); /* where this Mario was when the attacker saw it */
+        if (!psp_np_pvp_checks(attacker, victim)) {
+            return;
+        }
+    }
+    if (!psp_np_players_overlap(attacker, victim, victimIsLocal ? 1.0f : 0.6f)) {
         return;
     }
 
@@ -2051,7 +2120,8 @@ static void psp_np_pvp(struct MarioState *attacker, struct MarioState *victim) {
     }
 
     if (victimIsLocal) {
-        /* this Mario is hit: damage and knockback, the same way an enemy's attack does it */
+        /* this Mario is hit: damage and knockback, the same way an enemy's attack does it (to this Mario as it is now) */
+        victim = realVictim;
         victim->interactObj = attackerObj;
         if (interaction & INT_KICK) {
             if (victim->action == ACT_FIRST_PERSON) { /* leaves the first person view */
@@ -2098,6 +2168,9 @@ static void psp_np_player_attacks(struct MarioState *m) {
 
     if (sPspHitCooldown > 0) {
         sPspHitCooldown--;
+    }
+    if (m == gMarioState) {
+        psp_np_lag_store(m);
     }
     if (r == NULL || psp_np_game_remote() == NULL || m != gMarioState || !psp_np_players_can_touch(m, r)) {
         return;
@@ -2165,6 +2238,21 @@ void mario_process_interactions(struct MarioState *m) {
 
 void check_death_barrier(struct MarioState *m) {
     if (m->pos[1] < m->floorHeight + 2048.0f) {
+#if defined(TARGET_PSP) && PSP_NETPLAY
+        /* WLAN multiplayer (sm64coopdx): a fall into the void with the other player alive in the area is a bubble (not in the cap stages) */
+        if (m->action == ACT_BUBBLED) {
+            m->pos[1] = m->floorHeight + 2048.0f;
+            if (m->vel[1] < 0.0f) {
+                m->vel[1] = 0.0f;
+            }
+            return;
+        }
+        if (mario_can_bubble(m) && gCurrCourseNum != COURSE_COTMC && gCurrCourseNum != COURSE_TOTWC && gCurrCourseNum != COURSE_VCUTM
+            && gCurrCourseNum != COURSE_WMOTR) {
+            mario_set_bubbled(m);
+            return;
+        }
+#endif
         if (level_trigger_warp(m, WARP_OP_WARP_FLOOR) == 20 && !(m->flags & MARIO_UNKNOWN_18)) {
             play_sound(SOUND_MARIO_WAAAOOOW, m->marioObj->header.gfx.cameraToObject);
         }

@@ -1,3 +1,6 @@
+/* sm64coopdx: the merry-go-round Boos come out while ANY player is in the enclosure (the music stays this player's own) */
+static s32 sLocalOnMerryGoRound;
+
 /**
  * Behavior for bhvMerryGoRound.
  * This is the merry-go-round in BBH.
@@ -40,11 +43,13 @@ static void handle_merry_go_round_music(void) {
             // If Mario is in the merry-go-round's enclosure, play only the merry-go-round music.
             play_secondary_music(SEQ_EVENT_MERRY_GO_ROUND, 0, 78, 50);
             gMarioOnMerryGoRound = TRUE;
+            sLocalOnMerryGoRound = TRUE;
         } else {
             // If Mario is not in the merry-go-round's enclosure,
             // i.e. he's around it, play both the merry-go-round music and the BBH music.
             play_secondary_music(SEQ_EVENT_MERRY_GO_ROUND, 45, 20, 200);
             gMarioOnMerryGoRound = FALSE;
+            sLocalOnMerryGoRound = FALSE;
         }
 
         // If Mario is not in the merry-go-round's area of the basement anymore,
@@ -97,4 +102,6 @@ void bhv_merry_go_round_loop(void) {
         o->oAngleVelYaw = 0;
         func_80321080(300); // Switch to BBH music? FIXME: Audio needs labelling
     }
+
+    gMarioOnMerryGoRound = sLocalOnMerryGoRound || psp_np_world_remote_floor_type() == SURFACE_MGR_MUSIC;
 }

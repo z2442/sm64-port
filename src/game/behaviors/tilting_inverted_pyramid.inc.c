@@ -81,17 +81,24 @@ void bhv_tilting_inverted_pyramid_loop(void) {
     Mat4 *transform = &o->transform;
     UNUSED s32 unused2[7];
 
-    if (gMarioObject->platform == o) {
-        get_mario_pos(&mx, &my, &mz);
+    /* sm64coopdx: it tilts toward the average position of the players on it; only the local Mario is carried along */
+    f32 px, py, pz;
+    const s32 playersOn = cur_obj_players_on_platform(&px, &py, &pz);
+    const s32 localOn = gMarioObject->platform == o;
+    mx = my = mz = 0.0f;
+    if (playersOn > 0) {
+        if (localOn) {
+            get_mario_pos(&mx, &my, &mz);
+        }
 
-        dist[0] = gMarioObject->oPosX - o->oPosX;
-        dist[1] = gMarioObject->oPosY - o->oPosY;
-        dist[2] = gMarioObject->oPosZ - o->oPosZ;
+        dist[0] = px - o->oPosX;
+        dist[1] = py - o->oPosY;
+        dist[2] = pz - o->oPosZ;
         linear_mtxf_mul_vec3f(*transform, posBeforeRotation, dist);
 
-        dx = gMarioObject->oPosX - o->oPosX;
+        dx = px - o->oPosX;
         dy = 500.0f;
-        dz = gMarioObject->oPosZ - o->oPosZ;
+        dz = pz - o->oPosZ;
         d = sqrtf(dx * dx + dy * dy + dz * dz);
     
         //! Always true since dy = 500, making d >= 500.
@@ -107,7 +114,7 @@ void bhv_tilting_inverted_pyramid_loop(void) {
             dz = 0.0f;
         }
 
-        if (o->oTiltingPyramidMarioOnPlatform == TRUE)
+        if (localOn && o->oTiltingPyramidMarioOnPlatform == TRUE)
             marioOnPlatform++;
 
         o->oTiltingPyramidMarioOnPlatform = TRUE;

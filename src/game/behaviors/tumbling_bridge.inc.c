@@ -15,9 +15,16 @@ struct Struct8032F34C sTumblingBridgeParams[] = {
 void bhv_tumbling_bridge_platform_loop(void) {
     switch (o->oAction) {
         case 0:
-            if (gMarioObject->platform == o) {
+            /* sm64coopdx: every piece falls for whichever player steps on it: the other console is told (INTERACTED comes from that announcement) */
+            if ((o->oInteractStatus & INT_STATUS_INTERACTED) || gMarioObject->platform == o) {
                 o->oAction++;
                 o->oTumblingBridgeUnkF4 = random_sign() * 0x80;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+                if (!(o->oInteractStatus & INT_STATUS_INTERACTED)) {
+                    psp_np_world_collected(gMarioState, o, PSP_NP_EV_ITEM);
+                }
+#endif
+                o->oInteractStatus &= ~INT_STATUS_INTERACTED;
             }
             break;
         case 1:

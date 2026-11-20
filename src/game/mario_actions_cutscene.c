@@ -28,6 +28,7 @@
 #include "seq_ids.h"
 #include "sound_init.h"
 #include "thread6.h"
+#include "pc/psp_netplay.h"
 
 // TODO: put this elsewhere
 enum SaveOption { SAVE_OPT_SAVE_AND_CONTINUE = 1, SAVE_OPT_SAVE_AND_QUIT, SAVE_OPT_CONTINUE_DONT_SAVE };
@@ -384,6 +385,14 @@ s32 act_reading_npc_dialog(struct MarioState *m) {
     s32 headTurnAmount = 0;
     s16 angleToNPC;
 
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    /* (WLAN multiplayer, like sm64coopdx's act_reading_npc_dialog) the object this player talks to was removed meanwhile (by the other console): the text
+     * can never end through it, so the player leaves it instead of staying stuck */
+    if (m->actionState == 8 && (m->usedObj == NULL || m->usedObj->activeFlags == ACTIVE_FLAG_DEACTIVATED)) {
+        m->actionState++;
+    }
+#endif
+
     if (m->actionArg == 2) {
         headTurnAmount = -1024;
     }
@@ -450,7 +459,7 @@ s32 act_reading_automatic_dialog(struct MarioState *m) {
 
     m->actionState++;
     if (m->actionState == 2) {
-        enable_time_stop();
+        enable_time_stop_if_alone(); /* (sm64coopdx: only alone) */
     }
     if (m->actionState < 9) {
         set_mario_animation(m, m->prevAction == ACT_STAR_DANCE_WATER ? MARIO_ANIM_WATER_IDLE
@@ -507,7 +516,7 @@ s32 act_reading_sign(struct MarioState *m) {
         // start dialog
         case 0:
             trigger_cutscene_dialog(1);
-            enable_time_stop();
+            enable_time_stop_if_alone(); /* (sm64coopdx: only alone) */
             // reading sign
             set_mario_animation(m, MARIO_ANIM_FIRST_PERSON);
             m->actionState = 1;
@@ -620,7 +629,7 @@ void general_star_dance_handler(struct MarioState *m, s32 isInWater) {
                 if ((m->actionArg & 1) == 0) {
                     level_trigger_warp(m, WARP_OP_STAR_EXIT);
                 } else {
-                    enable_time_stop();
+                    enable_time_stop_if_alone(); /* (sm64coopdx: only alone) */
                     create_dialog_box_with_response(gLastCompletedStarNum == 7 ? DIALOG_013 : DIALOG_014);
                     m->actionState = 1;
                 }
@@ -1093,7 +1102,7 @@ s32 act_exit_land_save_dialog(struct MarioState *m) {
             if (is_anim_past_end(m)) {
                 if (gLastCompletedCourseNum != COURSE_BITDW
                     && gLastCompletedCourseNum != COURSE_BITFS) {
-                    enable_time_stop();
+                    enable_time_stop_if_alone(); /* (sm64coopdx: only alone) */
                 }
 
                 set_menu_mode(RENDER_COURSE_DONE_SCREEN);
@@ -1598,7 +1607,7 @@ s32 act_putting_on_cap(struct MarioState *m) {
     s32 animFrame = set_mario_animation(m, MARIO_ANIM_PUT_CAP_ON);
 
     if (animFrame == 0) {
-        enable_time_stop();
+        enable_time_stop_if_alone(); /* (sm64coopdx: only alone) */
     }
 
     if (animFrame == 28) {
@@ -2339,16 +2348,27 @@ static void end_peach_cutscene_kiss_from_peach(struct MarioState *m) {
     }
 }
 
-static void end_peach_cutscene_star_dance(struct MarioState *m) {
-    s32 animFrame = set_mario_animation(m, MARIO_ANIM_CREDITS_PEACE_SIGN);
+/* WLAN multiplayer (sm64coopdx: gNetworkPlayers[m->playerIndex].globalIndex != 0): in the ending only the host's player plays Mario's part. The other
+ * player sits down, falls asleep and lies down in front of Peach while the host's one dances and runs to the castle. */
+static s32 end_cutscene_non_mario(void) {
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    return psp_netplay_state() == PSP_NP_CONNECTED && !psp_np_world_is_host();
+#else
+    return FALSE;
+#endif
+}
 
-    if (animFrame == 77) {
+static void end_peach_cutscene_star_dance(struct MarioState *m) {
+    const s32 nonMario = end_cutscene_non_mario();
+    s32 animFrame = set_mario_animation(m, nonMario ? MARIO_ANIM_START_SLEEP_SITTING : MARIO_ANIM_CREDITS_PEACE_SIGN);
+
+    if (animFrame == (nonMario ? 0 : 77)) {
         cutscene_put_cap_on(m);
     }
     if (animFrame == 88) {
         play_sound(SOUND_MARIO_HERE_WE_GO, m->marioObj->header.gfx.cameraToObject);
     }
-    if (animFrame >= 98) {
+    if (!nonMario && animFrame >= 98) {
         m->marioBodyState->handState = MARIO_HAND_PEACE_SIGN;
     }
 
@@ -2392,7 +2412,7 @@ static void end_peach_cutscene_star_dance(struct MarioState *m) {
 // "let's bake a delicious cake..."
 // "...for Mario..."
 static void end_peach_cutscene_dialog_3(struct MarioState *m) {
-    set_mario_animation(m, MARIO_ANIM_FIRST_PERSON);
+    set_mario_animation(m, end_cutscene_non_mario() ? MARIO_ANIM_SLEEP_IDLE : MARIO_ANIM_FIRST_PERSON);
 
     sEndPeachObj->oPosY = end_obj_set_visual_pos(sEndPeachObj);
     sEndRightToadObj->oPosY = end_obj_set_visual_pos(sEndRightToadObj);
@@ -2429,10 +2449,14 @@ static void end_peach_cutscene_dialog_3(struct MarioState *m) {
 
 // "Mario!"
 static void end_peach_cutscene_run_to_castle(struct MarioState *m) {
-    set_mario_animation(m, m->actionState == 0 ? MARIO_ANIM_CREDITS_START_WALK_LOOK_UP
-                                               : MARIO_ANIM_CREDITS_LOOK_BACK_THEN_RUN);
+    if (end_cutscene_non_mario()) {
+        set_mario_animation(m, m->actionState == 0 ? MARIO_ANIM_SLEEP_START_LYING : MARIO_ANIM_SLEEP_LYING);
+    } else {
+        set_mario_animation(m, m->actionState == 0 ? MARIO_ANIM_CREDITS_START_WALK_LOOK_UP
+                                                   : MARIO_ANIM_CREDITS_LOOK_BACK_THEN_RUN);
 
-    m->marioObj->header.gfx.pos[1] = end_obj_set_visual_pos(m->marioObj);
+        m->marioObj->header.gfx.pos[1] = end_obj_set_visual_pos(m->marioObj);
+    }
 
     if (m->actionState == 0 && is_anim_past_end(m)) {
         m->actionState = 1;

@@ -558,11 +558,20 @@ void cage_ukiki_held_loop(void) {
  * Called by the main behavior function for the hat ukiki whenever it is held.
  */
 void hat_ukiki_held_loop(void) {
+    // WLAN multiplayer: the cap it wears is the other player's (this player's is not on the ukiki): it gets away at once,
+    // only that player can take it back (sm64coopdx)
+    if ((o->oUkikiHasHat & UKIKI_HAT_ON) && !(save_file_get_flags() & SAVE_FLAG_CAP_ON_UKIKI)
+        && psp_netplay_state() == PSP_NP_CONNECTED) {
+        o->oInteractionSubtype |= INT_SUBTYPE_DROP_IMMEDIATELY;
+        return;
+    }
+
     switch(o->oUkikiTextState) {
         case UKIKI_TEXT_DEFAULT:
             if (mario_lose_cap_to_enemy(2)) {
                 o->oUkikiTextState = UKIKI_TEXT_STEAL_HAT;
                 o->oUkikiHasHat |= UKIKI_HAT_ON;
+                psp_np_world_signal(o, PSP_NP_SIG_UKIKI_HAT, 1); // (the other console's ukiki wears it too)
             } else {}
             break;
 
@@ -581,6 +590,7 @@ void hat_ukiki_held_loop(void) {
                 mario_retrieve_cap();
                 set_mario_npc_dialog(0);
                 o->oUkikiHasHat &= ~UKIKI_HAT_ON;
+                psp_np_world_signal(o, PSP_NP_SIG_UKIKI_HAT, 0);
                 o->oUkikiTextState = UKIKI_TEXT_GAVE_HAT_BACK;
             }
             break;

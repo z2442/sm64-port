@@ -5,6 +5,10 @@
 // so o->oHomeY is never updated.
 static s16 sYoshiHomeLocations[] = { 0, -5625, -1364, -5912, -1403, -4609, -1004, -5308 };
 
+// WLAN multiplayer: Yoshi talks to the player of this console (it interacted with it here). Its text, its present and the
+// jump off the roof are that player's; the other console's copy only follows them (sm64coopdx: the talker's player index).
+static u8 sYoshiTalksHere;
+
 void bhv_yoshi_init(void) {
     o->oGravity = 2.0f;
     o->oFriction = 0.9f;
@@ -14,6 +18,7 @@ void bhv_yoshi_init(void) {
     if (save_file_get_total_star_count(gCurrSaveFileNum - 1, 0, 24) < 120 || sYoshiDead == TRUE) {
         o->activeFlags = ACTIVE_FLAG_DEACTIVATED;
     }
+    sYoshiTalksHere = FALSE;
 }
 
 void yoshi_walk_loop(void) {
@@ -73,6 +78,10 @@ void yoshi_idle_loop(void) {
 }
 
 void yoshi_talk_loop(void) {
+    if (!sYoshiTalksHere) {
+        cur_obj_init_animation(0); // (talking to the other player)
+        return;
+    }
     if ((s16) o->oMoveAngleYaw == (s16) o->oAngleToMario) {
         cur_obj_init_animation(0);
         if (set_mario_npc_dialog(1) == 2) {
@@ -99,7 +108,7 @@ void yoshi_walk_and_jump_off_roof_loop(void) {
     o->oForwardVel = 10.0f;
     object_step();
     cur_obj_init_animation(1);
-    if (o->oTimer == 0)
+    if (o->oTimer == 0 && sYoshiTalksHere)
         cutscene_object(CUTSCENE_STAR_SPAWN, o);
 
     o->oMoveAngleYaw = approach_s16_symmetric(o->oMoveAngleYaw, o->oYoshiTargetYaw, 0x500);
@@ -122,8 +131,10 @@ void yoshi_finish_jumping_and_despawn_loop(void) {
     obj_move_xyz_using_fvel_and_yaw(o);
     o->oVelY -= 2.0;
     if (o->oPosY < 2100.0f) {
-        set_mario_npc_dialog(0);
-        gObjCutsceneDone = TRUE;
+        if (sYoshiTalksHere) {
+            set_mario_npc_dialog(0);
+            gObjCutsceneDone = TRUE;
+        }
         sYoshiDead = 1;
         o->activeFlags = ACTIVE_FLAG_DEACTIVATED;
     }
@@ -131,6 +142,10 @@ void yoshi_finish_jumping_and_despawn_loop(void) {
 
 void yoshi_give_present_loop(void) {
     s32 sp1C = gGlobalTimer;
+
+    if (!sYoshiTalksHere) {
+        return; // (the lives are the other player's)
+    }
 
     if (gHudDisplay.lives == 100) {
         play_sound(SOUND_GENERAL_COLLECT_1UP, gDefaultSoundArgs);
@@ -146,6 +161,13 @@ void yoshi_give_present_loop(void) {
 }
 
 void bhv_yoshi_loop(void) {
+    if (o->oInteractStatus == INT_STATUS_INTERACTED) {
+        sYoshiTalksHere = TRUE; // (the player of this console talked to it)
+    }
+    if (sYoshiTalksHere && o->oAction != YOSHI_ACT_IDLE && o->oAction != YOSHI_ACT_WALK && o->oAction != YOSHI_ACT_CREDITS) {
+        psp_np_world_drive(o); // (from the talk to the jump off the roof, this console drives it)
+    }
+
     switch (o->oAction) {
         case YOSHI_ACT_IDLE:
             yoshi_idle_loop();

@@ -56,7 +56,7 @@ void bub_act_1(void) {
         o->oForwardVel = random_float() * 2 + 2;
         o->oCheepCheepUnk108 = random_float();
     }
-    dy = o->oPosY - gMarioObject->oPosY;
+    dy = o->oPosY - nearest_player_to_object(o)->oPosY;
     if (o->oPosY < o->oCheepCheepUnkF4 - 50.0f) {
         if (dy < 0.0f)
             dy = 0.0f - dy;
@@ -90,7 +90,7 @@ void bub_act_2(void) {
         cur_obj_play_sound_2(SOUND_GENERAL_MOVING_WATER);
     if (o->oForwardVel == 0.0f)
         o->oForwardVel = 6.0f;
-    dy = o->oPosY - gMarioObject->oPosY;
+    dy = o->oPosY - nearest_player_to_object(o)->oPosY;
     if (o->oPosY < o->oCheepCheepUnkF4 - 50.0f) {
         if (dy < 0.0f)
             dy = 0.0f - dy;
@@ -114,7 +114,7 @@ void (*sCheepCheepActions[])(void) = { bub_act_0, bub_act_1, bub_act_2 };
 
 void bhv_bub_loop(void) {
     o->oCheepCheepUnkF4 = find_water_level(o->oPosX, o->oPosZ);
-    o->oCheepCheepUnkF8 = gMarioObject->oPosY + o->oCheepCheepUnkFC;
+    o->oCheepCheepUnkF8 = nearest_player_to_object(o)->oPosY + o->oCheepCheepUnkFC;
     o->oWallHitboxRadius = 30.0f;
     cur_obj_update_floor_and_walls();
     cur_obj_call_action_function(sCheepCheepActions);

@@ -10,6 +10,11 @@ static struct RacingPenguinData sRacingPenguinData[] = {
 };
 
 void bhv_racing_penguin_init(void) {
+    // (its script sets no home: the WLAN multiplayer tells it from other objects by its home, so it is where it was placed)
+    o->oHomeX = o->oPosX;
+    o->oHomeY = o->oPosY;
+    o->oHomeZ = o->oPosZ;
+
     if (gMarioState->numStars == 120) {
         cur_obj_scale(8.0f);
         o->header.gfx.scale[1] = 5.0f;
@@ -161,6 +166,16 @@ static void racing_penguin_act_show_final_text(void) {
 void bhv_racing_penguin_update(void) {
     cur_obj_update_floor_and_walls();
 
+    if (o->oAction >= RACING_PENGUIN_ACT_PREPARE_FOR_RACE && o->oAction <= RACING_PENGUIN_ACT_SHOW_FINAL_TEXT && o->oRacingPenguinFinalTextbox >= 0) {
+        // WLAN multiplayer: the race belongs to this console's player until its last text, the other console follows the penguin
+        psp_np_world_drive(o);
+        if (o->oAction <= RACING_PENGUIN_ACT_RACE && o->oPathedStartWaypoint == NULL) {
+            // (a copy that was following the other console's race and goes on by itself has no path of its own yet)
+            o->oPathedStartWaypoint = o->oPathedPrevWaypoint = segmented_to_virtual(ccm_seg7_trajectory_penguin_race);
+            o->oPathedPrevWaypointFlags = 0;
+        }
+    }
+
     switch (o->oAction) {
         case RACING_PENGUIN_ACT_WAIT_FOR_MARIO:
             racing_penguin_act_wait_for_mario();
@@ -189,8 +204,10 @@ void bhv_racing_penguin_update(void) {
 }
 
 void bhv_penguin_race_finish_line_update(void) {
+    // the nearest player crossing it wins the race (sm64coopdx)
+    struct Object *player = nearest_player_to_object(o);
     if (o->parentObj->oRacingPenguinReachedBottom
-        || (o->oDistanceToMario < 1000.0f && gMarioObject->oPosZ - o->oPosZ < 0.0f)) {
+        || (dist_between_objects(o, player) < 1000.0f && player->oPosZ - o->oPosZ < 0.0f)) {
         if (!o->parentObj->oRacingPenguinReachedBottom) {
             o->parentObj->oRacingPenguinMarioWon = TRUE;
         }
@@ -198,7 +215,7 @@ void bhv_penguin_race_finish_line_update(void) {
 }
 
 void bhv_penguin_race_shortcut_check_update(void) {
-    if (o->oDistanceToMario < 500.0f) {
+    if (dist_between_objects(o, nearest_player_to_object(o)) < 500.0f) {
         o->parentObj->oRacingPenguinMarioCheated = TRUE;
     }
 }

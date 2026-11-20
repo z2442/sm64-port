@@ -115,4 +115,7 @@ void bhv_spawn_star_no_level_exit(u32 sp20) {
     sp1C->oBehParams = sp20 << 24;
     sp1C->oInteractionSubtype = INT_SUBTYPE_NO_EXIT;
     obj_set_angle(sp1C, 0, 0, 0);
+    if (sp20 != 6) { /* (WLAN multiplayer: Toad's and MIPS' stars are shown on the other console too. The 100-coin star is made by each console itself) */
+        psp_np_world_nle_star(sp1C);
+    }
 }

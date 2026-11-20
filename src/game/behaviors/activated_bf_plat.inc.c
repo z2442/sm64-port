@@ -65,7 +65,7 @@ void bhv_activated_back_and_forth_platform_update(void) {
 
     // oVelY is used for vertical platforms' movement and also for
     // horizontal platforms' dipping up/down when Mario gets on/off them
-    if (gMarioObject->platform == o) {
+    if (cur_obj_is_any_player_on_platform()) {
         o->oVelY = -6.0f;
     } else {
         o->oVelY = 6.0f;

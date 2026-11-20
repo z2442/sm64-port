@@ -41,7 +41,7 @@ void bhv_flamethrower_loop(void) {
     UNUSED u8 pad[8];
     if (o->oAction == 0) {
         if (gCurrLevelNum != LEVEL_BBH || gMarioOnMerryGoRound == 1)
-            if (o->oDistanceToMario < 2000.0f)
+            if (dist_between_objects(o, nearest_player_to_object(o)) < 2000.0f) /* (sm64coopdx: the nearest player) */
                 o->oAction++;
     } else if (o->oAction == 1) {
         model = MODEL_RED_FLAME;

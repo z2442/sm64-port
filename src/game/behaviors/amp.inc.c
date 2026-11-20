@@ -115,10 +115,10 @@ static void homing_amp_chase_loop(void) {
         // Mario's head. Mario's graphics' Y + 150 is around the top of his head.
         // Note that the average Y will slowly go down to approach his head if the amp
         // is above his head, but if the amp is below it will instantly snap up.
-        if (o->oHomingAmpAvgY > gMarioObject->header.gfx.pos[1] + 150.0f) {
+        if (o->oHomingAmpAvgY > nearest_player_to_object(o)->header.gfx.pos[1] + 150.0f) {
             o->oHomingAmpAvgY -= 10.0f;
         } else {
-            o->oHomingAmpAvgY = gMarioObject->header.gfx.pos[1] + 150.0f;
+            o->oHomingAmpAvgY = nearest_player_to_object(o)->header.gfx.pos[1] + 150.0f;
         }
 
         if (o->oTimer >= 31) {
@@ -129,12 +129,12 @@ static void homing_amp_chase_loop(void) {
         // while curving towards him.
         o->oForwardVel = 10.0f;
 
-        obj_turn_toward_object(o, gMarioObject, 16, 0x400);
+        obj_turn_toward_object(o, nearest_player_to_object(o), 16, 0x400);
 
         // The amp's average Y will approach Mario's graphical Y position + 250
         // at a rate of 10 units per frame. Interestingly, this is different from
         // the + 150 used while chasing him. Could this be a typo?
-        if (o->oHomingAmpAvgY < gMarioObject->header.gfx.pos[1] + 250.0f) {
+        if (o->oHomingAmpAvgY < nearest_player_to_object(o)->header.gfx.pos[1] + 250.0f) {
             o->oHomingAmpAvgY += 10.0f;
         }
     }
@@ -271,12 +271,12 @@ void bhv_circling_amp_init(void) {
  */
 static void fixed_circling_amp_idle_loop(void) {
     // Turn towards Mario, in both yaw and pitch.
-    f32 xToMario = gMarioObject->header.gfx.pos[0] - o->oPosX;
-    f32 yToMario = gMarioObject->header.gfx.pos[1] + 120.0f - o->oPosY;
-    f32 zToMario = gMarioObject->header.gfx.pos[2] - o->oPosZ;
+    f32 xToMario = nearest_player_to_object(o)->header.gfx.pos[0] - o->oPosX;
+    f32 yToMario = nearest_player_to_object(o)->header.gfx.pos[1] + 120.0f - o->oPosY;
+    f32 zToMario = nearest_player_to_object(o)->header.gfx.pos[2] - o->oPosZ;
     s16 vAngleToMario = atan2s(sqrtf(xToMario * xToMario + zToMario * zToMario), -yToMario);
 
-    obj_turn_toward_object(o, gMarioObject, 19, 0x1000);
+    obj_turn_toward_object(o, nearest_player_to_object(o), 19, 0x1000);
     o->oFaceAnglePitch = approach_s16_symmetric(o->oFaceAnglePitch, vAngleToMario, 0x1000);
 
     // Oscillate 40 units up and down.

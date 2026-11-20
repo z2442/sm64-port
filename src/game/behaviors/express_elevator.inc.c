@@ -3,7 +3,7 @@
 void bhv_wdw_express_elevator_loop(void) {
     o->oVelY = 0.0f;
     if (o->oAction == 0) {
-        if (cur_obj_is_mario_on_platform())
+        if (cur_obj_is_any_player_on_platform())
             o->oAction++;
     } else if (o->oAction == 1) {
         o->oVelY = -20.0f;
@@ -22,6 +22,6 @@ void bhv_wdw_express_elevator_loop(void) {
             o->oPosY = o->oHomeY;
             o->oAction++;
         }
-    } else if (!cur_obj_is_mario_on_platform())
+    } else if (!cur_obj_is_any_player_on_platform())
         o->oAction = 0;
 }

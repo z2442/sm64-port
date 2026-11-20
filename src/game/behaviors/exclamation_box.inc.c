@@ -108,6 +108,12 @@ void exclamation_box_spawn_contents(struct Struct802C0DF0 *a0, u8 a1) {
 
     while (a0->unk0 != 99) {
         if (a1 == a0->unk0) {
+            // WLAN multiplayer: the other player broke it, and that console's coins come over (see psp_np_world_spawned)
+            if (o->unused2 == PSP_NP_BOX_REMOTE && (a0->behavior == bhvSingleCoinGetsSpawned
+                || a0->behavior == bhvThreeCoinsSpawn || a0->behavior == bhvTenCoinsSpawn)) {
+                o->oBehParams |= a0->unk2 << 24;
+                break;
+            }
             sp1C = spawn_object(o, a0->model, a0->behavior);
             sp1C->oVelY = 20.0f;
             sp1C->oForwardVel = 3.0f;
@@ -123,6 +129,7 @@ void exclamation_box_spawn_contents(struct Struct802C0DF0 *a0, u8 a1) {
 
 void exclamation_box_act_4(void) {
     exclamation_box_spawn_contents(sExclamationBoxContents, o->oBehParams2ndByte);
+    o->unused2 = 0;
     spawn_mist_particles_variable(0, 0, 46.0f);
     spawn_triangle_break_particles(20, 139, 0.3f, o->oAnimState);
     create_sound_spawner(SOUND_GENERAL_BREAK_BOX);

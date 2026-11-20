@@ -29,6 +29,7 @@
 #include "levels/rr/header.h"
 #include "levels/ssl/header.h"
 #include "levels/thi/header.h"
+#include "pc/psp_netplay.h"
 #include "levels/ttc/header.h"
 #include "levels/vcutm/header.h"
 #include "mario.h"
@@ -967,3 +968,48 @@ void obj_spit_fire(s16 relativePosX, s16 relativePosY, s16 relativePosZ, f32 sca
 #include "behaviors/reds_star_marker.inc.c"
 #include "behaviors/triplet_butterfly.inc.c"
 #include "behaviors/bubba.inc.c"
+
+/* WLAN multiplayer (sm64coopdx, network_receive_level): the speed of Tick Tock Clock is the one of the player who was in the level first (the castle clock
+ * when that player went in). A player that took it from there already has the objects started with the speed of its own clock: what their start set from
+ * the speed is set again. */
+void psp_np_ttc_speed_changed(s16 oldSpeed) {
+    struct Object *obj;
+    struct ObjectNode *head = &gObjectLists[OBJ_LIST_SURFACE];
+    if (gTTCSpeedSetting < 0 || gTTCSpeedSetting > 3 || oldSpeed == gTTCSpeedSetting) {
+        return;
+    }
+    for (obj = (struct Object *) head->next; obj != (struct Object *) head; obj = (struct Object *) obj->header.next) {
+        if (obj->activeFlags == ACTIVE_FLAG_DEACTIVATED) {
+            continue;
+        }
+        if (obj->behavior == segmented_to_virtual(bhvTTC2DRotator)) {
+            if (obj->oBehParams2ndByte >= 0 && obj->oBehParams2ndByte < 2) {
+                obj->oTTC2DRotatorMinTimeUntilNextTurn = sTTC2DRotatorTimeBetweenTurns[obj->oBehParams2ndByte][gTTCSpeedSetting];
+                obj->oTTC2DRotatorIncrement = obj->oTTC2DRotatorSpeed = sTTC2DRotatorSpeeds[obj->oBehParams2ndByte];
+            }
+        } else if (obj->behavior == segmented_to_virtual(bhvTTCMovingBar)) {
+            if ((obj->oTTCMovingBarDelay = sTTCMovingBarDelays[gTTCSpeedSetting]) == 0) {
+                obj->oTTCMovingBarOffset = 250.0f;
+            }
+        } else if (obj->behavior == segmented_to_virtual(bhvTTCPendulum)) {
+            if (gTTCSpeedSetting != TTC_SPEED_STOPPED) {
+                obj->oTTCPendulumAngleAccel = sTTCPendulumInitialAccels[gTTCSpeedSetting];
+                obj->oTTCPendulumAngle = 6500.0f;
+            } else {
+                obj->oTTCPendulumAngle = 6371.5557f;
+            }
+        } else if (obj->behavior == segmented_to_virtual(bhvTTCPitBlock)) {
+            if (oldSpeed == TTC_SPEED_STOPPED && gTTCSpeedSetting != TTC_SPEED_STOPPED) {
+                obj->oPosY -= 330.0f;
+            } else if (oldSpeed != TTC_SPEED_STOPPED && gTTCSpeedSetting == TTC_SPEED_STOPPED) {
+                obj->oPosY = obj->oTTCPitBlockPeakY; /* (where its start puts it on the still setting) */
+            }
+        } else if (obj->behavior == segmented_to_virtual(bhvTTCRotatingSolid)) {
+            obj->oTTCRotatingSolidRotationDelay = sTTCRotatingSolidInitialDelays[gTTCSpeedSetting];
+        } else if (obj->behavior == segmented_to_virtual(bhvTTCTreadmill)) {
+            if (obj->oTTCTreadmillBigSurface != NULL && obj->oTTCTreadmillSmallSurface != NULL) {
+                *obj->oTTCTreadmillBigSurface = *obj->oTTCTreadmillSmallSurface = sTTCTreadmillSpeeds[gTTCSpeedSetting];
+            }
+        }
+    }
+}

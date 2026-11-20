@@ -42,7 +42,7 @@ s32 unknown_chuckya_function(s32 sp20, f32 sp24, f32 sp28, s32 sp2C) {
             }
         } else if (o->oDistanceToMario > sp28) {
             if (gGlobalTimer % (s16) sp2C == 0)
-                o->oAngleToMario = obj_angle_to_object(o, gMarioObject);
+                o->oAngleToMario = obj_angle_to_object(o, nearest_player_to_object(o)); /* (sm64coopdx: the nearest player) */
             sp1C = 2;
         } else
             sp1C = 3;
@@ -76,7 +76,7 @@ void chuckya_act_0(void) {
     s32 sp28;
     if (o->oTimer == 0)
         o->oChuckyaUnkFC = 0;
-    o->oAngleToMario = obj_angle_to_object(o, gMarioObject);
+    o->oAngleToMario = obj_angle_to_object(o, nearest_player_to_object(o)); /* (sm64coopdx: the nearest player) */
     switch (sp28 = o->oSubAction) {
         case 0:
             o->oForwardVel = 0;

@@ -42,7 +42,7 @@ void king_bobomb_act_0(void) {
 }
 
 int mario_is_far_below_object(f32 arg0) {
-    if (arg0 < o->oPosY - gMarioObject->oPosY)
+    if (arg0 < o->oPosY - nearest_player_to_object(o)->oPosY)
         return 1;
     else
         return 0;

@@ -166,6 +166,9 @@ static s32 bhv_cmd_spawn_child(void) {
 
     struct Object *child = spawn_object_at_origin(gCurrentObject, 0, model, behavior);
     obj_copy_pos_and_angle(child, gCurrentObject);
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_spawned(gCurrentObject, child, model, segmented_to_virtual(behavior)); /* (like spawn_object: the coins of a box, see there) */
+#endif
 
     gCurBhvCommand += 3;
     return BHV_PROC_CONTINUE;
@@ -918,6 +921,12 @@ void cur_obj_update(void) {
     BhvCommandProc bhvCmdProc;
     s32 bhvProcResult;
 
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    if (gCurrentObject->activeFlags == ACTIVE_FLAG_DEACTIVATED) {
+        return; /* (WLAN multiplayer) a spawn dropped before its first update (see psp_np_world_spawned): it does nothing and goes away at the end of the frame */
+    }
+#endif
+
     // Calculate the distance from the object to Mario.
     if (objFlags & OBJ_FLAG_COMPUTE_DIST_TO_MARIO) {
         gCurrentObject->oDistanceToMario = dist_between_objects(gCurrentObject, gMarioObject);
@@ -942,16 +951,20 @@ void cur_obj_update(void) {
     }
 
 #if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
-    /* an enemy the other console is simulating (WLAN multiplayer): its state comes from there, its own behavior does not run */
+    /* an enemy the other console simulates (WLAN multiplayer, as sm64coopdx): its behavior runs here too and the other console's updates overwrite its
+     * state. Only while the other player carries it, or once it is gone here, is it just placed (puppet) */
     const s32 followed = gCurrentObject->unused1 != 0 && psp_np_world_follow(gCurrentObject);
-    if (followed) {
-        psp_np_world_follow_step(gCurrentObject);
+    const s32 puppet = followed && psp_np_world_follow_step(gCurrentObject);
+    if (puppet) {
         if (gCurrentObject->collisionData != NULL) {
-            load_object_collision_model(); /* a followed thwomp / whomp stays solid where it is now, not where it was when the stream began */
+            load_object_collision_model(); /* a carried or vanishing thwomp / whomp stays solid where it is now */
         }
     } else
 #endif
     {
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_follow_running(followed ? gCurrentObject : NULL); /* (what it spawns now is what the other console already announces: see psp_np_world_spawned) */
+#endif
     // Execute the behavior script.
     gCurBhvCommand = gCurrentObject->curBhvCommand;
 
@@ -966,6 +979,9 @@ void cur_obj_update(void) {
     if (gCurrentObject->oTimer < 0x3FFFFFFF) {
         gCurrentObject->oTimer++;
     }
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
+    psp_np_world_follow_running(NULL);
+#endif
     }
 
     // If the object's action has changed, reset the action timer.
@@ -977,7 +993,7 @@ void cur_obj_update(void) {
     // Execute various code based on object flags.
     objFlags = (s16) gCurrentObject->oFlags;
 #if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD && PSP_NETPLAY_ENEMIES
-    if (followed) { /* it is placed by the stream: only its graphics are updated */
+    if (puppet) { /* it is placed by the stream: only its graphics are updated */
         objFlags &= ~(OBJ_FLAG_SET_FACE_ANGLE_TO_MOVE_ANGLE | OBJ_FLAG_SET_FACE_YAW_TO_MOVE_YAW | OBJ_FLAG_MOVE_XZ_USING_FVEL
                       | OBJ_FLAG_MOVE_Y_WITH_TERMINAL_VEL | OBJ_FLAG_TRANSFORM_RELATIVE_TO_PARENT | OBJ_FLAG_SET_THROW_MATRIX_FROM_TRANSFORM);
     }

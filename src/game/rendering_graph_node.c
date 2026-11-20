@@ -1147,21 +1147,38 @@ static void geo_process_shadow(struct GraphNodeShadow *node) {
             psp_same = (fl != NULL && fl->object == NULL);
         }
         /* With Object Distance > 100 % there are shadows of VERY distant objects (which did not even exist on the N64: they are beyond 4000 units). Each shadow costs ~60 us
-         * (finds the floor and builds vertices) and beyond 5500 units it measures a few pixels: those are not computed. At 100 % nothing changes. */
-        const int psp_far = (gPspObjDistScale > 1.0f && !psp_near_mario(shadowPos, 5500.0f)) ? 1 : 0;
+         * (finds the floor and builds vertices) and beyond 7000 units it measures a few pixels: those are not computed. At 100 % nothing changes.
+         * So that they do not pop in and out at the limit, they fade out over the last 1500 units before it (their solidity goes down to 0). */
+        int psp_far = (gPspObjDistScale > 1.0f && !psp_near_mario(shadowPos, 7000.0f)) ? 1 : 0;
+        u8 psp_solidity = node->shadowSolidity;
+        if (!psp_far && gPspObjDistScale > 1.0f && gMarioObject != NULL && !psp_near_mario(shadowPos, 5500.0f)) {
+            const f32 dx = shadowPos[0] - gMarioObject->header.gfx.pos[0], dy = shadowPos[1] - gMarioObject->header.gfx.pos[1],
+                      dz = shadowPos[2] - gMarioObject->header.gfx.pos[2];
+            const f32 k = (7000.0f - sqrtf(dx * dx + dy * dy + dz * dz)) / 1500.0f;
+            psp_solidity = (u8) (psp_solidity * (k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k)));
+            /* 0..2 are special solidity values for shadow code (no shadow / already set / not set): an almost invisible shadow is skipped */
+            if (psp_solidity < 8) {
+                psp_far = 1;
+            }
+        }
         if (gPspSixtyMode && !psp_same && !psp_far) {
 #endif
         gInterpolatingSurfaces = TRUE;
         shadowListInterpolated = create_shadow_below_xyz(shadowPosInterpolated[0], shadowPosInterpolated[1],
                                                          shadowPosInterpolated[2], shadowScale,
-                                                         node->shadowSolidity, node->shadowType);
+#ifdef TARGET_PSP
+                                                         psp_solidity,
+#else
+                                                         node->shadowSolidity,
+#endif
+                                                         node->shadowType);
         gInterpolatingSurfaces = FALSE;
 #ifdef TARGET_PSP
         }
 #endif
 #ifdef TARGET_PSP
         shadowList = psp_far ? NULL : create_shadow_below_xyz(shadowPos[0], shadowPos[1], shadowPos[2], shadowScale,
-                                                              node->shadowSolidity, node->shadowType);
+                                                              psp_solidity, node->shadowType);
 #else
         shadowList = create_shadow_below_xyz(shadowPos[0], shadowPos[1], shadowPos[2], shadowScale,
                                              node->shadowSolidity, node->shadowType);

@@ -8,7 +8,7 @@ void bhv_wf_solid_tower_platform_loop(void) {
 void bhv_wf_elevator_tower_platform_loop(void) {
     switch (o->oAction) {
         case 0:
-            if (gMarioObject->platform == o)
+            if (cur_obj_is_any_player_on_platform())
                 o->oAction++;
             break;
         case 1:
@@ -88,6 +88,15 @@ void spawn_wf_platform_group(void) {
 
 void bhv_tower_platform_group_loop(void) {
     f32 marioY = gMarioObject->oPosY;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    {
+        /* sm64coopdx: the platforms stay while ANY player is up the tower (the other one may be standing on them) */
+        struct Object *remote = psp_np_game_remote();
+        if (remote != NULL && remote->oPosY > marioY) {
+            marioY = remote->oPosY;
+        }
+    }
+#endif
     o->oDistanceToMario = dist_between_objects(o, gMarioObject);
     switch (o->oAction) {
         case 0:

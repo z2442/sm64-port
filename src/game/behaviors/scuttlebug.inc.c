@@ -51,7 +51,7 @@ void bhv_scuttlebug_loop(void) {
             else {
                 if (o->oScuttlebugUnkF8 == 0) {
                     o->oScuttlebugUnkFC = 0;
-                    o->oAngleToMario = obj_angle_to_object(o, gMarioObject);
+                    o->oAngleToMario = obj_angle_to_object(o, nearest_player_to_object(o));
                     if (abs_angle_diff(o->oAngleToMario, o->oMoveAngleYaw) < 0x800) {
                         o->oScuttlebugUnkF8 = 1;
                         o->oVelY = 20.0f;

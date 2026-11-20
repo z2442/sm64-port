@@ -15,7 +15,7 @@ void bhv_bbh_tilting_trap_platform_loop(void) {
     // This was done so that Mario leaving or getting on the platform
     // resets oTimer to 0.
 #ifndef VERSION_JP
-    if (gMarioObject->platform == o) {
+    if (cur_obj_is_any_player_on_platform()) {
         o->oAction = BBH_TILTING_TRAP_PLATFORM_ACT_MARIO_ON;
     } else {
         o->oAction = BBH_TILTING_TRAP_PLATFORM_ACT_MARIO_OFF;
@@ -23,7 +23,7 @@ void bhv_bbh_tilting_trap_platform_loop(void) {
 
     if (o->oAction == BBH_TILTING_TRAP_PLATFORM_ACT_MARIO_ON) {
 #else
-    if (gMarioObject->platform == o) {
+    if (cur_obj_is_any_player_on_platform()) {
 #endif
         o->oAngleVelPitch = (s32)(o->oDistanceToMario * coss(o->oAngleToMario));
         o->oFaceAnglePitch += o->oAngleVelPitch;

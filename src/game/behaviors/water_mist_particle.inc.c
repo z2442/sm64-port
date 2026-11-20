@@ -9,7 +9,7 @@ void bhv_water_mist_spawn_loop(void) {
 void bhv_water_mist_loop(void) {
     f32 sp1C;
     if (o->oTimer == 0) {
-        o->oMoveAngleYaw = gMarioObject->oMoveAngleYaw;
+        o->oMoveAngleYaw = o->parentObj->parentObj->oMoveAngleYaw; /* (the spawner's owner: Mario, or the other player's model) */
         obj_translate_xz_random(o, 10.0f);
     }
     cur_obj_move_using_fvel_and_gravity();

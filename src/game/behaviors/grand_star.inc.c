@@ -53,13 +53,23 @@ void bhv_grand_star_loop(void) {
             gObjCutsceneDone = 1;
             set_mario_npc_dialog(0);
             o->oAction++;
-            o->oInteractStatus = 0;
+            o->oInteractStatus &= INT_STATUS_INTERACTED; /* (WLAN: the other player may have taken its copy already, while this one was still jumping) */
             cur_obj_play_sound_2(SOUND_GENERAL_GRAND_STAR_JUMP);
         }
         spawn_sparkle_particles(3, 200, 80, -60);
     } else {
         cur_obj_become_tangible();
         if (o->oInteractStatus & INT_STATUS_INTERACTED) {
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+            /* sm64coopdx: whoever takes it, every player flies off to the ending with it (the other player took it: this one goes too) */
+            if (gMarioState->action != ACT_JUMBO_STAR_CUTSCENE && gMarioState->health >= 0x100) {
+                mario_stop_riding_and_holding(gMarioState);
+                drop_queued_background_music();
+                fadeout_level_music(126);
+                play_sound(SOUND_MENU_STAR_SOUND, gMarioState->marioObj->header.gfx.cameraToObject);
+                set_mario_action(gMarioState, ACT_JUMBO_STAR_CUTSCENE, 0);
+            }
+#endif
             obj_mark_for_deletion(o);
             o->oInteractStatus = 0;
         }

@@ -131,7 +131,8 @@ void bhv_bookend_spawn_loop(void) {
     struct Object *sp1C;
 
     if (!(o->activeFlags & ACTIVE_FLAG_IN_DIFFERENT_ROOM)) {
-        if (o->oTimer > 40 && obj_is_near_to_and_facing_mario(600.0f, 0x2000)) {
+        /* (sm64coopdx: only the console of the player nearest to it throws the books; the other console gets each one announced) */
+        if (o->oTimer > 40 && obj_is_near_to_and_facing_mario(600.0f, 0x2000) && psp_np_world_spawner_mine(o)) {
             sp1C = spawn_object(o, MODEL_BOOKEND, bhvFlyingBookend);
             if (sp1C != NULL) {
                 sp1C->oAction = 3;
@@ -258,6 +259,7 @@ void bhv_book_switch_loop(void) {
             if (approach_f32_ptr(&o->oBookSwitchUnkF4, 50.0f, 20.0f)) {
                 if (o->parentObj->oBookSwitchManagerUnkF4 >= 0 && o->oTimer > 60) {
                     if (sp3C == 1 || sp3C == 2 || sp3C == 6) {
+                        psp_np_world_claim(o); /* (the local player punched it: this console drives it for a while) */
                         o->oAction = 2;
                     }
                 }

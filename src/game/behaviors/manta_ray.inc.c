@@ -30,6 +30,11 @@ void bhv_manta_ray_init(void) {
     o->parentObj = sp1C;
     obj_set_hitbox(o, &sMantaRayHitbox);
     cur_obj_scale(2.5f);
+
+    // (its script sets no home: the WLAN multiplayer tells it from other objects by its home, so it is where it was placed)
+    o->oHomeX = o->oPosX;
+    o->oHomeY = o->oPosY;
+    o->oHomeZ = o->oPosZ;
 }
 
 void manta_ray_move(void) {

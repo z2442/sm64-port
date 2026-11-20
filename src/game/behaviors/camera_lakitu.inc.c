@@ -34,6 +34,7 @@ static void camera_lakitu_intro_act_trigger_cutscene(void) {
     {
         if (set_mario_npc_dialog(2) == 1) {
             o->oAction = CAMERA_LAKITU_INTRO_ACT_SPAWN_CLOUD;
+            psp_np_world_signal(o, PSP_NP_SIG_LAKITU, 1); // (WLAN multiplayer: on the other console it comes down for this player)
         }
     }
 }
@@ -42,7 +43,8 @@ static void camera_lakitu_intro_act_trigger_cutscene(void) {
  * Warp up into the air and spawn cloud, then enter the TODO action.
  */
 static void camera_lakitu_intro_act_spawn_cloud(void) {
-    if (set_mario_npc_dialog(2) == 2) {
+    // (the one that comes down for the other player does not wait for this player)
+    if (o->unused2 == PSP_NP_LAKITU_OTHER || set_mario_npc_dialog(2) == 2) {
         o->oAction = CAMERA_LAKITU_INTRO_ACT_UNK2;
 
         o->oPosX = 1800.0f;
@@ -63,17 +65,40 @@ static void camera_lakitu_intro_act_spawn_cloud(void) {
 static void camera_lakitu_intro_act_show_dialog(void) {
     s16 targetMovePitch;
     s16 targetMoveYaw;
+    // WLAN multiplayer: the lakitu that came down for the other player flies to that player's model, with no text here
+    struct Object *target = gMarioObject;
+    s32 forOther = (o->unused2 == PSP_NP_LAKITU_OTHER);
+    f32 distToTarget = o->oDistanceToMario;
+    s16 angleToTarget = o->oAngleToMario;
+    s16 targetFaceYaw = gMarioObject->oFaceAngleYaw;
+
+    if (forOther) {
+        target = psp_np_game_remote();
+        if (target == NULL || o->oTimer > 1800) {
+            target = gMarioObject; // (that player is gone, or its text never ended here: it flies away)
+            o->oCameraLakituFinishedDialog = TRUE;
+        }
+        distToTarget = dist_between_objects(o, target);
+        angleToTarget = obj_angle_to_object(o, target);
+        targetFaceYaw = target->header.gfx.angle[1];
+    }
 
     cur_obj_play_sound_1(SOUND_AIR_LAKITU_FLY);
 
     // Face toward mario
-    o->oFaceAnglePitch = obj_turn_pitch_toward_mario(120.0f, 0);
-    o->oFaceAngleYaw = o->oAngleToMario;
+    if (forOther) {
+        o->oPosY -= 120.0f;
+        o->oFaceAnglePitch = obj_turn_toward_object(o, target, O_MOVE_ANGLE_PITCH_INDEX, 0);
+        o->oPosY += 120.0f;
+    } else {
+        o->oFaceAnglePitch = obj_turn_pitch_toward_mario(120.0f, 0);
+    }
+    o->oFaceAngleYaw = angleToTarget;
 
     // After finishing dialog, fly away and despawn
     if (o->oCameraLakituFinishedDialog) {
         approach_f32_ptr(&o->oCameraLakituSpeed, 60.0f, 3.0f);
-        if (o->oDistanceToMario > 6000.0f) {
+        if (distToTarget > 6000.0f) {
             obj_mark_for_deletion(o);
         }
 
@@ -81,25 +106,25 @@ static void camera_lakitu_intro_act_show_dialog(void) {
         targetMoveYaw = -0x6000;
     } else {
         if (o->oCameraLakituSpeed != 0.0f) {
-            if (o->oDistanceToMario > 5000.0f) {
+            if (distToTarget > 5000.0f) {
                 targetMovePitch = o->oMoveAnglePitch;
-                targetMoveYaw = o->oAngleToMario;
+                targetMoveYaw = angleToTarget;
             } else {
                 // Stay moving in a circle around mario
                 s16 turnAmount = 0x4000
                                  - atan2s(o->oCameraLakituCircleRadius,
-                                          o->oDistanceToMario - o->oCameraLakituCircleRadius);
-                if ((s16)(o->oMoveAngleYaw - o->oAngleToMario) < 0) {
+                                          distToTarget - o->oCameraLakituCircleRadius);
+                if ((s16)(o->oMoveAngleYaw - angleToTarget) < 0) {
                     turnAmount = -turnAmount;
                 }
 
-                targetMoveYaw = o->oAngleToMario + turnAmount;
+                targetMoveYaw = angleToTarget + turnAmount;
                 targetMovePitch = o->oFaceAnglePitch;
 
                 approach_f32_ptr(&o->oCameraLakituCircleRadius, 200.0f, 50.0f);
-                if (o->oDistanceToMario < 1000.0f) {
+                if (distToTarget < 1000.0f) {
 #ifndef VERSION_JP
-                    if (!o->oCameraLakituUnk104) {
+                    if (!o->oCameraLakituUnk104 && !forOther) {
                         play_music(SEQ_PLAYER_LEVEL, SEQUENCE_ARGS(15, SEQ_EVENT_CUTSCENE_LAKITU), 0);
                         o->oCameraLakituUnk104 = TRUE;
                     }
@@ -107,16 +132,19 @@ static void camera_lakitu_intro_act_show_dialog(void) {
 
                     // Once within 1000 units, slow down
                     approach_f32_ptr(&o->oCameraLakituSpeed, 20.0f, 1.0f);
-                    if (o->oDistanceToMario < 500.0f
-                        && abs_angle_diff(gMarioObject->oFaceAngleYaw, o->oFaceAngleYaw) > 0x7000) {
+                    if (distToTarget < 500.0f
+                        && abs_angle_diff(targetFaceYaw, o->oFaceAngleYaw) > 0x7000) {
                         // Once within 500 units and facing toward mario, come
                         // to a stop
                         approach_f32_ptr(&o->oCameraLakituSpeed, 0.0f, 5.0f);
                     }
                 }
             }
+        } else if (forOther) {
+            // (its text runs on the other console: it stays until that one says it is over)
         } else if (cur_obj_update_dialog_with_cutscene(2, DIALOG_UNK2_FLAG_0, CUTSCENE_DIALOG, DIALOG_034) != 0) {
             o->oCameraLakituFinishedDialog = TRUE;
+            psp_np_world_signal(o, PSP_NP_SIG_LAKITU, 2);
         }
     }
 

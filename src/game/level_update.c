@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "pc/psp_lprof.h"
 #include "pc/psp_netplay.h"
+#include "mario_actions_automatic.h"
 
 #include "sm64.h"
 #include "seq_ids.h"
@@ -644,6 +645,11 @@ void check_instant_warp(void) {
                 warp_camera(warp->displacement[0], warp->displacement[1], warp->displacement[2]);
 
                 gMarioState->area->camera->yaw = cameraAngle;
+
+                /* 60 fps: Mario and the camera jumped by the displacement (the endless stairs put them back a flight down): the frame in between
+                 * would draw them halfway, a flight up or down from where the stairs look the same. They are drawn where they are now. */
+                gLakituState.skipCameraInterpolationTimestamp = gGlobalTimer;
+                gMarioState->marioObj->header.gfx.skipInterpolationTimestamp = gGlobalTimer;
             }
         }
     }
@@ -783,6 +789,13 @@ void initiate_painting_warp(void) {
  */
 s16 level_trigger_warp(struct MarioState *m, s32 warpOp) {
     s32 val04 = TRUE;
+
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    if (warpOp == WARP_OP_DEATH && mario_can_bubble(m)) {
+        mario_set_bubbled(m); /* WLAN multiplayer (sm64coopdx): the other player is here and alive, this one floats to it in a bubble instead */
+        return 0;
+    }
+#endif
 
     if (sDelayedWarpOp == WARP_OP_NONE) {
         m->invincTimer = -1;
@@ -932,6 +945,17 @@ void initiate_delayed_warp(void) {
         } else {
             switch (sDelayedWarpOp) {
                 case WARP_OP_GAME_OVER:
+#ifdef TARGET_PSP
+                    /* WLAN multiplayer (sm64coopdx): there is no Game Over screen; the player is back in the castle grounds, at the
+                     * level's start, with 4 lives and full health, and the room goes on */
+                    if (psp_netplay_state() == PSP_NP_CONNECTED) {
+                        gMarioState->numLives = 4;
+                        gMarioState->health = 0x880;
+                        sWarpDest.type = WARP_TYPE_NOT_WARPING;
+                        warp_special(LEVEL_CASTLE_GROUNDS);
+                        break;
+                    }
+#endif
                     save_file_reload();
                     warp_special(-3);
                     break;
@@ -1481,6 +1505,26 @@ s32 lvl_play_the_end_screen_sound(UNUSED s16 arg0, UNUSED s32 arg1) {
     play_sound(SOUND_MENU_THANK_YOU_PLAYING_MY_GAME, gDefaultSoundArgs);
     return 1;
 }
+
+#ifdef TARGET_PSP
+/* The end screen (levels/ending/script.c), every frame from when the credits are over: when START is pressed, 1 in a single-player game (the N64 had a
+ * reset button for this; the game itself never leaves this screen: the level script goes back to the title, as at power on) and 2 in a WLAN game (back
+ * to the castle grounds with the same save, as sm64coopdx lvl_skip_credits; the other player stays where it is). */
+s32 lvl_ending_wait_for_reset(UNUSED s16 arg0, UNUSED s32 arg1) {
+    if (!(gPlayer1Controller->buttonPressed & START_BUTTON)) {
+        return 0;
+    }
+    sound_banks_enable(2, 0xFFFF); /* (the credits turned some off; at power on all of them are on) */
+#if PSP_NETPLAY
+    if (psp_netplay_state() == PSP_NP_CONNECTED) {
+        gCurrCreditsEntry = NULL; /* (sm64coopdx lvl_exiting_credits) */
+        gCurrActNum = 0;
+        return 2;
+    }
+#endif
+    return 1;
+}
+#endif
 
 #ifdef TARGET_PSP
 /* Once per tick (called by gfx_psp_update_mode): 1 while a level / area change or a warp transition is in progress, and a few

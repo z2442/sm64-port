@@ -67,7 +67,7 @@ static void fly_guy_act_approach_mario(void) {
         // If facing toward mario and we are either near mario laterally or
         // far above him
         if (abs_angle_diff(o->oAngleToMario, o->oFaceAngleYaw) < 0x2000) {
-            if (o->oPosY - gMarioObject->oPosY > 400.0f || o->oDistanceToMario < 400.0f) {
+            if (o->oPosY - nearest_player_to_object(o)->oPosY > 400.0f || o->oDistanceToMario < 400.0f) {
                 // Either shoot fire or lunge
                 if (o->oBehParams2ndByte != 0 && random_u16() % 2) {
                     o->oAction = FLY_GUY_ACT_SHOOT_FIRE;
@@ -114,7 +114,7 @@ static void fly_guy_act_lunge(void) {
         obj_face_yaw_approach(o->oMoveAngleYaw, 0x800);
 
         // Continue moving upward until at least 200 units above mario
-        if (o->oPosY < gMarioObject->oPosY + 200.0f) {
+        if (o->oPosY < nearest_player_to_object(o)->oPosY + 200.0f) {
             obj_y_vel_approach(20.0f, 0.5f);
         } else if (obj_y_vel_approach(0.0f, 0.5f)) {
             // Wait until roll is zero

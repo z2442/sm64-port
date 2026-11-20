@@ -18,6 +18,30 @@ void door_animation_and_reset(s32 sp18) {
         o->oAction = 0;
 }
 
+#if defined(TARGET_PSP) && PSP_NETPLAY
+/* WLAN (sm64coopdx's door_allow_walk_through): while a door is swinging open (whoever opened it) the other player walks through the opening instead of
+ * bumping into it and starting to open it again */
+static u8 door_allow_walk_through(void) {
+    s32 cur, max, min;
+    if (gCurrCourseNum != COURSE_NONE && gMarioStates[0].action == ACT_BUBBLED) {
+        return TRUE; /* (a bubble floats through the doors) */
+    }
+    if (o->oAction == 0 || o->oAction > 2 || o->oInteractType == INTERACT_WARP_DOOR) {
+        return FALSE;
+    }
+    if (gCurrCourseNum == COURSE_BBH && o->oDoorUnkF8 == 28) {
+        return FALSE; /* (sm64coopdx: the back door of Big Boo's Haunt, the camera gets stuck otherwise) */
+    }
+    cur = o->header.gfx.unk38.animFrame;
+    max = (o->header.gfx.unk38.curAnim != NULL) ? (o->header.gfx.unk38.curAnim->unk08 - 2) : 1;
+    min = max / 4;
+    if (gMarioStates[0].marioObj != NULL && (gMarioStates[0].action == ACT_PULLING_DOOR || gMarioStates[0].action == ACT_PUSHING_DOOR)) {
+        min = 0; /* (the local player's own door: not solid from the start, so the camera does not glitch) */
+    }
+    return cur >= min && cur <= 7 * max / 8;
+}
+#endif
+
 void set_door_camera_event(void) {
     if (segmented_to_virtual(bhvDoor) == o->behavior)
         gPlayerCameraState->cameraEvent = CAM_EVENT_DOOR;
@@ -75,8 +99,18 @@ void bhv_door_loop(void) {
             play_warp_door_open_noise();
             break;
     }
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    if (psp_netplay_state() == PSP_NP_CONNECTED && door_allow_walk_through()) { /* (playing alone: always solid, as in the game) */
+        o->oIntangibleTimer = -1;
+    } else {
+        if (o->oAction == 0)
+            load_object_collision_model();
+        o->oIntangibleTimer = 0;
+    }
+#else
     if (o->oAction == 0)
         load_object_collision_model();
+#endif
     bhv_star_door_loop_2();
 }
 
