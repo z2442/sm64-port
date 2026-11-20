@@ -148,7 +148,8 @@ static int sGameActive; /* the game side currently shows the other player */
 
 /* world events (EVENT / EVACK: one in flight at a time, repeated until acknowledged; the receiver applies each one once, in order) */
 #define NP_EV_OUT 256
-#define NP_EV_IN 32
+#define NP_EV_IN 64
+#define NP_EV_BATCH 8 /* events in one packet (a replay of a whole area took seconds one by one) */
 #define NP_EV_RESEND_US 60000U
 static PspNpWorldEvent sEvOut[NP_EV_OUT];
 static volatile int sEvOutHead, sEvOutTail; /* head: next free, tail: the one in flight */
@@ -573,29 +574,38 @@ static void np_handle_packet(const uint8_t *mac, const uint8_t *data, int len, u
                 sceKernelCpuResumeIntr(lock);
             }
             break;
-        case PK_EVENT:
-            if (sPeerKnown && sState == PSP_NP_CONNECTED && plen == (int) sizeof(PspNpWorldEvent)) {
-                if (h->a == sEvInNext) {
-                    if (((sEvInHead + 1) % NP_EV_IN) != sEvInTail) { /* (when the game has not taken the older ones yet it is not acknowledged: it comes again) */
+        case PK_EVENT: /* a batch of up to NP_EV_BATCH events; a = sequence of the first, b = how many */
+            if (sPeerKnown && sState == PSP_NP_CONNECTED && h->b >= 1 && h->b <= NP_EV_BATCH && plen == (int) sizeof(PspNpWorldEvent) * h->b) {
+                const int n = h->b;
+                const int skip = (int) (uint8_t) (sEvInNext - h->a); /* events of the batch already taken (an older copy) */
+                int i;
+                if (skip <= n) {
+                    for (i = skip; i < n; i++) {
+                        if (((sEvInHead + 1) % NP_EV_IN) == sEvInTail) {
+                            break; /* (the game has not taken the older ones yet: the rest comes again) */
+                        }
                         const int lock = sceKernelCpuSuspendIntr();
-                        memcpy(&sEvIn[sEvInHead], payload, sizeof(PspNpWorldEvent));
+                        memcpy(&sEvIn[sEvInHead], payload + i * sizeof(PspNpWorldEvent), sizeof(PspNpWorldEvent));
                         sEvInHead = (sEvInHead + 1) % NP_EV_IN;
                         sEvInNext++;
                         sceKernelCpuResumeIntr(lock);
-                        np_send(sPeerMac, PK_EVACK, h->a, 0, NULL, 0);
                     }
-                } else {
-                    np_send(sPeerMac, PK_EVACK, h->a, 0, NULL, 0); /* a repeat: our acknowledgement was lost */
+                }
+                np_send(sPeerMac, PK_EVACK, sEvInNext, 0, NULL, 0); /* a = the next one expected: everything before it is taken */
+            }
+            break;
+        case PK_EVACK: {
+            const int n = (int) (uint8_t) (h->a - sEvSeq); /* how many of the ones in flight this acknowledges */
+            if (sPeerKnown && n > 0 && n <= NP_EV_BATCH) {
+                int have = (sEvOutHead - sEvOutTail + NP_EV_OUT) % NP_EV_OUT;
+                if (n <= have) {
+                    sEvOutTail = (sEvOutTail + n) % NP_EV_OUT;
+                    sEvSeq = (uint8_t) h->a;
+                    sTEvSent = 0;
                 }
             }
             break;
-        case PK_EVACK:
-            if (sPeerKnown && sEvOutTail != sEvOutHead && h->a == sEvSeq) {
-                sEvOutTail = (sEvOutTail + 1) % NP_EV_OUT;
-                sEvSeq++;
-                sTEvSent = 0;
-            }
-            break;
+        }
         case PK_OBJ:
             if (sPeerKnown && sState == PSP_NP_CONNECTED && plen > 0 && plen <= PSP_NP_OBJ_BYTES &&
                 (!sObjInHave || (int8_t) (h->a - sObjInSeq) > 0)) {
@@ -1000,12 +1010,15 @@ static void np_step(void) {
         np_send(sPeerMac, PK_FLD, ++sFldOutSeq, 0, tmp, len);
     }
     if (sState == PSP_NP_CONNECTED && sPeerKnown && sEvOutTail != sEvOutHead && (sTEvSent == 0 || now - sTEvSent >= np_ev_resend_us())) {
-        PspNpWorldEvent ev;
+        PspNpWorldEvent ev[NP_EV_BATCH];
+        int n = 0, t;
         const int lock = sceKernelCpuSuspendIntr();
-        ev = sEvOut[sEvOutTail];
+        for (t = sEvOutTail; t != sEvOutHead && n < NP_EV_BATCH; t = (t + 1) % NP_EV_OUT) {
+            ev[n++] = sEvOut[t];
+        }
         sceKernelCpuResumeIntr(lock);
         sTEvSent = now ? now : 1;
-        np_send(sPeerMac, PK_EVENT, sEvSeq, 0, &ev, (int) sizeof(ev));
+        np_send(sPeerMac, PK_EVENT, sEvSeq, n, ev, (int) sizeof(PspNpWorldEvent) * n);
     }
     if (sPeerKnown && (sHost || sWelcomed) && now - sTPing >= NP_PING_US) {
         sTPing = now;
@@ -1227,7 +1240,7 @@ void psp_netplay_frame(void) {
 
 int psp_np_world_send(const PspNpWorldEvent *e) {
     int ok = 0, lock;
-    if (sState != PSP_NP_CONNECTED) {
+    if (sState != PSP_NP_CONNECTED || psp_np_world_quiet()) {
         return 0;
     }
     lock = sceKernelCpuSuspendIntr();
@@ -1242,7 +1255,7 @@ int psp_np_world_send(const PspNpWorldEvent *e) {
 
 int psp_np_world_obj_send(const void *data, int len) {
     int lock;
-    if (sState != PSP_NP_CONNECTED || len <= 0 || len > PSP_NP_OBJ_BYTES) {
+    if (sState != PSP_NP_CONNECTED || psp_np_world_quiet() || len <= 0 || len > PSP_NP_OBJ_BYTES) {
         return 0;
     }
     lock = sceKernelCpuSuspendIntr();
@@ -1265,7 +1278,7 @@ int psp_np_world_obj_take(void *data) {
 
 int psp_np_world_fld_send(const void *data, int len) {
     int lock;
-    if (sState != PSP_NP_CONNECTED || len <= 0 || len > PSP_NP_FLD_BYTES) {
+    if (sState != PSP_NP_CONNECTED || psp_np_world_quiet() || len <= 0 || len > PSP_NP_FLD_BYTES) {
         return 0;
     }
     lock = sceKernelCpuSuspendIntr();

@@ -35,6 +35,8 @@
 #include "object_fields.h"
 #include "save_file.h"
 #include "pc/psp_netplay.h"
+#include "level_table.h"
+#include "sound_init.h"
 
 #if defined(TARGET_PSP) && PSP_NETPLAY
 
@@ -65,7 +67,59 @@ static int sRemoteSquish;                  /* frames left of the squash of the o
 
 #define NP_PLAY_MODE_PAUSED 2 /* sCurrPlayMode value of the pause menu (the define is private to level_update.c) */
 
+/* The other player's model as it left this area (sm64coopdx fades a player out where it was when it goes to another level or area, through a door, a
+ * star or a death, instead of taking it away at once; and fades in the one that comes in). Only a picture: nothing of the game looks at it. */
+#define NP_FADE_FULL 32
+static struct Object *sGhost;
+static struct MarioBodyState sGhostBody;
+static int sGhostFade, sGhostBaseState;
+static int sRemoteFade; /* the fade in of the model shown now, 0 .. NP_FADE_FULL */
+
+static int np_fade_state(int modelState, int fade) {
+    int a = fade * 8;
+    if (fade >= NP_FADE_FULL) {
+        return modelState;
+    }
+    if ((modelState & 0x100) && (modelState & 0xFF) < a) {
+        a = modelState & 0xFF; /* (already see-through: the vanish cap) */
+    }
+    return (modelState & ~0xFF) | 0x100 | a;
+}
+
+static int np_ghost_ok(void) {
+    return sGhost != NULL && sGhost != sRemote && sGhost->activeFlags != ACTIVE_FLAG_DEACTIVATED && sGhost->oBehParams2ndByte == NP_OBJ_MARK
+           && sGhost->behavior == segmented_to_virtual(bhvStaticObject);
+}
+
+static void np_ghost_drop(void) {
+    if (np_ghost_ok()) {
+        obj_mark_for_deletion(sGhost);
+    }
+    sGhost = NULL;
+}
+
+static void np_ghost_step(int paused) {
+    if (sGhost == NULL) {
+        return;
+    }
+    if (!np_ghost_ok()) {
+        sGhost = NULL; /* (gone with the area) */
+        return;
+    }
+    if (!paused) {
+        sGhostFade -= 2;
+    }
+    if (sGhostFade <= 0) {
+        np_ghost_drop();
+        return;
+    }
+    sGhostBody.modelState = (s16) np_fade_state(sGhostBaseState, sGhostFade);
+}
+
 struct MarioBodyState *psp_np_game_body_state(int index) {
+    if (sGhost != NULL && gCurGraphNodeObject == &sGhost->header.gfx) {
+        return &sGhostBody;
+    }
     if (sRemote != NULL && (gCurGraphNodeObject == &sRemote->header.gfx || gCurGraphNodeObject == &gMirrorRemote)) { /* (its reflection in the castle mirror too) */
         return &sNetBody;
     }
@@ -76,8 +130,12 @@ int psp_np_game_remote_head_cam(void) {
     return sRemoteHeadCam;
 }
 
+static int np_drawing_ghost(void) {
+    return sGhost != NULL && gCurGraphNodeObject == &sGhost->header.gfx;
+}
+
 int psp_np_game_drawing_remote(void) {
-    return sRemote != NULL && (gCurGraphNodeObject == &sRemote->header.gfx || gCurGraphNodeObject == &gMirrorRemote);
+    return (sRemote != NULL && (gCurGraphNodeObject == &sRemote->header.gfx || gCurGraphNodeObject == &gMirrorRemote)) || np_drawing_ghost();
 }
 
 static int np_anim_init(void) {
@@ -99,14 +157,19 @@ static int np_anim_init(void) {
     return 1;
 }
 
+extern struct Object *gPspBowserRewardOf; /* (bowser.inc.c) */
 static int np_remote_alive(void) {
     return sRemote != NULL && sRemote->activeFlags != ACTIVE_FLAG_DEACTIVATED && sRemote->oBehParams2ndByte == NP_OBJ_MARK
            && sRemote->behavior == segmented_to_virtual(bhvStaticObject);
 }
 
+static void np_ghost_drop(void);
 void psp_np_game_remove_remote(void) {
     if (np_remote_alive()) {
         obj_mark_for_deletion(sRemote);
+    }
+    if (psp_netplay_state() != PSP_NP_CONNECTED) {
+        np_ghost_drop(); /* (the room is over) */
     }
     sRemote = NULL;
     sRemoteAge = 0;
@@ -117,10 +180,34 @@ struct MarioState *psp_np_game_remote_state(void) {
     return np_remote_alive() ? &sNetMs : NULL;
 }
 
+/* this player came down on the other one (interaction.c): its model is squashed here at once, and the other console is told to squash it there too.
+ * That console's own test (the other player coming down on it) uses where this player was a few frames before, so it saw the landing only sometimes */
+static uint8_t sStompSeq, sStompFrames;
 void psp_np_game_remote_squish(int frames) {
     if (frames > sRemoteSquish) {
         sRemoteSquish = frames;
     }
+    sStompSeq++;
+    sStompFrames = (uint8_t) frames;
+}
+
+/* The other player's model is a picture (bhvStaticObject, in the default list): the collision pass of the game does not look at it. This is the test of
+ * detect_object_hitbox_overlap with Mario's hitbox (bhvMario: radius 37, height 160) where the model stands, for the objects that react to any player
+ * touching them (sm64coopdx loops over every MarioState there): the recovery heart, the pushable metal box. */
+int psp_np_game_remote_touches(const struct Object *obj) {
+    const struct Object *r = psp_np_game_remote();
+    f32 dx, dz, bottom, top;
+    if (r == NULL || obj == NULL) {
+        return 0;
+    }
+    dx = r->oPosX - obj->oPosX;
+    dz = r->oPosZ - obj->oPosZ;
+    if (sqrtf(dx * dx + dz * dz) >= 37.0f + obj->hitboxRadius) {
+        return 0;
+    }
+    bottom = obj->oPosY - obj->hitboxDownOffset;
+    top = bottom + obj->hitboxHeight;
+    return !(r->oPosY > top || r->oPosY + 160.0f < bottom);
 }
 
 struct Object *psp_np_game_remote(void) {
@@ -144,14 +231,25 @@ int psp_np_game_remote_age(void) {
  * different acts of the same course are in different copies of it: they do not see each other, and what one does to the world (enemies, coins, stars,
  * platforms) is not shown to the other. The area byte of the world messages carries both: bits 0-3 the area, bits 4-7 the act (only the main courses
  * have acts; anywhere else the act is 0, whatever number the game left in gCurrActNum). */
+#define NP_ACT_CREDITS 99 /* sm64coopdx: gCurrActStarNum = 99 from the start of the ending to the end of the credits */
 static int np_act(void) {
+    if (gCurrCreditsEntry != NULL) {
+        return NP_ACT_CREDITS; /* (the same scene of the credits is the same place for both: each console plays them on its own) */
+    }
     return COURSE_IS_MAIN_COURSE(gCurrCourseNum) ? (gCurrActNum & 15) : 0;
+}
+
+/* sm64coopdx (packet_object.c, network.c): nothing of the world is synced while a player watches the ending and the credits, which are the same every time;
+ * each console plays them by itself and only the players are seen (when both are in the same scene). */
+int psp_np_world_quiet(void) {
+    return gCurrCreditsEntry != NULL;
 }
 
 static int np_area_key(void) {
     return (gCurrAreaIndex & 15) | (np_act() << 4);
 }
 
+static void np_p_ident(const struct Object *o, uint8_t *kind, uint8_t *ord);
 int psp_np_game_capture(PspNpPlayer *out) {
     struct Object *m = gMarioObject;
     if (m == NULL || gMarioState == NULL || gCurrentArea == NULL) {
@@ -219,6 +317,22 @@ int psp_np_game_capture(PspNpPlayer *out) {
         for (int i = 0; i < 3; i++) {
             out->vel[i] = (int16_t) s->vel[i];
         }
+        /* carried by something (the Hoot, a moving platform): its speed is not in vel[]. The other console carries the model on between packets with what it
+         * really moved in the last frame, or it moved in steps at the packet rate (and so did the Hoot drawn above it) */
+        static float sCapLast[3];
+        static int sCapHave;
+        if (sCapHave && (s->action == ACT_RIDING_HOOT || (s->marioObj != NULL && s->marioObj->platform != NULL))) {
+            for (int i = 0; i < 3; i++) {
+                const float d = out->pos[i] - sCapLast[i];
+                if (fabsf(d) < 150.0f) {
+                    out->vel[i] = (int16_t) d;
+                }
+            }
+        }
+        sCapLast[0] = out->pos[0];
+        sCapLast[1] = out->pos[1];
+        sCapLast[2] = out->pos[2];
+        sCapHave = 1;
     }
     /* first person (C-Up): the head follows the camera, which is not in the body state (see geo_mario_head_rotation) */
     out->headCam = 0;
@@ -229,6 +343,13 @@ int psp_np_game_capture(PspNpPlayer *out) {
         out->head[2] = 0;
     }
     out->act = (uint8_t) np_act();
+    out->stompSeq = sStompSeq;
+    out->stompFrames = sStompFrames;
+    out->lives = (int8_t) (gMarioStates[0].numLives < -1 ? -1 : (gMarioStates[0].numLives > 127 ? 127 : gMarioStates[0].numLives));
+    np_p_ident(gMarioObject != NULL ? gMarioObject->platform : NULL, &out->platKind, &out->platOrd);
+    out->scaleXZ = (uint8_t) (m->header.gfx.scale[0] * 100.0f + 0.5f);
+    out->scaleY = (uint8_t) (m->header.gfx.scale[1] * 100.0f + 0.5f);
+    out->particles = (uint32_t) m->oMarioParticleFlags;
     return 1;
 }
 
@@ -251,6 +372,29 @@ int psp_np_game_remote_pose(float pos[3], short angle[3], unsigned int *action) 
 }
 
 /* Shows the other player (in == NULL: hides it). remoteIsLuigi: the other console is the client, which plays as Luigi. */
+/* The particles of the other player's model (sm64coopdx runs every player's particles): the flags of its last frame make the same spawners as the local Mario's
+ * (spawn_mario_particles, object_list_processor.c) around its model. A burst (a ground pound's stars, a splash) is made when its flag comes up, not again for
+ * every frame the same packet stands. The idle water wave and the leaves follow the local Mario's state, so they are left out. */
+#define NP_PARTICLES_BURST (PARTICLE_VERTICAL_STAR | PARTICLE_HORIZONTAL_STAR | PARTICLE_WATER_SPLASH | PARTICLE_PLUNGE_BUBBLE | PARTICLE_SHALLOW_WATER_SPLASH \
+                            | PARTICLE_MIST_CIRCLE | PARTICLE_TRIANGLE)
+#define NP_PARTICLES_SKIP (PARTICLE_IDLE_WATER_WAVE | PARTICLE_LEAF)
+static void np_remote_particles(struct Object *o, u32 flags, int paused) {
+    static u32 sPrev;
+    struct Object *prevObj = gCurrentObject;
+    if (paused || o == NULL) {
+        return;
+    }
+    o->oMoveAngleYaw = o->oFaceAngleYaw;
+    o->oMarioParticleFlags = (s32) flags; /* (the particles that last while it is set look at it, as they do at Mario's) */
+    gCurrentObject = o;
+    spawn_mario_particles(flags & ~NP_PARTICLES_SKIP & ~(sPrev & NP_PARTICLES_BURST));
+    gCurrentObject = prevObj;
+    sPrev = flags;
+}
+
+static struct Object *sRemBubble; /* the bubble around the other player's model (ACT_BUBBLED) */
+static s16 sYawRate; /* the other player's turning speed while it swings Bowser (psp_np_game_apply) */
+static int sYawAge;
 void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
     struct Object *o;
     const int model = remoteIsLuigi ? MODEL_LUIGI : MODEL_MARIO;
@@ -262,9 +406,64 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
     if (in != NULL) {
         sLastIn = *in;
     }
+    {
+        static int sStompSeen = -1;
+        if (in != NULL) {
+            if (sStompSeen >= 0 && in->stompSeq != (uint8_t) sStompSeen && gMarioState->bounceSquishTimer < in->stompFrames) {
+                gMarioState->bounceSquishTimer = in->stompFrames; /* (the other player landed on this one: see psp_np_game_remote_squish) */
+            }
+            sStompSeen = in->stompSeq;
+        }
+    }
+    {
+        /* sm64coopdx (network_send_death / network_receive_death): when a player loses a life, the other one's count comes down to it if it has more */
+        static int sRemLives = 1000;
+        if (in != NULL) {
+            if (in->lives < sRemLives && sRemLives != 1000 && in->lives < gMarioStates[0].numLives) {
+                gMarioStates[0].numLives = in->lives;
+            }
+            sRemLives = in->lives;
+        }
+    }
+    /* The grand star (sm64coopdx, network_receive_player): every player flies off with it. Each console plays the cutscene of its own player, and draws
+     * the other one 100 to the side (and, flying, 100 lower: jumbo_star_cutscene_flying with playerIndex 1), as each sm64coopdx client does with the
+     * other players. A player whose console missed the taking goes too as soon as the other one is in the cutscene. The ending and the credits are not
+     * changed: every player stands where its own console puts it, as there. */
+    PspNpPlayer adj;
+    static int sJumboFly;
+    if (in != NULL && in->action == ACT_JUMBO_STAR_CUTSCENE && in->level == LEVEL_BOWSER_3) {
+        adj = *in;
+        adj.pos[0] += 100.0f;
+        if (in->anim == MARIO_ANIM_WING_CAP_FLY) {
+            if (!paused && sJumboFly < 30) {
+                sJumboFly++;
+            }
+            adj.pos[1] -= 100.0f * (f32) sJumboFly / 30.0f;
+        } else {
+            sJumboFly = 0;
+        }
+        in = &adj;
+        if (gCurrLevelNum == LEVEL_BOWSER_3 && gMarioObject != NULL && gMarioState->action != ACT_JUMBO_STAR_CUTSCENE) {
+            mario_stop_riding_and_holding(gMarioState);
+            fadeout_level_music(126);
+            set_mario_action(gMarioState, ACT_JUMBO_STAR_CUTSCENE, 0);
+        }
+    }
 
+    np_ghost_step(paused);
     if (in == NULL || !in->visible || in->level != (int16_t) gCurrLevelNum || in->area != (int16_t) gCurrAreaIndex || in->act != (uint8_t) np_act() || gMarioObject == NULL
         || gCurrentArea == NULL || gLoadedGraphNodes[model] == NULL || !np_anim_init()) {
+        if (in != NULL && in->visible && np_remote_alive() && sRemoteAge > 2 && gMarioObject != NULL
+            && (in->level != (int16_t) gCurrLevelNum || in->area != (int16_t) gCurrAreaIndex || in->act != (uint8_t) np_act())) {
+            /* it went somewhere else: its model stays where it was and fades out */
+            np_ghost_drop();
+            sGhost = sRemote;
+            sGhostBody = sNetBody;
+            sGhostBaseState = sNetBody.modelState;
+            sGhostFade = sRemoteFade;
+            sGhost->oIntangibleTimer = -1;
+            sRemote = NULL;
+        }
         psp_np_game_remove_remote();
         sVoiceSeqKnown = 0;
         sSfxSeqKnown = 0;
@@ -282,6 +481,7 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
             return;
         }
         sRemoteModel = model;
+        sRemoteFade = 0; /* it fades in */
         o = sRemote;
         o->oBehParams2ndByte = NP_OBJ_MARK;
         o->oFlags |= OBJ_FLAG_ACTIVE_FROM_AFAR;
@@ -299,7 +499,10 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
 
     /* body state of the model (read by the geo callbacks, see BODY_STATE in mario_misc.c) */
     sNetBody.action = in->action;
-    sNetBody.modelState = in->modelState;
+    if (!paused && sRemoteFade < NP_FADE_FULL) {
+        sRemoteFade += 2;
+    }
+    sNetBody.modelState = (s16) np_fade_state(in->modelState, sRemoteFade);
     sNetBody.capState = (s8) in->capState;
     sNetBody.eyeState = (s8) in->eyeState;
     sNetBody.handState = (s8) in->handState;
@@ -321,18 +524,30 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
         static uint32_t sLastAct;
         static int16_t sLastFrame, sLastAnim;
         static int sAge;
+        static s16 sYawLast;
+        static int sStill; /* the last packet put it where the one before did: it stands still there, whatever its speed says */
         float tx = in->pos[0], ty = in->pos[1], tz = in->pos[2];
         if (!paused) {
             if (in->pos[0] != sLastPos[0] || in->pos[1] != sLastPos[1] || in->pos[2] != sLastPos[2] || in->action != sLastAct || in->frame != sLastFrame
                 || in->anim != sLastAnim) {
+                /* (the speed of a player that does not move is not always 0: the spin of a ground pound keeps it in the air with a fall speed of -50, a
+                 * player that swings Bowser keeps the speed it had. Carried on, the model went down / up and came back with the next packet) */
+                sStill = in->pos[0] == sLastPos[0] && in->pos[1] == sLastPos[1] && in->pos[2] == sLastPos[2];
                 sLastPos[0] = in->pos[0]; sLastPos[1] = in->pos[1]; sLastPos[2] = in->pos[2];
                 sLastAct = in->action; sLastFrame = in->frame; sLastAnim = in->anim;
+                /* how fast it turns, from the last two packets (frames between them: the age the last one reached + 1) */
+                if (in->action != ACT_HOLDING_BOWSER) {
+                    sYawRate = 0;
+                } else if (sAge < 6) { /* (further apart, a whole turn could hide between them: the last speed stands) */
+                    sYawRate = (s16) ((s16) (in->angle[1] - sYawLast) / (sAge + 1));
+                }
+                sYawLast = in->angle[1];
                 sAge = 0; /* a new packet */
             } else if (sAge < 1000) {
                 sAge++;
             }
         }
-        if (sAge > 0 && !in->frozen) {
+        if (sAge > 0 && !in->frozen && !sStill) {
             const int n = sAge > NP_EXTRAP_MAX ? NP_EXTRAP_MAX : sAge;
             tx += (float) in->vel[0] * (float) n;
             ty += (float) in->vel[1] * (float) n;
@@ -348,12 +563,17 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
             o->oPosY += (ty - o->oPosY) * 0.5f;
             o->oPosZ += (tz - o->oPosZ) * 0.5f;
         }
+        sYawAge = (sAge > NP_EXTRAP_MAX) ? NP_EXTRAP_MAX : sAge;
     }
     o->oFaceAnglePitch = in->angle[0];
     /* the facing eases toward the packet's too (half the way each frame): taken as it comes, the model turned in steps of 20-40 degrees at the packet
      * rate, and so did whatever it carries (np_w_in_remote_hands). A turn around still ends within a few frames. A snap with the position. */
     if (snapped) {
         o->oFaceAngleYaw = in->angle[1];
+    } else if (in->action == ACT_HOLDING_BOWSER) {
+        /* swinging Bowser it turns up to 22 degrees a frame: eased, the model (and Bowser in its hands) trailed a quarter turn or more behind the other console.
+         * It turns on at the speed of the last packets instead, from the last one's facing */
+        o->oFaceAngleYaw = (s16) (in->angle[1] + sYawRate * sYawAge);
     } else {
         o->oFaceAngleYaw = (s16) (o->oFaceAngleYaw + (s16) (in->angle[1] - (s16) o->oFaceAngleYaw) / 2);
     }
@@ -366,6 +586,17 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
         o->header.gfx.angle[0] = in->angle[0];
         o->header.gfx.angle[1] = (s16) o->oFaceAngleYaw;
         o->header.gfx.angle[2] = in->angle[2];
+    }
+
+    /* its star (or key) dance: the star spins up around its model with its sparkles, as the game does for Mario (sm64coopdx shows it for every player) */
+    {
+        static uint32_t sPrevAct;
+        const int danceNow = in->action == ACT_STAR_DANCE_EXIT || in->action == ACT_STAR_DANCE_NO_EXIT || in->action == ACT_STAR_DANCE_WATER;
+        const int dancePrev = sPrevAct == ACT_STAR_DANCE_EXIT || sPrevAct == ACT_STAR_DANCE_NO_EXIT || sPrevAct == ACT_STAR_DANCE_WATER;
+        if (danceNow && !dancePrev && !paused && sRemoteAge > 1) {
+            spawn_object(o, MODEL_STAR, bhvCelebrationStar);
+        }
+        sPrevAct = in->action;
     }
 
     /* the other player as a MarioState, for the player vs player code (interaction.c): only what a fight looks at */
@@ -390,8 +621,16 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
     if (in->bounceSquish > sRemoteSquish) {
         sRemoteSquish = in->bounceSquish;
     }
-    /* its squash (another player jumped on it): the same rubber band as the game's squash of Mario */
-    if (sRemoteSquish > 0) {
+    /* its squash: what the other console's model is scaled to (a hard landing, an object that squashes it, a jump on it), as it came in the packet. The rubber band of
+     * a squash lasts 16 frames and the packets come every 2-3: between them the scale of the last one stands. A squash this player makes on it (a jump on its head)
+     * shows at once, before the packet that tells of it. */
+    if (in->scaleXZ != 100 || in->scaleY != 100) {
+        o->header.gfx.scale[0] = o->header.gfx.scale[2] = (float) in->scaleXZ / 100.0f;
+        o->header.gfx.scale[1] = (float) in->scaleY / 100.0f;
+        if (sRemoteSquish > 0 && !paused) {
+            sRemoteSquish--;
+        }
+    } else if (sRemoteSquish > 0) {
         extern u8 sSquishScaleOverTime[16];
         if (sRemoteSquish <= 16) {
             const int t = sRemoteSquish - 1;
@@ -407,6 +646,19 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
         }
     } else {
         o->header.gfx.scale[0] = o->header.gfx.scale[1] = o->header.gfx.scale[2] = 1.0f;
+    }
+    /* the blink after a hit: the model of a player with invincibility frames is drawn every other frame (mario.c), the other player's too */
+    if (in->invincTimer >= 3 && (gGlobalTimer & 1)) {
+        o->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
+    } else {
+        o->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
+    }
+
+    np_remote_particles(o, in->particles, paused);
+    /* its bubble (sm64coopdx): it pops by itself when the other player is out of it (bhv_bubble_player_loop) */
+    if (in->action == ACT_BUBBLED && !paused && (sRemBubble == NULL || sRemBubble->activeFlags == ACTIVE_FLAG_DEACTIVATED
+                                                || sRemBubble->behavior != segmented_to_virtual(bhvBubblePlayer) || sRemBubble->parentObj != o)) {
+        sRemBubble = spawn_object(o, MODEL_BUBBLE, bhvBubblePlayer);
     }
 
     /* animation: the same calls the game makes for Mario, on this object and its own buffer. It runs on by itself between packets (like Mario's);
@@ -523,7 +775,8 @@ void psp_np_game_keep_local_luigi(int want) {
  * piece per frame (NP_W_REPLAY_STEP) so it fits the queue of events (NP_EV_OUT in psp_netplay.c) */
 #define NP_W_LOG 512
 #define NP_W_REPLAY_STEP 24
-#define NP_W_PEND 16
+#define NP_W_PEND 64
+#define NP_W_RETRY_REPLAY 24 /* (what was collected before this player came in: if its object is not there by now it is not coming, and it must not take a new one) */
 #define NP_W_RETRY 90 /* frames an event waits for its object (it may not exist yet, or may have been collected here at the same time) */
 #define NP_W_REPLAY 0x80
 static PspNpWorldEvent sWLog[NP_W_LOG];
@@ -531,8 +784,10 @@ static int sWLogN;
 static int sWReplayAt = -1; /* next entry of the log to replay to the other player (-1: no replay going on) */
 static PspNpWorldEvent sWPend[NP_W_PEND];
 static u8 sWPendAge[NP_W_PEND];
+static u8 sWPendReplay[NP_W_PEND];
 static int sWPendN;
 static int sWLevel = -1, sWArea = -1, sWAge;
+static u32 sWAreaFrames; /* frames since this console came into the area (who was here first: np_w_level_vars_apply) */
 static int sWPeerHere;
 static int sPeerNowKnown, sPeerNowLevel, sPeerNowArea; /* where the other player was last reported (every frame, even while an area is being loaded) */
 static int sWHost;
@@ -558,6 +813,206 @@ static void np_w_log(const PspNpWorldEvent *e) {
     }
 }
 
+/* patch 319: the state of the area for a player that comes in, as sm64coopdx sends it (packet_level_macro.c, packet_level_spawn_info.c): every object of the
+ * area's macro list and spawn list that was removed here (collected, killed, broken: the game marks it "do not respawn") goes by its index in that list, which
+ * is the same on both consoles; a coin formation or a goomba triplet with some of its coins / goombas gone goes with its respawn bits. The other console
+ * removes its copy and marks it the same way. Sent first, before the replay of the record. */
+#define NP_LVL_MAX 384
+#define NP_LVL_MACRO_DEL 0
+#define NP_LVL_MACRO_SPECIAL 1
+#define NP_LVL_SPAWN_DEL 2
+#define NP_LVL_VARS 3 /* the level's own state (sm64coopdx network_send_level / network_send_area): TTC's speed, the water of WDW, the slide timer */
+static struct { u8 kind; u16 index; s16 info; } sLvl[NP_LVL_MAX];
+static void np_w_goomba_dead(struct Object *g);
+static int sLvlN, sLvlAt, sLvlBuilt;
+
+extern u8 sPssSlideStarted;       /* (interaction.c) */
+extern s32 gWdwWaterLevelSet;     /* (moving_texture.c) */
+extern float gPaintingMarioYEntry;
+static void np_w_level_vars_pack(PspNpWorldEvent *l) {
+    const u32 frames = sWAreaFrames;
+    l->value = gTTCSpeedSetting;
+    l->aux[0] = (s16) gEnvironmentLevels[0];
+    l->aux[1] = (s16) (frames > 32767 ? 32767 : frames);
+    l->aux[2] = (s16) gHudDisplay.timer;
+    l->pos[0] = (s16) (((gHudDisplay.flags & HUD_DISPLAY_FLAG_TIMER) ? 1 : 0) | (sTimerRunning ? 2 : 0) | (sPssSlideStarted ? 4 : 0) | (sWHost ? 8 : 0));
+    l->pos[1] = (s16) gPaintingMarioYEntry;
+}
+
+/* The level's own state from the other console: taken when that player was in the area first (sm64coopdx sends it to the one who comes in), or, when both
+ * came in at about the same time, from the host. */
+static void np_w_level_vars_apply(const PspNpWorldEvent *e) {
+    const u32 theirs = (u32) (u16) e->aux[1];
+    const int fromHost = (e->pos[0] & 8) != 0;
+    if (!(theirs > sWAreaFrames + 30 || (theirs + 30 >= sWAreaFrames && sWAreaFrames + 30 >= theirs && fromHost))) {
+        return; /* this console was here first: the other one takes this one's */
+    }
+    if (gCurrLevelNum == LEVEL_TTC && gTTCSpeedSetting != e->value && e->value >= 0 && e->value <= 3) {
+        const s16 old = gTTCSpeedSetting;
+        gTTCSpeedSetting = e->value;
+        psp_np_ttc_speed_changed(old); /* (sm64coopdx network_receive_level: the objects started with the old speed) */
+    }
+    if (gCurrLevelNum == LEVEL_WDW && gEnvironmentRegions != NULL) {
+        /* (sm64coopdx network_receive_area: the water of WDW, which the height its player jumped into the painting set) */
+        s32 i;
+        gPaintingMarioYEntry = (float) e->pos[1];
+        gEnvironmentLevels[0] = e->aux[0];
+        for (i = 0; i < *gEnvironmentRegions; i++) {
+            gEnvironmentRegions[i * 6 + 6] = e->aux[0];
+        }
+        gWdwWaterLevelSet = 1; /* (its first picture does not set it again from this player's own jump) */
+    }
+    if ((e->pos[0] & 1) && !(gHudDisplay.flags & HUD_DISPLAY_FLAG_TIMER)) { /* the timer of the slide / the race (sm64coopdx: level control timer) */
+        level_control_timer(TIMER_CONTROL_SHOW);
+        gHudDisplay.timer = (u16) e->aux[2];
+        if (e->pos[0] & 2) {
+            level_control_timer(TIMER_CONTROL_START);
+        }
+        if (e->pos[0] & 4) {
+            sPssSlideStarted = TRUE;
+        }
+    }
+}
+
+static void np_w_level_state_build(void) {
+    struct SpawnInfo *si;
+    s16 *list;
+    u16 index;
+    sLvlN = sLvlAt = 0;
+    if (gCurrentArea == NULL) {
+        return;
+    }
+    sLvl[sLvlN].kind = NP_LVL_VARS; /* (first: whatever follows may depend on it) */
+    sLvlN++;
+    for (list = gCurrentArea->macroObjects; list != NULL && *list != -1 && sLvlN < NP_LVL_MAX; list += 5) {
+        s16 *respawnInfo = list + 4;
+        if ((*list & 0x1FF) < 31) {
+            break; /* (macro_special_objects.c: the end of the list) */
+        }
+        index = (u16) (respawnInfo - gCurrentArea->macroObjects);
+        if (((*respawnInfo >> 8) & RESPAWN_INFO_DONT_RESPAWN) == RESPAWN_INFO_DONT_RESPAWN) {
+            sLvl[sLvlN].kind = NP_LVL_MACRO_DEL;
+        } else if ((*respawnInfo >> 8) & 0xFF) {
+            sLvl[sLvlN].kind = NP_LVL_MACRO_SPECIAL; /* (some of its coins / goombas gone: their bits) */
+        } else {
+            continue;
+        }
+        sLvl[sLvlN].index = index;
+        sLvl[sLvlN].info = *respawnInfo;
+        sLvlN++;
+    }
+    for (si = gCurrentArea->objectSpawnInfos, index = 0; si != NULL && sLvlN < NP_LVL_MAX; si = si->next, index++) {
+        if (((si->behaviorArg >> 8) & RESPAWN_INFO_DONT_RESPAWN) == RESPAWN_INFO_DONT_RESPAWN) {
+            sLvl[sLvlN].kind = NP_LVL_SPAWN_DEL;
+            sLvl[sLvlN].index = index;
+            sLvl[sLvlN].info = 0;
+            sLvlN++;
+        }
+    }
+}
+
+static struct Object *np_w_object_of_respawn_info(const void *respawnInfo) {
+    int i;
+    for (i = 0; i < NUM_OBJ_LISTS; i++) {
+        struct ObjectNode *head = &gObjectLists[i];
+        struct Object *obj;
+        for (obj = (struct Object *) head->next; obj != (struct Object *) head; obj = (struct Object *) obj->header.next) {
+            if (obj->activeFlags != ACTIVE_FLAG_DEACTIVATED && obj->respawnInfo == respawnInfo) {
+                return obj;
+            }
+        }
+    }
+    return NULL;
+}
+
+/* (red coins and secrets count themselves in their star when they go: those are left to the replay of the record, which counts them) */
+static int np_w_level_counted(const struct Object *o) {
+    return o->behavior == segmented_to_virtual(bhvRedCoin) || o->behavior == segmented_to_virtual(bhvHiddenStarTrigger);
+}
+
+static void np_w_level_state_apply(const PspNpWorldEvent *e) {
+    struct Object *o = NULL;
+    if (gCurrentArea == NULL) {
+        return;
+    }
+    if (e->coinValue == NP_LVL_MACRO_DEL || e->coinValue == NP_LVL_MACRO_SPECIAL) {
+        s16 *respawnInfo;
+        if (gCurrentArea->macroObjects == NULL) {
+            return;
+        }
+        respawnInfo = gCurrentArea->macroObjects + (u16) e->value;
+        o = np_w_object_of_respawn_info(respawnInfo);
+        if (e->coinValue == NP_LVL_MACRO_DEL) {
+            if (o != NULL && np_w_level_counted(o)) {
+                return;
+            }
+            *respawnInfo |= RESPAWN_INFO_DONT_RESPAWN << 8;
+            if (o != NULL) {
+                obj_mark_for_deletion(o);
+            }
+            return;
+        }
+        *respawnInfo = e->aux[0];
+        if (o == NULL) {
+            return;
+        }
+        if (o->behavior == segmented_to_virtual(bhvCoinFormation)) {
+            /* (sm64coopdx: the coins of the formation that are gone, by their bit) */
+            int i;
+            o->oBehParams = *respawnInfo;
+            o->oCoinUnkF4 = (o->oBehParams >> 8) & 0xFF;
+            for (i = 0; i < NUM_OBJ_LISTS; i++) {
+                struct ObjectNode *head = &gObjectLists[i];
+                struct Object *c;
+                for (c = (struct Object *) head->next; c != (struct Object *) head; c = (struct Object *) c->header.next) {
+                    if (c != o && c->parentObj == o && c->activeFlags != ACTIVE_FLAG_DEACTIVATED
+                        && (c->behavior == segmented_to_virtual(bhvCoinFormationSpawn) || c->behavior == segmented_to_virtual(bhvYellowCoin))
+                        && (o->oCoinUnkF4 & (1 << c->oBehParams2ndByte))) {
+                        obj_mark_for_deletion(c);
+                    }
+                }
+            }
+        } else if (o->behavior == segmented_to_virtual(bhvGoombaTripletSpawner)) {
+            /* (sm64coopdx: the goombas of the triplet that are dead, by their bit) */
+            int i;
+            o->oBehParams |= (((u32) (u16) *respawnInfo >> 8) & 0x3F) << 8; /* (goomba k: bit k of the respawn bits, bit 8 + k of the spawner, as mark_goomba_as_dead) */
+            for (i = 0; i < NUM_OBJ_LISTS; i++) {
+                struct ObjectNode *head = &gObjectLists[i];
+                struct Object *g;
+                for (g = (struct Object *) head->next; g != (struct Object *) head; g = (struct Object *) g->header.next) {
+                    if (g != o && g->parentObj == o && g->activeFlags != ACTIVE_FLAG_DEACTIVATED && g->behavior == segmented_to_virtual(bhvGoomba)
+                        && (((u16) *respawnInfo >> 8) & ((g->oBehParams2ndByte & GOOMBA_BP_TRIPLET_FLAG_MASK) >> 2))) {
+                        np_w_goomba_dead(g);
+                        obj_mark_for_deletion(g);
+                    }
+                }
+            }
+        }
+        return;
+    }
+    if (e->coinValue == NP_LVL_VARS) {
+        np_w_level_vars_apply(e);
+        return;
+    }
+    if (e->coinValue == NP_LVL_SPAWN_DEL) {
+        struct SpawnInfo *si;
+        u16 index = 0;
+        for (si = gCurrentArea->objectSpawnInfos; si != NULL; si = si->next, index++) {
+            if (index == (u16) e->value) {
+                o = np_w_object_of_respawn_info(&si->behaviorArg);
+                if (o != NULL && np_w_level_counted(o)) {
+                    return;
+                }
+                si->behaviorArg |= RESPAWN_INFO_DONT_RESPAWN << 8;
+                if (o != NULL) {
+                    obj_mark_for_deletion(o);
+                }
+                return;
+            }
+        }
+    }
+}
+
 /* Sends the next piece of the log to the other player (while a replay is going on and it is still in this area): as many entries as the queue of events
  * takes, NP_W_REPLAY_STEP at most. A full queue is tried again on the next frame. */
 static void np_w_replay_step(void) {
@@ -569,8 +1024,40 @@ static void np_w_replay_step(void) {
         sWReplayAt = -1;
         return;
     }
+    if (!sLvlBuilt) {
+        np_w_level_state_build();
+        sLvlBuilt = 1;
+    }
+    for (n = 0; n < NP_W_REPLAY_STEP && sLvlAt < sLvlN; n++) { /* (the state of the area's lists goes first) */
+        PspNpWorldEvent l;
+        memset(&l, 0, sizeof(l));
+        l.type = PSP_NP_EV_LEVEL;
+        l.level = (uint8_t) sWLevel;
+        l.area = (uint8_t) sWArea;
+        l.coinValue = sLvl[sLvlAt].kind;
+        l.value = (s16) sLvl[sLvlAt].index;
+        l.aux[0] = sLvl[sLvlAt].info;
+        if (l.coinValue == NP_LVL_VARS) {
+            np_w_level_vars_pack(&l);
+        }
+        if (!psp_np_world_send(&l)) {
+            return;
+        }
+        sLvlAt++;
+    }
+    if (sLvlAt < sLvlN) {
+        return;
+    }
     for (n = 0; n < NP_W_REPLAY_STEP && sWReplayAt < sWLogN; n++) {
         PspNpWorldEvent r = sWLog[sWReplayAt];
+        if (r.type == PSP_NP_EV_COIN) { /* every coin of the replay carries the level's final count: the counter jumps to it at once, it does not climb */
+            int k;
+            for (k = 0; k < sWLogN; k++) {
+                if (sWLog[k].type == PSP_NP_EV_COIN && sWLog[k].value > r.value) {
+                    r.value = sWLog[k].value;
+                }
+            }
+        }
         r.type |= NP_W_REPLAY;
         if (!psp_np_world_send(&r)) {
             return;
@@ -708,7 +1195,9 @@ static const BehaviorScript *const sKindBhv[] = { bhvGoomba, bhvPiranhaPlant, bh
     /* patch 293: the other two boos sm64coopdx syncs like the rest (the one in a cage and the ones of the castle) */
     bhvBooWithCage, bhvBooInCastle,
     /* patch 304: the small box a player can pick up and throw (sm64coopdx syncs it): the other player sees it carried, thrown and broken */
-    bhvBreakableBoxSmall };
+    bhvBreakableBoxSmall,
+    /* patch 318: the big bully of Lethal Lava Land that comes down when its three small ones are knocked into the lava (sm64coopdx syncs every bully) */
+    bhvBigBullyWithMinions };
 #define NP_W_KINDS ((int) (sizeof(sKindBhv) / sizeof(sKindBhv[0])))
 static const void *sKindVirt[NP_W_KINDS];
 static int sKindInit;
@@ -728,7 +1217,25 @@ static struct {
     struct Object *o;
     u8 kind;
     s16 home[3];
+    struct Object *parent; /* (its parent when it was last seen: a spawner that unloads it, see np_w_unloaded) */
 } sTrk[NP_W_TRK];
+
+/* patch 319: an enemy that went away because its spawner unloaded it (every player went far from it: a goomba of a triplet, a cheep cheep) did not die.
+ * Taken as a death, the other console killed its copy and marked the goomba dead in its spawner, and the record removed the goomba every time the triplet
+ * came back on both consoles: the goombas of Bowser in the Sky stopped appearing. (sm64coopdx: a death is the object's own, an unload is not sent.) */
+static int np_w_unloaded(const struct Object *o, const struct Object *parent) {
+    if (parent == NULL || parent == o || parent->activeFlags == ACTIVE_FLAG_DEACTIVATED) {
+        return 0;
+    }
+    if (o->behavior == segmented_to_virtual(bhvGoomba) && parent->behavior == segmented_to_virtual(bhvGoombaTripletSpawner)) {
+        /* (its own death marks it in the spawner, mark_goomba_as_dead) */
+        return parent->oAction == GOOMBA_TRIPLET_SPAWNER_ACT_UNLOADED && !(parent->oBehParams & ((o->oBehParams2ndByte & GOOMBA_BP_TRIPLET_FLAG_MASK) << 6));
+    }
+    if (o->behavior == segmented_to_virtual(bhvBub)) {
+        return parent->oAction == 2; /* (bhv_bub_loop: its spawner went away) */
+    }
+    return 0;
+}
 static int sTrkN;
 
 static int np_w_kind(const struct Object *o) {
@@ -801,7 +1308,6 @@ static struct Object *np_w_find_kind(int kind, const s16 *home) {
 }
 
 #define NP_W_ANIMS 16
-#define NP_W_EXTRAP_FRAMES 4
 #define NP_W_CLAIM_FRAMES 90 /* a console that picked an enemy up keeps driving it this long after letting go (the throw) */
 static int np_w_anim_index(const struct Object *o) {
     const struct Animation *cur = o->header.gfx.unk38.curAnim;
@@ -881,7 +1387,7 @@ static int np_w_remote_in_hands(const struct Object *o) {
 /* what the other player has in its hands now: its model draws it there (geo_switch_mario_hand_grab_pos), as the local Mario draws his */
 struct Object *psp_np_game_remote_held(void) {
     int i;
-    if (!np_remote_alive()) {
+    if (!np_remote_alive() || np_drawing_ghost()) {
         return NULL;
     }
     for (i = 0; i < 8; i++) {
@@ -939,20 +1445,35 @@ int psp_np_world_follow(struct Object *o) {
     return (sClock - o->unused1) < NP_W_FOLLOW_FRAMES && np_w_kind(o) != 0 && !np_w_owned(o);
 }
 
-/* The client's copy of a followed enemy: instead of its behavior, it reports what the interactions of the game did to it. */
-void psp_np_world_follow_step(struct Object *o) {
-    const u32 status = (u32) o->oInteractStatus;
-    if (np_w_remote_in_hands(o)) {
-        np_w_in_remote_hands(o); /* (carried by the other player: it goes along with that player's model every frame) */
-    } else if (sClock - o->unused1 >= 1 && sClock - o->unused1 <= NP_W_EXTRAP_FRAMES) { /* between two updates the copy keeps moving the way it was */
-        o->oPosX += o->oForwardVel * sins(o->oMoveAngleYaw);
-        o->oPosZ += o->oForwardVel * coss(o->oMoveAngleYaw);
-        o->oPosY += o->oVelY;
+/* The copy of an enemy the other console simulates (sm64coopdx: every client runs every object and the owner's updates overwrite it). Before its behavior
+ * runs here, it reports what the interactions of the game did to it: the owner decides a hit (sm64coopdx sends the hit object right away), so the
+ * behavior here does not see it. Returns 1 when the copy is only placed this frame: carried by the other player, or gone here. */
+static struct Object *sFollowRun; /* the followed copy whose behavior is running now (psp_np_world_follow_running) */
+void psp_np_world_follow_running(struct Object *o) {
+    if (o == NULL && sFollowRun != NULL && sFollowRun->activeFlags == ACTIVE_FLAG_DEACTIVATED) {
+        /* the copy ended its own death, where the owner's state took it (a squished goomba): what the owner did when the hit landed there is done here
+         * too. A goomba of a triplet is marked as dead by its attack handler, which only ran on the owner's console (the rest of the deaths count themselves
+         * in their own death code: boo, bully, fire piranha plant) */
+        np_w_goomba_dead(sFollowRun);
     }
+    sFollowRun = o;
+}
+
+int psp_np_world_follow_step(struct Object *o) {
     static u32 sAtkLast;
-    if ((status & (INT_STATUS_WAS_ATTACKED | INT_STATUS_ATTACKED_MARIO)) == 0) {
-        o->oInteractStatus = 0; /* only a hit matters to the real enemy, either way: it was hit, or it hurt the player here (so it enters its "attacked Mario" action) */
-    } else if (sClock - sAtkLast >= 3) { /* (a hit that cannot be sent yet stays set and is sent a frame later, instead of flooding the queue) */
+    static struct Object *sAtkPendObj; /* a hit that could not be sent yet: it is sent a frame later (and the behavior here still does not see it) */
+    static u32 sAtkPendSt;
+    u32 status = (u32) o->oInteractStatus;
+    if (sAtkPendObj == o) {
+        status |= sAtkPendSt;
+        sAtkPendObj = NULL;
+    }
+    o->oInteractStatus = 0; /* (a grab or a talk makes it this console's own first: see np_w_owned) */
+    if (np_w_unloaded(o, o->parentObj)) {
+        obj_mark_for_deletion(o); /* (what its own script does: bhv_goomba_update, bhv_bub_loop) */
+        return 1;
+    }
+    if ((status & (INT_STATUS_WAS_ATTACKED | INT_STATUS_ATTACKED_MARIO)) != 0) { /* it was hit, or it hurt the player here (it enters its "attacked Mario" action) */
         PspNpWorldEvent e;
         memset(&e, 0, sizeof(e));
         e.type = PSP_NP_EV_ATTACK;
@@ -964,12 +1485,26 @@ void psp_np_world_follow_step(struct Object *o) {
         e.pos[1] = (s16) o->oHomeY;
         e.pos[2] = (s16) o->oHomeZ;
         e.aux[0] = (s16) gMarioObject->header.gfx.angle[1]; /* where the attacker was facing (a kicked bob-omb flies that way) */
-        if (psp_np_world_send(&e)) {
+        if (sClock - sAtkLast >= 3 && psp_np_world_send(&e)) { /* (not flooding the queue) */
             sAtkLast = sClock;
-            o->oInteractStatus = 0;
+        } else {
+            sAtkPendObj = o;
+            sAtkPendSt = status;
         }
     }
+    if (np_w_remote_in_hands(o)) {
+        np_w_in_remote_hands(o); /* (carried by the other player: it goes along with that player's model every frame) */
+        return 1;
+    }
+    return 0;
 }
+
+/* Bowser's flames (the breath, the blue ones of the sky) and his shock wave: sm64coopdx makes them on the console of the player nearest to him only and
+ * sends them (network_send_spawn_objects), so both players see the same ones */
+#define NP_LOOT_BFX 41 /* coinValue of a SPAWN event for one of them: bhv = which (see bowser.inc.c), value = its pitch */
+static const BehaviorScript *const sBfxBhv[] = { bhvFlameMovingForwardGrowing, bhvBlueBowserFlame, bhvBowserShockWave };
+static const u32 sBfxModel[] = { MODEL_RED_FLAME, MODEL_RED_FLAME, MODEL_BOWSER_WAVE };
+#define NP_W_BFX ((int) (sizeof(sBfxBhv) / sizeof(sBfxBhv[0])))
 
 /* The loot of an enemy (coins that jump out of it) is announced so the other console has it too. The coin behaviors are bhvSingleCoinGetsSpawned
  * (yellow) and bhvBlueCoinJumping (blue). Their direction and speed are chosen at random in their first update, so the announcement waits one
@@ -1004,10 +1539,34 @@ static const BehaviorScript *const sMirParent[] = { bhvSnufit, bhvMrI, bhvKoopa,
 static const u32 sMirModel[] = { MODEL_BOWLING_BALL, MODEL_PURPLE_MARBLE, MODEL_KOOPA_SHELL, MODEL_EXPLOSION, MODEL_PEBBLE, MODEL_1UP, MODEL_WATER_RING };
 #define NP_W_MIR ((int) (sizeof(sMirBhv) / sizeof(sMirBhv[0])))
 
+/* what the copy of a followed enemy must not make itself (the owner's console announces it: np_w_loot_step, psp_np_world_star) */
+static int np_w_follow_dup(const struct Object *parent, const void *behavior) {
+    int m;
+    if (behavior == segmented_to_virtual(bhvSingleCoinGetsSpawned) || behavior == segmented_to_virtual(bhvBlueCoinJumping)
+        || behavior == segmented_to_virtual(bhvMovingYellowCoin) || behavior == segmented_to_virtual(bhvStarSpawnCoordinates)
+        || behavior == segmented_to_virtual(bhvSpawnedStar) || behavior == segmented_to_virtual(bhvSpawnedStarNoLevelExit)) {
+        return 1;
+    }
+    for (m = 0; m < NP_W_MIR; m++) {
+        if (behavior == segmented_to_virtual(sMirBhv[m]) && parent->behavior == segmented_to_virtual(sMirParent[m])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void psp_np_world_spawned(struct Object *parent, struct Object *obj, int model, const void *behavior) {
     int type;
     (void) model;
     if (sMirQuiet) {
+        return;
+    }
+    if (sFollowRun != NULL && parent == sFollowRun && obj != NULL && psp_netplay_state() == PSP_NP_CONNECTED && np_w_follow_dup(parent, behavior)) {
+        /* the copy of an enemy the other console simulates makes what that console announces (its coins, its shots, its star): made only once */
+        obj->activeFlags = ACTIVE_FLAG_DEACTIVATED;
+        obj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
+        obj->oIntangibleTimer = -1;
+        obj->oInteractType = 0;
         return;
     }
     if (parent != NULL && behavior == bhvWaterBomb && parent->behavior == segmented_to_virtual(bhvWaterBombSpawner) && psp_netplay_state() == PSP_NP_CONNECTED
@@ -1074,6 +1633,27 @@ void psp_np_world_spawned(struct Object *parent, struct Object *obj, int model, 
     }
 }
 
+int psp_np_world_bowser_fx(const struct Object *bowser) {
+    if (bowser == NULL || psp_netplay_state() != PSP_NP_CONNECTED || !sWPeerHere || !np_remote_alive() || gMarioObject == NULL) {
+        return 1;
+    }
+    {
+        const f32 dMe = dist_between_objects(bowser, gMarioObject), dIt = dist_between_objects(bowser, sRemote);
+        return dMe < dIt || (dMe == dIt && sWHost); /* (sm64coopdx: nearest_mario_state_to_object(o)->playerIndex == 0) */
+    }
+}
+
+void psp_np_world_bowser_fx_spawned(struct Object *obj, int which) {
+    if (obj == NULL || which < 0 || which >= NP_W_BFX || psp_netplay_state() != PSP_NP_CONNECTED || !sWPeerHere || sLootOutN >= NP_W_LOOT) {
+        return;
+    }
+    sLootOut[sLootOutN].o = obj;
+    sLootOut[sLootOutN].type = NP_LOOT_BFX;
+    sLootOut[sLootOutN].age = 0; /* (sent after its first update, which rolls where it starts) */
+    sLootOut[sLootOutN].home[0] = (s16) which;
+    sLootOutN++;
+}
+
 /* once per frame: sends the loot that has had its first update, and puts the announced speed on the coins made from the other console's */
 static void np_w_loot_step(void) {
     int i;
@@ -1094,7 +1674,10 @@ static void np_w_loot_step(void) {
             e.aux[0] = (s16) (c->oVelY * 32.0f);
             e.aux[1] = (s16) (c->oForwardVel * 32.0f);
             e.aux[2] = (s16) c->oMoveAngleYaw;
-            if (e.coinValue == NP_LOOT_BALL) { /* (a ball's path is its second parameter byte: the spawner sets it right after making it) */
+            if (e.coinValue == NP_LOOT_BFX) {
+                e.bhv = sLootOut[i].home[0] | ((s32) c->oBehParams2ndByte << 8);
+                e.value = (s16) c->oMoveAnglePitch;
+            } else if (e.coinValue == NP_LOOT_BALL) { /* (a ball's path is its second parameter byte: the spawner sets it right after making it) */
                 e.value = (s16) c->oBehParams2ndByte;
                 e.bhv = sLootOut[i].home[0];
             } else if (e.coinValue == 2) { /* water bomb: where it is and what it is doing */
@@ -1139,11 +1722,92 @@ static void np_w_loot_step(void) {
     }
 }
 
+#define NP_LOOT_BWRD 40 /* coinValue of a SPAWN event for the key / grand star of a beaten Bowser (value 1 = grand star, aux = its yaw speed) */
+
+void psp_np_world_bowser_reward(const struct Object *reward, int isStar) {
+    PspNpWorldEvent e;
+    if (reward == NULL || !psp_np_world_peer_here()) {
+        return;
+    }
+    memset(&e, 0, sizeof(e));
+    e.type = PSP_NP_EV_SPAWN;
+    e.level = (uint8_t) gCurrLevelNum;
+    e.area = (uint8_t) np_area_key();
+    e.coinValue = NP_LOOT_BWRD;
+    e.value = (s16) (isStar ? 1 : 0);
+    e.pos[0] = (s16) reward->oPosX; e.pos[1] = (s16) reward->oPosY; e.pos[2] = (s16) reward->oPosZ;
+    e.aux[0] = (s16) reward->oAngleVelYaw;
+    psp_np_world_send(&e);
+}
+
+/* The other console beat Bowser: what its copy of the key / grand star does starts from where that one is (this console's copy of Bowser is not where the
+ * other one's was), and the battle music ends here too (the fade-out belongs to the console that plays his last words). */
+static void np_w_bowser_reward(const PspNpWorldEvent *e) {
+    const BehaviorScript *bhv = e->value ? bhvGrandStar : bhvBowserKey;
+    struct Object *r = np_w_find(np_w_bhv_of(bhv), e->pos, 100000.0f, 0), *bw;
+    if (r == NULL) {
+        bw = np_w_find(np_w_bhv_of(bhvBowser), e->pos, 100000.0f, 0);
+        r = spawn_object(bw != NULL ? bw : gMarioObject, e->value ? MODEL_STAR : MODEL_BOWSER_KEY, bhv);
+        if (r == NULL) {
+            return;
+        }
+    }
+    if (e->value && r->oAction != 0) {
+        /* (a grand star of this console already on its way to the middle, with its camera cutscene: it is not started again) */
+    } else {
+        r->oPosX = e->pos[0];
+        r->oPosY = e->pos[1];
+        r->oPosZ = e->pos[2];
+        r->oAngleVelYaw = e->aux[0];
+        r->oAction = 0; /* (its fall / its wait starts again from there) */
+        r->oTimer = 0;
+        r->oVelY = 0.0f;
+        r->oForwardVel = 0.0f;
+        if (!e->value) {
+            r->oVelY = 70.0f;
+        }
+    }
+    gPspBowserRewardOf = np_w_find(np_w_bhv_of(bhvBowser), e->pos, 100000.0f, 0); /* (so np_p_apply does not leave another one) */
+    gSecondCameraFocus = r;
+    sequence_player_unlower(SEQ_PLAYER_LEVEL, 60);
+    sequence_player_fade_out(0, 1);
+}
+
 static void np_w_spawn_loot(const PspNpWorldEvent *e) {
     struct Object *c;
-    if (e->coinValue == 2) { /* water bomb of the other player's spawner (its parent is the other player's model: the bomb writes into its parent when it explodes) */
+    if (e->coinValue == NP_LOOT_BWRD) {
+        np_w_bowser_reward(e);
+        return;
+    }
+    if (e->coinValue == 2) { /* water bomb of the other player's spawner */
         if (np_remote_alive()) {
-            c = spawn_object(sRemote, MODEL_WATER_BOMB, bhvWaterBomb);
+            /* its parent is this console's copy of that spawner (the one whose circle it fell in): while the bomb is alive the spawner has one out,
+             * as on the other console (sm64coopdx syncs oWaterBombSpawnerBombActive), so if it becomes this console's to run it does not drop a second
+             * one at once; the bomb clears it when it explodes. With no spawner found, the other player's model (the bomb writes into its parent) */
+            struct Object *parent = sRemote, *ob;
+            f32 best = 1.0e9f;
+            int l;
+            for (l = 0; l < NUM_OBJ_LISTS; l++) {
+                struct ObjectNode *hd = &gObjectLists[l];
+                if (hd->next == NULL) {
+                    continue;
+                }
+                for (ob = (struct Object *) hd->next; ob != (struct Object *) hd; ob = (struct Object *) ob->header.next) {
+                    if (ob->activeFlags != ACTIVE_FLAG_DEACTIVATED && ob->behavior == segmented_to_virtual(bhvWaterBombSpawner)) {
+                        const f32 dx = ob->oPosX - e->pos[0], dz = ob->oPosZ - e->pos[2];
+                        const f32 d = sqrtf(dx * dx + dz * dz);
+                        if (d < 50 * (u16) (ob->oBehParams >> 16) + 200.0f + 1000.0f && d < best) {
+                            best = d;
+                            parent = ob;
+                        }
+                    }
+                }
+            }
+            if (parent != sRemote) {
+                parent->oWaterBombSpawnerBombActive = TRUE;
+            }
+            sMirQuiet = 1; /* (made from the other console's announcement: not announced back) */
+            c = spawn_object(parent, MODEL_WATER_BOMB, bhvWaterBomb);
             if (c != NULL) {
                 c->oPosX = e->pos[0];
                 c->oPosY = e->pos[1];
@@ -1151,6 +1815,33 @@ static void np_w_spawn_loot(const PspNpWorldEvent *e) {
                 c->oAction = e->value;
                 c->oVelY = (f32) e->aux[0] / 32.0f;
                 spawn_object(c, MODEL_WATER_BOMB_SHADOW, bhvWaterBombShadow);
+            }
+            sMirQuiet = 0;
+        }
+        return;
+    }
+    if (e->coinValue == NP_LOOT_BFX) {
+        const int which = e->bhv & 0xFF;
+        if (gMarioObject == NULL || which >= NP_W_BFX) {
+            return;
+        }
+        sMirQuiet = 1;
+        c = spawn_object(gMarioObject, sBfxModel[which], sBfxBhv[which]);
+        sMirQuiet = 0;
+        if (c != NULL) {
+            c->oBehParams2ndByte = (e->bhv >> 8) & 0xFF;
+            c->oPosX = e->pos[0];
+            c->oPosY = e->pos[1];
+            c->oPosZ = e->pos[2];
+            c->oMoveAnglePitch = e->value;
+            c->oMoveAngleYaw = c->oFaceAngleYaw = e->aux[2];
+            c->oFaceAnglePitch = c->oFaceAngleRoll = c->oMoveAngleRoll = 0;
+            if (sLootFixN < NP_W_LOOT) { /* (its own first update rolls a start; the announced one goes on after it) */
+                sLootFix[sLootFixN].o = c;
+                sLootFix[sLootFixN].vy = e->aux[0];
+                sLootFix[sLootFixN].fv = e->aux[1];
+                sLootFix[sLootFixN].yaw = e->aux[2];
+                sLootFixN++;
             }
         }
         return;
@@ -1364,6 +2055,7 @@ static void np_w_in_remote_hands(struct Object *o) {
     np_w_hand_hide(o);
 }
 
+static void np_sm_add(struct Object *o, const float old[3], s16 oldYaw);
 /* Client: one enemy state from the host. */
 static void np_w_follow_apply(const PspNpObj *e) {
     const int kind = e->kind & ~NP_W_KIND_HELD;
@@ -1389,8 +2081,20 @@ static void np_w_follow_apply(const PspNpObj *e) {
             return; /* this console drives it (or is the one that should): the other one's stream is not applied */
         }
     }
+    {
+        const float old[3] = { o->oPosX, o->oPosY, o->oPosZ };
+        const s16 oldYaw = (s16) o->oFaceAngleYaw;
+        const int wasFollowed = psp_np_world_follow(o);
+        o->oPosX = e->pos[0];
+        o->oPosY = e->pos[1];
+        o->oPosZ = e->pos[2];
+        o->oFaceAngleYaw = e->yaw;
+        if (wasFollowed && !((e->kind & NP_W_KIND_HELD) && (e->pad & NP_W_PAD_HANDS))) {
+            np_sm_add(o, old, oldYaw); /* (the picture eases from where it was) */
+        }
+    }
     o->unused1 = sClock;
-    o->oForwardVel = (f32) e->fvel / 32.0f; /* (the script does not run here: these fields are free for the extrapolation in psp_np_world_follow_step) */
+    o->oForwardVel = (f32) e->fvel / 32.0f; /* (sm64coopdx's standard fields: the behavior here goes on from them) */
     o->oVelY = (f32) e->yvel / 32.0f;
     o->oPosX = e->pos[0];
     o->oPosY = e->pos[1];
@@ -1441,6 +2145,28 @@ static void np_w_follow_apply(const PspNpObj *e) {
     o->header.gfx.scale[0] = (f32) e->scale[0] / 1000.0f;
     o->header.gfx.scale[1] = (f32) e->scale[1] / 1000.0f;
     o->header.gfx.scale[2] = (f32) e->scale[2] / 1000.0f;
+    if (o->behavior == segmented_to_virtual(bhvFirePiranhaPlant)) {
+        /* patch 318 (BitS, Tiny-Huge Island): its size, whether it is out and the count of the ones out live in its own fields, which the stream does not
+         * carry. A copy hidden here when the stream started stayed hidden while it grew there; and one that went on by itself again (the stream stopped a
+         * while) grew from a stale size, or never came out because the count of this console said two were out already */
+        extern s32 sNumActiveFirePiranhaPlants;
+        const s32 out = (o->oAction == FIRE_PIRANHA_PLANT_ACT_GROW) || o->header.gfx.scale[0] > 0.0f;
+        o->oFirePiranhaPlantScale = o->header.gfx.scale[0];
+        if (out != o->oFirePiranhaPlantActive) {
+            sNumActiveFirePiranhaPlants += out ? 1 : -1;
+            o->oFirePiranhaPlantActive = out;
+        }
+        if (o->header.gfx.scale[0] > 0.0f) {
+            o->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
+        } else {
+            o->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
+        }
+        if (o->oFirePiranhaPlantScale <= o->oFirePiranhaPlantNeutralScale / 2) {
+            o->oIntangibleTimer = -1; /* (as its own script: not touchable while it is small or hidden) */
+        }
+    } else if (o->behavior == segmented_to_virtual(bhvPiranhaPlant)) {
+        o->oPiranhaPlantScale = o->header.gfx.scale[0]; /* (its shrink and its respawn grow from this) */
+    }
     if (e->anim >= 0 && e->anim < NP_W_ANIMS && o->oAnimations != NULL) {
         geo_obj_init_animation(&o->header.gfx, &o->oAnimations[e->anim]);
         o->header.gfx.unk38.animFrame = e->frame;
@@ -1670,7 +2396,7 @@ static void np_w_enemies_track(void) {
         for (j = 0; j < nc && !still; j++) {
             still = (cur[j].o == sTrk[i].o && cur[j].kind == sTrk[i].kind);
         }
-        if (!still && !reload && sTrk[i].o->activeFlags == ACTIVE_FLAG_DEACTIVATED) { /* it was removed: it died */
+        if (!still && !reload && sTrk[i].o->activeFlags == ACTIVE_FLAG_DEACTIVATED && !np_w_unloaded(sTrk[i].o, sTrk[i].parent)) { /* it was removed: it died */
             PspNpWorldEvent e;
             memset(&e, 0, sizeof(e));
             e.type = PSP_NP_EV_DEAD;
@@ -1685,6 +2411,7 @@ static void np_w_enemies_track(void) {
     for (i = 0; i < nc; i++) {
         sTrk[i].o = cur[i].o;
         sTrk[i].kind = cur[i].kind;
+        sTrk[i].parent = cur[i].o->parentObj;
         memcpy(sTrk[i].home, cur[i].home, sizeof(sTrk[i].home));
     }
     sTrkN = nc;
@@ -1841,7 +2568,7 @@ void psp_np_world_signal_ex(const struct Object *o, int sig, int value, int extr
     e.pos[1] = (s16) o->oHomeY;
     e.pos[2] = (s16) o->oHomeZ;
     e.aux[0] = (int16_t) extra;
-    if (sig == PSP_NP_SIG_UKIKI_HAT) {
+    if (sig == PSP_NP_SIG_UKIKI_HAT || sig == PSP_NP_SIG_BOWSER_PLAT) {
         np_w_log(&e); /* (a player that comes in later sees the cap on the ukiki too) */
     }
     psp_np_world_send(&e);
@@ -1891,6 +2618,24 @@ static struct Object *np_w_find_home(const BehaviorScript *bhv, const s16 *pos, 
 
 static int np_w_sig_apply(const PspNpWorldEvent *e) {
     struct Object *o;
+    if (e->bhv == PSP_NP_SIG_BOWSER_PLAT) {
+        /* sm64coopdx (bhv_falling_bowser_platform_loop): the console where a platform starts to fall sends it, and a platform that falls never goes back
+         * (ignore_if_true: action > 1). It falls here too, whichever console's Bowser made it go */
+        struct Object *obj;
+        int i;
+        for (i = 0; i < NUM_OBJ_LISTS; i++) {
+            struct ObjectNode *head = &gObjectLists[i];
+            for (obj = (struct Object *) head->next; obj != (struct Object *) head; obj = (struct Object *) obj->header.next) {
+                if (np_w_alive(obj) && obj->behavior == segmented_to_virtual(bhvFallingBowserPlatform) && obj->oBehParams2ndByte == e->value) {
+                    if (obj->oAction < 2) {
+                        obj->oAction = 2;
+                    }
+                    return 1;
+                }
+            }
+        }
+        return 0; /* (the arena is not loaded here yet: tried again for a while) */
+    }
     if (e->bhv == PSP_NP_SIG_UKIKI_HAT) {
         /* the cap ukiki took the other player's cap, or gave it back. Here it wears it too (a player of this console that catches it lets it go at once:
          * that cap is not this player's, see hat_ukiki_held_loop) */
@@ -1929,6 +2674,11 @@ static int np_w_sig_apply(const PspNpWorldEvent *e) {
                     return 1;
                 }
             }
+        }
+        /* (sm64coopdx syncs oMipsStarStatus: MIPS has given its star, the copy here does not give it again when this player catches it) */
+        o = np_w_find(np_w_bhv_of(bhvMips), e->pos, 100000.0f, 0);
+        if (o != NULL && o->oMipsStarStatus == MIPS_STAR_STATUS_HAVENT_SPAWNED_STAR) {
+            o->oMipsStarStatus = MIPS_STAR_STATUS_ALREADY_SPAWNED_STAR;
         }
         s = spawn_object_abs_with_rot(gMarioObject, 0, MODEL_STAR, bhvSpawnedStarNoLevelExit, e->pos[0], e->pos[1], e->pos[2], 0, 0, 0);
         if (s != NULL) {
@@ -2164,6 +2914,8 @@ short psp_np_attack_yaw(const struct Object *o, short def) {
     return (o == sAtkObj && sClock - sAtkT <= 3) ? sAtkYaw : def;
 }
 
+static u32 sRemDlgT; /* sClock when the other player was last in a text (psp_np_world_frame) */
+#define NP_W_DLG_AFTER 90 /* frames after its text the boss is still its own: its next state (the text is over) is on the way */
 int psp_np_world_dialog_ok(const struct Object *o) {
     /* (sm64coopdx, should_start_or_continue_dialog: the text of a synced object such as a boss goes to the player nearest to it, and only on that player's console,
      * which drives the object meanwhile; the other one just sees the boss wait and then go on.) Bowser too, for his text when he is beaten: both players could
@@ -2171,6 +2923,11 @@ int psp_np_world_dialog_ok(const struct Object *o) {
      * intros of Eyerok and Wiggler: they are not carried, each console plays its own. */
     if (!sWPeerHere || !np_remote_alive() || gMarioObject == NULL || (np_w_kind(o) == 0 && o->behavior != segmented_to_virtual(bhvBowser))) {
         return 1;
+    }
+    if ((sClock - sRemDlgT) < NP_W_DLG_AFTER && dist_between_objects(o, sRemote) < 2000.0f) {
+        /* patch 318: the other player is talking to it (or has just finished): the text is that player's. Decided by who was nearer at every frame, the second
+         * player walking up during the text got it too, and again when the first one's text ended, before the state that said so came in (two texts) */
+        return 0;
     }
     if (np_w_kind(o) == 0) {
         return np_w_rule_mine(o); /* (exactly the console that drives him: not both of them when the two players are about as near) */
@@ -2199,14 +2956,14 @@ static void np_w_remote_floor(void) {
     if (!sWPeerHere || !np_remote_alive()) {
         return;
     }
-    h = find_floor(sRemote->oPosX, sRemote->oPosY + 80.0f, sRemote->oPosZ, &fl);
+    h = find_floor(sRemote->oPosX, sRemote->oPosY + 150.0f, sRemote->oPosZ, &fl); /* (from above: the copy of a tilting platform here may be tilted a bit more than there) */
     if (fl != NULL) {
         sRemoteFloorType = fl->type;
     }
     if (psp_np_game_remote_action() & ACT_FLAG_AIR) {
         return;
     }
-    if (fl != NULL && fl->object != NULL && sRemote->oPosY - h < 40.0f) {
+    if (fl != NULL && fl->object != NULL && sRemote->oPosY - h < 60.0f && sRemote->oPosY - h > -120.0f) {
         sRemoteFloorObj = fl->object;
     }
 }
@@ -2281,19 +3038,60 @@ static void np_w_remote_shell(void) {
     sRemShell->header.gfx.angle[2] = 0;
 }
 
+static struct Object *np_p_find(uint8_t kind, uint8_t ord);
 int psp_np_world_remote_on(const struct Object *o) {
+    if (o == NULL || !sWPeerHere || !np_remote_alive()) {
+        return 0;
+    }
+    if (sLastInValid && sLastIn.platKind != 0xFF) { /* what its console says it stands on */
+        return np_p_find(sLastIn.platKind, sLastIn.platOrd) == o;
+    }
     return sRemoteFloorObj != NULL && sRemoteFloorObj == o;
+}
+
+/* the other player is in a bubble or in its death: not a player the objects go after (sm64coopdx: is_player_active / the bubbled players are skipped) */
+static int np_remote_out(void) {
+    switch (sNetBody.action) {
+        case ACT_BUBBLED:
+        case ACT_STANDING_DEATH:
+        case ACT_DEATH_ON_BACK:
+        case ACT_DEATH_ON_STOMACH:
+        case ACT_QUICKSAND_DEATH:
+        case ACT_WATER_DEATH:
+        case ACT_DROWNING:
+        case ACT_ELECTROCUTION:
+        case ACT_SUFFOCATION:
+        case ACT_EATEN_BY_BUBBA:
+            return 1;
+    }
+    return 0;
+}
+
+int psp_np_world_rescuer(float pos[3]) {
+    if (!sWPeerHere || !np_remote_alive() || np_remote_out() || psp_np_game_remote_age() < 30) {
+        return 0;
+    }
+    pos[0] = sRemote->oPosX;
+    pos[1] = sRemote->oPosY;
+    pos[2] = sRemote->oPosZ;
+    return 1;
 }
 
 struct Object *psp_np_world_nearest_player(const struct Object *o) {
     if (!sWPeerHere || !np_remote_alive() || gMarioObject == NULL) {
         return NULL;
     }
+    if (np_remote_out()) {
+        return gMarioObject;
+    }
+    if (gMarioState->action == ACT_BUBBLED) {
+        return sRemote;
+    }
     return (dist_between_objects(o, sRemote) < dist_between_objects(o, gMarioObject)) ? sRemote : gMarioObject;
 }
 
 void psp_np_world_retarget(struct Object *o) {
-    if (!sWPeerHere || !np_remote_alive()) {
+    if (!sWPeerHere || !np_remote_alive() || np_remote_out()) {
         return;
     }
     if (np_w_is_spawner(o)) {
@@ -2330,10 +3128,48 @@ void psp_np_world_retarget(struct Object *o) {
  * record keeps it, though: every few frames the coins that have appeared since are looked through and the ones in the record are taken, like the coin that was
  * there all the time (its own behavior then marks it in the formation, so it does not come back). Red coins are left out: they count for their star. */
 #define NP_W_SWEEP_PERIOD 8
-static void np_w_coin_sweep(void) {
+void mark_goomba_as_dead(void); /* (goomba.inc.c: a goomba of a triplet is marked in its spawner, so it is not made again) */
+static void np_w_goomba_dead(struct Object *g) {
+    struct Object *prevObj = gCurrentObject;
+    if (g->behavior != segmented_to_virtual(bhvGoomba)) {
+        return;
+    }
+    gCurrentObject = g;
+    mark_goomba_as_dead();
+    gCurrentObject = prevObj;
+}
+
+/* What the record says is gone and still shows here: coins (and goombas of a triplet) that only come out when a player gets near (coin formations,
+ * goomba triplets), so a replay found nothing when it came. The ones that came out in the last frames are checked every frame and go away silently,
+ * before they are seen; all the coins every NP_W_SWEEP_PERIOD frames. */
+static void np_w_coin_sweep(int full) {
     struct { s32 bhv; s16 pos[3]; u8 val; } g[NP_W_LOG];
-    int n = 0, i, l;
+    int n = 0, i, l, fresh = 0;
     s32 redBhv = np_w_bhv_of(bhvRedCoin);
+    const void *goombaBhv = segmented_to_virtual(bhvGoomba);
+    for (l = 0; l < NUM_OBJ_LISTS && !full && !fresh; l++) { /* (most frames nothing came out: nothing else to do) */
+        struct ObjectNode *head = &gObjectLists[l];
+        struct Object *obj;
+        for (obj = (struct Object *) head->next; obj != (struct Object *) head; obj = (struct Object *) obj->header.next) {
+            if (obj->oTimer <= 3 && obj->activeFlags != ACTIVE_FLAG_DEACTIVATED && ((obj->oInteractType & INTERACT_COIN) || obj->behavior == goombaBhv)) {
+                fresh = 1;
+                break;
+            }
+        }
+    }
+    if (!full && !fresh) {
+        return;
+    }
+    for (i = 0; i < sWLogN; i++) { /* the goombas of a triplet */
+        const PspNpWorldEvent *e = &sWLog[i];
+        if (e->type == PSP_NP_EV_DEAD && e->bhv > 0 && e->bhv < NP_W_BRK_BASE && sKindBhv[e->bhv - 1] == bhvGoomba) {
+            struct Object *o = np_w_find_kind(e->bhv, e->pos);
+            if (o != NULL && o->oTimer <= 3 && o->parentObj != NULL && o->parentObj != o && o->parentObj->behavior == segmented_to_virtual(bhvGoombaTripletSpawner)) {
+                np_w_goomba_dead(o);
+                obj_mark_for_deletion(o);
+            }
+        }
+    }
     for (i = 0; i < sWLogN; i++) {
         const PspNpWorldEvent *e = &sWLog[i];
         if (e->type == PSP_NP_EV_COIN && e->aux[0] == 0 && e->aux[1] == 0 && e->bhv != redBhv) {
@@ -2351,7 +3187,8 @@ static void np_w_coin_sweep(void) {
         struct Object *obj;
         for (obj = (struct Object *) head->next; obj != (struct Object *) head; obj = (struct Object *) obj->header.next) {
             s32 b;
-            if (!(obj->oInteractType & INTERACT_COIN) || obj->activeFlags == ACTIVE_FLAG_DEACTIVATED || (obj->oInteractStatus & INT_STATUS_INTERACTED) || obj->behavior == NULL || obj == sRemote) {
+            if (!(obj->oInteractType & INTERACT_COIN) || obj->activeFlags == ACTIVE_FLAG_DEACTIVATED || (obj->oInteractStatus & INT_STATUS_INTERACTED) || obj->behavior == NULL || obj == sRemote
+                || (!full && obj->oTimer > 3)) {
                 continue;
             }
             b = np_w_bhv(obj);
@@ -2362,7 +3199,12 @@ static void np_w_coin_sweep(void) {
                 }
                 dx = obj->oPosX - g[i].pos[0]; dy = obj->oPosY - g[i].pos[1]; dz = obj->oPosZ - g[i].pos[2];
                 if (dx * dx + dy * dy + dz * dz < 3600.0f) {
-                    obj->oInteractStatus = INT_STATUS_INTERACTED;
+                    if (obj->oTimer <= 3 && obj->parentObj != NULL && obj->parentObj != obj && obj->parentObj->behavior == segmented_to_virtual(bhvCoinFormation)) {
+                        obj->parentObj->oCoinUnkF4 |= bit_shift_left(obj->oBehParams2ndByte); /* (as its own collection does: it is not made again) */
+                        obj_mark_for_deletion(obj);
+                    } else {
+                        obj->oInteractStatus = INT_STATUS_INTERACTED;
+                    }
                     break;
                 }
             }
@@ -2403,8 +3245,12 @@ static int np_w_apply(const PspNpWorldEvent *e) {
             }
             return o != NULL;
         case PSP_NP_EV_STAR:
-            o = np_w_find(e->bhv, e->pos, 500.0f, 0);
+            /* (Bowser's key and the grand star come out where each console's Bowser ended up, which is not quite the same place: there is one of them) */
+            o = np_w_find(e->bhv, e->pos, (e->bhv == np_w_bhv_of(bhvGrandStar) || e->bhv == np_w_bhv_of(bhvBowserKey)) ? 8000.0f : 500.0f, 0);
             if (o != NULL) {
+                if (!sWApplyQuiet && !(o->header.gfx.node.flags & GRAPH_RENDER_INVISIBLE)) {
+                    spawn_object(o, MODEL_NONE, bhvStarKeyCollectionPuffSpawner); /* (the puff the game makes where Mario takes a star or key) */
+                }
                 o->oInteractStatus = INT_STATUS_INTERACTED;
             }
             return o != NULL;
@@ -2476,6 +3322,24 @@ static int np_w_apply(const PspNpWorldEvent *e) {
                     o->parentObj->oMerryGoRoundBooManagerNumBoosKilled++; /* (a merry-go-round boo counts itself when it dies; this copy does not run its death) */
                 }
                 set_object_respawn_info_bits(o, RESPAWN_INFO_DONT_RESPAWN);
+                np_w_goomba_dead(o);
+                if ((o->behavior == segmented_to_virtual(bhvSmallBully) || o->behavior == segmented_to_virtual(bhvSmallChillBully))
+                    && o->oBullySubtype == BULLY_STYPE_MINION && o->parentObj != NULL && o->parentObj != o) {
+                    /* (its own death counts it in the big bully that waits for the three: sm64coopdx syncs that count. Killed on the other console, the big
+                     * bully of Lethal Lava Land / Snowman's Land came out only there) */
+                    o->parentObj->oBullyKBTimerAndMinionKOCounter++;
+                }
+                if (o->behavior == segmented_to_virtual(bhvFirePiranhaPlant)) {
+                    /* (sm64coopdx syncs the count of the big ones killed: the star of Tiny-Huge Island comes out at the fifth, whichever player killed each) */
+                    extern s32 sNumActiveFirePiranhaPlants, sNumKilledFirePiranhaPlants;
+                    if (o->oFirePiranhaPlantActive) {
+                        sNumActiveFirePiranhaPlants--;
+                        o->oFirePiranhaPlantActive = FALSE;
+                    }
+                    if ((u16) (o->oBehParams >> 16) != 0) {
+                        sNumKilledFirePiranhaPlants++;
+                    }
+                }
                 gCurrentObject = o; /* (the effect is made around the object that is running: here nobody is) */
                 spawn_mist_particles(); /* the puff the enemy leaves where it died, which its own death would have made */
                 gCurrentObject = saved;
@@ -2508,6 +3372,9 @@ static int np_w_apply(const PspNpWorldEvent *e) {
             return 1; /* (a hit is not kept waiting) */
         case PSP_NP_EV_SPAWN:
             np_w_spawn_loot(e);
+            return 1;
+        case PSP_NP_EV_LEVEL:
+            np_w_level_state_apply(e);
             return 1;
         case PSP_NP_EV_STARSPAWN:
             np_w_spawn_star(e);
@@ -2558,7 +3425,8 @@ void psp_np_world_reset(void) {
     sTrkN = 0;
     sPlatN = sPlatCursor = sPlatTick = 0;
     sBowserHeard = sBowserPeerWait = sBowserCarried = 0;
-        sBowserCarriedObj = NULL;
+    sBowserCarriedObj = NULL;
+    gPspBowserRewardOf = NULL;
     sBrkN = 0;
 #endif
     sWLevel = sWArea = -1;
@@ -2607,6 +3475,8 @@ static const struct {
     { bhvActivatedBackAndForthPlatform, 0, { NPF(oActivatedBackAndForthPlatformMaxOffset), NPF(oActivatedBackAndForthPlatformOffset), NPF(oActivatedBackAndForthPlatformVel),
           NPF(oActivatedBackAndForthPlatformCountdown), NPF(oActivatedBackAndForthPlatformStartYaw), NPF(oActivatedBackAndForthPlatformVertical), NPF(oActivatedBackAndForthPlatformFlipRotation) } },
     { bhvFerrisWheelAxle, 0, { NPF(oFaceAngleRoll) } },
+    { bhvWaterBombCannon, 2, { NPF(oWaterCannonUnkF4), NPF(oWaterCannonUnkF8), NPF(oWaterCannonUnkFC), NPF(oWaterCannonUnk100) } }, /* (BoB: where it aims and when it shoots is
+          * random; sm64coopdx leaves it to each console, here the one of the nearest player goes along so both see the same shots) */
     /* patch 260: the other platforms sm64coopdx keeps in step (most only need the standard values: position, action, timer, angles) */
     { bhvArrowLift, 0, { 0 } },
     { bhvBbhTiltingTrapPlatform, 0, { NPF(oAngleVelPitch) } },
@@ -2706,6 +3576,12 @@ static const struct {
     { bhvTreasureChests, 2, { NPF(oTreasureChestUnkF4), NPF(oTreasureChestUnkF8), NPF(oTreasureChestUnkFC) } },
     { bhvJetStreamRingSpawner, 2, { NPF(oWaterRingSpawnerRingsCollected), NPF(oWaterRingMgrNextRingIndex), NPF(oWaterRingMgrLastRingCollected) } },
     { bhvSnowMoundSpawn, 2, { 0 } },
+    /* patch 318: platforms that turn or flap on a timer started when each console loaded the area (the octagonal platform of Rainbow Ride and Bowser in the Sky,
+     * the wings of the cruiser, the bridge with flames), and the tilting pyramid of Bowser in the Fire Sea (it leans where the player stands: the nearest console drives it) */
+    { bhvOctagonalPlatformRotating, 0, { NPF(oAngleVelYaw) } },
+    { bhvRrCruiserWing, 0, { NPF(oRRCruiserWingUnkF4), NPF(oRRCruiserWingUnkF8) } },
+    { bhvRrRotatingBridgePlatform, 2, { NPF(oFlameThowerUnk110), NPF(oAngleVelYaw) } },
+    { bhvBitfsTiltingInvertedPyramid, 2, { NPF(oTiltingPyramidNormalX), NPF(oTiltingPyramidNormalY), NPF(oTiltingPyramidNormalZ) } },
 };
 #define NP_P_KINDS ((int) (sizeof(sPlatKind) / sizeof(sPlatKind[0])))
 
@@ -2730,6 +3606,27 @@ static struct {
     uint8_t kind, ord, n;
     uint32_t sent; /* sClock when this console last sent it (see np_p_frame: what waited longest, moves and is near the other player goes first) */
 } sPlat[NP_P_MAX];
+
+static void np_p_ident(const struct Object *o, uint8_t *kind, uint8_t *ord) {
+    int i;
+    *kind = *ord = 0xFF;
+    for (i = 0; o != NULL && i < sPlatN; i++) {
+        if (sPlat[i].o == o) {
+            *kind = sPlat[i].kind;
+            *ord = sPlat[i].ord;
+            return;
+        }
+    }
+}
+static struct Object *np_p_find(uint8_t kind, uint8_t ord) {
+    int i;
+    for (i = 0; i < sPlatN; i++) {
+        if (sPlat[i].kind == kind && sPlat[i].ord == ord) {
+            return sPlat[i].o;
+        }
+    }
+    return NULL;
+}
 static struct Object *sPlatPrevO[NP_P_MAX]; /* the previous scan, to carry 'sent' over (the lists keep their order: a short look ahead finds them) */
 static uint32_t sPlatPrevSent[NP_P_MAX];
 
@@ -2760,6 +3657,7 @@ static int np_p_byhome(int kind) {
 }
 
 #define NP_P_BYHOME 2 /* flags: ord / n of the record carry the home hash of the object, not its order */
+#define NP_P_DRIVEN 4 /* flags: the sender drives it now (its player talks to it, or psp_np_world_drive): taken even where the other player is the nearer one */
 static uint16_t np_p_hash(const struct Object *o) {
     return (uint16_t) ((int) o->oHomeX * 31 + (int) o->oHomeZ * 17 + (int) o->oHomeY * 7);
 }
@@ -2775,6 +3673,7 @@ static int np_p_default_list_level(void) {
     switch (gCurrLevelNum) {
         case LEVEL_JRB: case LEVEL_SL: case LEVEL_DDD:
         case LEVEL_BBH: case LEVEL_HMC: case LEVEL_LLL: case LEVEL_RR: case LEVEL_BITDW: case LEVEL_BITFS: case LEVEL_BITS: /* (flamethrowers) */
+        case LEVEL_BOB: /* (the water bomb cannon) */
             return 1;
     }
     return 0;
@@ -2852,8 +3751,27 @@ static uint32_t np_p_urgency(int i) {
     return age * w;
 }
 
+/* A platform that is a child of a synced one (the platforms of the ferris wheel hang from its axle: they have no state of their own) stands for its parent. */
+static const struct Object *np_p_root(const struct Object *o) {
+    int i;
+    if (o == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < sPlatN; i++) {
+        if (sPlat[i].o == o) {
+            return o;
+        }
+    }
+    for (i = 0; i < sPlatN; i++) {
+        if (sPlat[i].o == o->parentObj && o->parentObj != o && sPlatKind[sPlat[i].kind].ttc == 0) {
+            return o->parentObj;
+        }
+    }
+    return o;
+}
+
 static int np_p_riding(const struct Object *o) {
-    return gMarioObject != NULL && gMarioObject->platform == o;
+    return gMarioObject != NULL && np_p_root(gMarioObject->platform) == o;
 }
 
 /* The track platform goes from waypoint to waypoint by a pointer: it travels as the index counted from the first waypoint (sm64coopdx does the same) */
@@ -2883,7 +3801,18 @@ int psp_np_world_peer_here(void) {
 
 /* Bowser is in the other player's hands (that console says so at every batch): this copy does not run his script, it hangs from that player's model */
 int psp_np_world_bowser_carried(const struct Object *o) {
-    return (sClock - sBowserCarried) < NP_P_BOWSER_CARRY_FRAMES && o->oHeldState == HELD_FREE && np_remote_alive();
+    u32 act;
+    if (o->oHeldState != HELD_FREE || !np_remote_alive()) {
+        return 0;
+    }
+    if ((sClock - sBowserCarried) < NP_P_BOWSER_CARRY_FRAMES) {
+        return 1;
+    }
+    /* patch 318: the platform stream that says so is unreliable and comes every 4+ frames (more on a slow radio): one packet lost or late and this copy
+     * dropped out of the other player's hands for a few frames, shown by itself where it hung (60 above the floor) and falling, while that player went on
+     * swinging him: "Luigi and Bowser rise while spinning" on the other console. The other player's own action, which comes with every pose, decides it */
+    act = psp_np_game_remote_action();
+    return o == sBowserCarriedObj && (act == ACT_HOLDING_BOWSER || act == ACT_PICKING_UP_BOWSER);
 }
 
 void psp_np_world_bowser_carry_step(struct Object *o) {
@@ -2977,6 +3906,9 @@ static void np_p_pack(PspNpFld *r, int i, int host) {
     r->n = sPlat[i].n;
     r->ord = sPlat[i].ord;
     r->flags = host ? NP_P_HOST : 0;
+    if ((o->activeFlags & ACTIVE_FLAG_INITIATED_TIME_STOP) || (sClock - o->unused2) < NP_P_RIDE_FRAMES) {
+        r->flags |= NP_P_DRIVEN; /* (sm64coopdx sends the object of a running text from the console of the player that reads it, network_send_object) */
+    }
     if (np_p_byhome(r->kind)) {
         const uint16_t h = np_p_hash(o);
         r->flags |= NP_P_BYHOME;
@@ -3037,9 +3969,78 @@ static void np_p_pokey_parts(struct Object *pokey, uint32_t flagsBefore, s32 num
     }
 }
 
+/* A correction from the other console moves the copy at once (its next update starts from there), but the picture eases over (sm64coopdx's
+ * interpolation of the synced objects): what is left of the jump is kept as an offset of the drawn position and angle that fades in a few frames.
+ * Without this a flying Hoot (or any enemy this console follows) jumped a little at every packet. Not for solid objects: Mario stands on what is drawn. */
+#define NP_SM_MAX 16
+static struct { struct Object *o; const BehaviorScript *bhv; float e[3]; s16 ey; } sSm[NP_SM_MAX];
+static void np_sm_add(struct Object *o, const float old[3], s16 oldYaw) {
+    int i, free = -1;
+    float dx, dy, dz;
+    if (o->collisionData != NULL || !(o->oFlags & OBJ_FLAG_UPDATE_GFX_POS_AND_ANGLE)) {
+        return;
+    }
+    dx = old[0] - o->oPosX;
+    dy = old[1] - o->oPosY;
+    dz = old[2] - o->oPosZ;
+    for (i = 0; i < NP_SM_MAX; i++) {
+        if (sSm[i].o == o) {
+            break;
+        }
+        if (sSm[i].o == NULL && free < 0) {
+            free = i;
+        }
+    }
+    if (i == NP_SM_MAX) {
+        if (free < 0) {
+            return;
+        }
+        i = free;
+        sSm[i].o = o;
+        sSm[i].bhv = o->behavior;
+        sSm[i].e[0] = sSm[i].e[1] = sSm[i].e[2] = 0.0f;
+        sSm[i].ey = 0;
+    }
+    sSm[i].e[0] += dx;
+    sSm[i].e[1] += dy;
+    sSm[i].e[2] += dz;
+    sSm[i].ey = (s16) (sSm[i].ey + (s16) (oldYaw - (s16) o->oFaceAngleYaw));
+    if (fabsf(sSm[i].e[0]) + fabsf(sSm[i].e[1]) + fabsf(sSm[i].e[2]) > 600.0f) {
+        sSm[i].o = NULL; /* a jump that big is a teleport (a warp, a respawn): shown as it is */
+    }
+}
+
+void psp_np_world_smooth_step(void) {
+    int i, k;
+    for (i = 0; i < NP_SM_MAX; i++) {
+        struct Object *o = sSm[i].o;
+        if (o == NULL) {
+            continue;
+        }
+        if (o->activeFlags == ACTIVE_FLAG_DEACTIVATED || o->behavior != sSm[i].bhv || psp_netplay_state() != PSP_NP_CONNECTED) {
+            sSm[i].o = NULL;
+            continue;
+        }
+        for (k = 0; k < 3; k++) {
+            sSm[i].e[k] *= 0.7f;
+        }
+        sSm[i].ey = (s16) (sSm[i].ey * 7 / 10);
+        if (fabsf(sSm[i].e[0]) + fabsf(sSm[i].e[1]) + fabsf(sSm[i].e[2]) < 1.0f && sSm[i].ey > -0x80 && sSm[i].ey < 0x80) {
+            sSm[i].o = NULL;
+            continue;
+        }
+        /* (the update just copied the object's own position into the picture) */
+        o->header.gfx.pos[0] = o->oPosX + sSm[i].e[0];
+        o->header.gfx.pos[1] = o->oPosY + o->oGraphYOffset + sSm[i].e[1]; /* (as obj_update_gfx_pos_and_angle: without the offset of its model the chain chomp, 240 up, sank into the ground) */
+        o->header.gfx.pos[2] = o->oPosZ + sSm[i].e[2];
+        o->header.gfx.angle[1] = (s16) (o->oFaceAngleYaw + sSm[i].ey);
+    }
+}
+
 static void np_p_apply(const PspNpFld *r) {
     struct Object *o;
     float old[3];
+    s16 oldYaw;
     uint32_t pokeyFlags = 0;
     s32 pokeyNum = 0, heldBefore = 0, deadBefore = 0;
     int j, i;
@@ -3088,8 +4089,20 @@ static void np_p_apply(const PspNpFld *r) {
         }
         return;
     }
+    if (sPlatKind[r->kind].bhv == bhvFallingBowserPlatform) {
+        return; /* only its fall is told (PSP_NP_SIG_BOWSER_PLAT), as sm64coopdx's SYNC_DISTANCE_ONLY_EVENTS: a state from a console where it still stands
+                 * put a falling one back up */
+    }
     if (!np_p_ready(o, r->kind) || !np_p_state_ok(r->kind, r)) {
         return;
+    }
+    if (sPlatKind[r->kind].bhv == bhvBowser && o->oAction == 4 && r->w[NP_P_W_ACTION] == 4) {
+        /* his death (fly back, bounce, last words, twirl into the trophy) goes forward only: this copy ran a step ahead of the packet (its own script goes on between
+         * packets), and taking the older state of the packet put it back and made it jump forward again: Bowser stuttered where he starts to rise and spin */
+        const s32 theirSub = (s32) r->w[9], theirF8 = (s32) r->w[NP_P_STD + 1];
+        if (o->oSubAction > theirSub || (o->oSubAction == theirSub && o->oBowserUnkF8 > theirF8)) {
+            return;
+        }
     }
     if (sPlatKind[r->kind].bhv == bhvHoot) {
         /* the Hoot only ever wakes up (sm64coopdx: one shared Hoot): a copy that is less awake than this one is not taken, one that is more awake always is
@@ -3097,6 +4110,10 @@ static void np_p_apply(const PspNpFld *r) {
         const s32 theirs = (s32) r->w[NP_P_STD + 0];
         if (theirs < o->oHootAvailability) {
             return;
+        }
+        if (theirs == HOOT_AVAIL_READY_TO_FLY && psp_np_game_remote_action() == ACT_RIDING_HOOT) {
+            o->oHootAvailability = theirs;
+            return; /* the other player flies it: this copy hangs above that player's model (hoot_follow_remote_rider), which moves smoothly, not at the packet rate */
         }
         if (theirs > o->oHootAvailability) {
             goto take;
@@ -3109,6 +4126,9 @@ static void np_p_apply(const PspNpFld *r) {
         if ((sClock - o->unused2) < NP_P_RIDE_FRAMES) {
             return; /* this console drives it (psp_np_world_drive) */
         }
+        if ((r->flags & NP_P_DRIVEN) && np_p_near(r->kind)) {
+            goto take; /* the other console drives it (its player reads its text, e.g. Bowser's last words, and his twirl into the trophy right after) */
+        }
         if (np_w_rule_mine(o) && !(sPlatKind[r->kind].bhv == bhvBowser && o->oAction == NP_P_BOWSER_WAIT)) {
             return; /* the nearest player is this one: this copy is the one that counts (but a Bowser that waits for the fight takes it from whoever has it) */
         }
@@ -3116,8 +4136,8 @@ static void np_p_apply(const PspNpFld *r) {
         return; /* the client drives the platforms it is standing on */
     }
 take:
-    if (sPlatKind[r->kind].ttc == 1 && (r->flags & NP_P_HOST)) {
-        gTTCSpeedSetting = r->ttc;
+    if (sPlatKind[r->kind].ttc == 1 && r->ttc != (uint8_t) gTTCSpeedSetting) {
+        return; /* (TTC: the speed is the one of the player who was there first, handed over with the level state; until then the other speed is not mixed in) */
     }
     old[0] = o->oPosX;
     old[1] = o->oPosY;
@@ -3128,6 +4148,7 @@ take:
     }
     heldBefore = o->oHeldState;
     deadBefore = o->oAction == 4 && o->oSubAction >= 3;
+    oldYaw = (s16) o->oFaceAngleYaw;
     for (j = 0; j < NP_P_STD - 1; j++) {
         memcpy((char *) o + sPlatStd[j], &r->w[j], 4);
     }
@@ -3148,7 +4169,7 @@ take:
             o->oVelY = 0.0f;
             o->oGravity = 0.0f;
             o->oIntangibleTimer = -1;
-            if (!deadBefore) {
+            if (!deadBefore || gPspBowserRewardOf != o) {
                 /* this copy never went through the end of the fight, so it never left the key (or the grand star): the late joiner gets one, as in
                  * sm64coopdx (its reward is a synced spawn that the level state hands to whoever comes in) */
                 struct Object *prevObj = gCurrentObject, *reward;
@@ -3156,6 +4177,7 @@ take:
                 reward = cur_obj_nearest_object_with_behavior(o->oBehParams2ndByte == 2 ? bhvGrandStar : bhvBowserKey);
                 if (reward == NULL) {
                     reward = spawn_object(o, o->oBehParams2ndByte == 2 ? MODEL_STAR : MODEL_BOWSER_KEY, o->oBehParams2ndByte == 2 ? bhvGrandStar : bhvBowserKey);
+                    gPspBowserRewardOf = o; /* (once: a key this player then takes is not given again by the next packet) */
                     if (reward != NULL) {
                         reward->oAngleVelYaw = o->oAngleVelYaw;
                         gSecondCameraFocus = reward; /* (as bowser_spawn_grand_star_key does) */
@@ -3176,6 +4198,9 @@ take:
         }
     }
     o->unused1 = sClock; /* heard from it: this console does not send it back for a while */
+    if (!np_p_riding(o)) {
+        np_sm_add(o, old, oldYaw);
+    }
     if (np_p_riding(o)) { /* Mario goes along with the correction */
         const float dx = o->oPosX - old[0], dy = o->oPosY - old[1], dz = o->oPosZ - old[2];
         if (fabsf(dx) < 2000.0f && fabsf(dy) < 2000.0f && fabsf(dz) < 2000.0f) {
@@ -3239,8 +4264,9 @@ static void np_p_frame(int here) {
         }
     }
     if (!sWHost && gMarioObject != NULL && gMarioObject->platform != NULL) { /* the client's claim on the platform it stands on */
+        const struct Object *ridden = np_p_root(gMarioObject->platform);
         for (i = 0; i < sPlatN; i++) {
-            if (sPlat[i].o == gMarioObject->platform && !np_p_near(sPlat[i].kind)) { /* (one of the nearest player's console is not claimed by standing on it) */
+            if (sPlat[i].o == ridden && !np_p_near(sPlat[i].kind)) { /* (one of the nearest player's console is not claimed by standing on it) */
                 sPlat[i].o->unused2 = sClock;
             }
         }
@@ -3285,6 +4311,16 @@ static void np_p_frame(int here) {
         psp_np_world_fld_send(batch, nb * NP_P_REC);
     }
 }
+#else
+static void np_p_ident(const struct Object *o, uint8_t *kind, uint8_t *ord) {
+    (void) o;
+    *kind = *ord = 0xFF;
+}
+static struct Object *np_p_find(uint8_t kind, uint8_t ord) {
+    (void) kind;
+    (void) ord;
+    return NULL;
+}
 #endif /* PSP_NETPLAY_ENEMIES (platforms) */
 
 /* Self-healing: every few seconds each console tells how many world events it has recorded for this area. The records of the two should match; if the
@@ -3299,13 +4335,31 @@ void psp_np_world_frame(int peerKnown, int peerLevel, int peerArea, int isHost) 
     sPeerNowKnown = peerKnown;
     sPeerNowLevel = peerLevel;
     sPeerNowArea = peerArea;
+    {
+        const u32 ra = psp_np_game_remote_action();
+        if (np_remote_alive() && (ra == ACT_READING_NPC_DIALOG || ra == ACT_WAITING_FOR_DIALOG || ra == ACT_READING_AUTOMATIC_DIALOG)) {
+            sRemDlgT = sClock;
+        }
+    }
     if (gCurrentArea == NULL) {
         return; /* a warp is in progress: the events wait */
+    }
+    if (psp_np_world_quiet()) {
+        static u8 sDrop[PSP_NP_OBJ_BYTES > PSP_NP_FLD_BYTES ? PSP_NP_OBJ_BYTES : PSP_NP_FLD_BYTES];
+        while (psp_np_world_take(&e)) {
+        }
+        psp_np_world_obj_take(sDrop);
+        psp_np_world_fld_take(sDrop); /* (what the other console still sent is dropped) */
+        sWLevel = sWArea = -1; /* (the area after the credits starts from scratch) */
+        sWPeerHere = 0;
+        sWReplayAt = -1;
+        return;
     }
     if (sWLevel != gCurrLevelNum || sWArea != np_area_key()) { /* a new area: its state starts from scratch (what the other player has done there comes in as a replay) */
         sWLevel = gCurrLevelNum;
         sWArea = np_area_key();
         sWLogN = sWPendN = sWAge = 0;
+        sWAreaFrames = 0;
         sWReplayAt = -1;
         sDigestT = sResyncN = 0;
 #if PSP_NETPLAY_ENEMIES
@@ -3322,6 +4376,7 @@ void psp_np_world_frame(int peerKnown, int peerLevel, int peerArea, int isHost) 
         sPlatN = sPlatCursor = sPlatTick = 0;
         sBowserHeard = sBowserPeerWait = sBowserCarried = 0;
         sBowserCarriedObj = NULL;
+        gPspBowserRewardOf = NULL;
         sBrkN = 0;
         memset(sSent, 0, sizeof(sSent));
 #endif
@@ -3333,12 +4388,16 @@ void psp_np_world_frame(int peerKnown, int peerLevel, int peerArea, int isHost) 
     if (sWAge < 255) {
         sWAge++;
     }
+    if (sWAreaFrames < 0x7FFFFFFF) {
+        sWAreaFrames++;
+    }
     here = peerKnown && peerLevel == sWLevel && peerArea == sWArea;
     if (here && !sWPeerHere) {
 #if PSP_NETPLAY_ENEMIES
         memset(sSent, 0, sizeof(sSent)); /* a player just came in: it needs every enemy again */
 #endif
         sWReplayAt = 0; /* the other player has just come into this area: it gets what was collected here (np_w_replay_step) */
+        sLvlBuilt = 0;
     }
     sWPeerHere = here;
     np_w_replay_step();
@@ -3426,30 +4485,38 @@ void psp_np_world_frame(int peerKnown, int peerLevel, int peerArea, int isHost) 
         }
         if (e.type == PSP_NP_EV_RESYNC) {
             sWReplayAt = 0; /* (np_w_replay_step) */
+            sLvlBuilt = 0;
             continue;
         }
-        if (e.type != PSP_NP_EV_ATTACK && e.type != PSP_NP_EV_SPAWN && e.type != PSP_NP_EV_STARSPAWN && e.type != PSP_NP_EV_DIGEST
+        if (e.type != PSP_NP_EV_ATTACK && e.type != PSP_NP_EV_SPAWN && e.type != PSP_NP_EV_STARSPAWN && e.type != PSP_NP_EV_DIGEST && e.type != PSP_NP_EV_LEVEL
             && e.type != PSP_NP_EV_RESYNC && (e.type != PSP_NP_EV_ACTION || e.coinValue == 7 || e.coinValue == NP_W_ACT_CHOMP
                 || (e.coinValue == NP_W_ACT_SIG && e.bhv == PSP_NP_SIG_UKIKI_HAT))) {
             np_w_log(&e);
         }
         sWApplyQuiet = replay; /* (what was done before this player came in happens without a sound) */
-        if (!np_w_apply(&e) && sWPendN < NP_W_PEND) {
+        if (!np_w_apply(&e) && sWPendN < NP_W_PEND
+            && !(replay && (e.type == PSP_NP_EV_CAP || e.type == PSP_NP_EV_1UP || e.type == PSP_NP_EV_STAR))) {
+            /* (a cap, 1-up or star taken before this player came in that is not here now is not coming: its box was broken on the other console only.
+             * Kept waiting, it took the cap this player's own hit on that box made a moment later: the metal cap "did not come out") */
             sWPend[sWPendN] = e;
+            sWPendReplay[sWPendN] = (u8) replay;
             sWPendAge[sWPendN++] = 0;
         }
     }
-    sWApplyQuiet = 0;
     for (i = 0; i < sWPendN;) { /* the ones whose object was not there: tried again for a while */
-        if (np_w_apply(&sWPend[i]) || ++sWPendAge[i] > NP_W_RETRY) {
+        sWApplyQuiet = sWPendReplay[i];
+        if (np_w_apply(&sWPend[i]) || ++sWPendAge[i] > (sWPendReplay[i] ? NP_W_RETRY_REPLAY : NP_W_RETRY)) {
             sWPend[i] = sWPend[--sWPendN];
             sWPendAge[i] = sWPendAge[sWPendN];
+            sWPendReplay[i] = sWPendReplay[sWPendN];
         } else {
             i++;
         }
     }
-    if (sWPeerHere && sWLogN > 0 && (sWAge % NP_W_SWEEP_PERIOD) == 0) {
-        np_w_coin_sweep(); /* (while the other player is here: the record only holds what was collected by either of them in this area) */
+    sWApplyQuiet = 0;
+    if (sWLogN > 0) {
+        /* (also once the other player left: what it took in this copy of the area stays taken here) */
+        np_w_coin_sweep((sWAge % NP_W_SWEEP_PERIOD) == 0);
     }
 }
 

@@ -483,6 +483,7 @@ extern const BehaviorScript bhvFerrisWheelPlatform[];
 extern const BehaviorScript bhvWaterBombSpawner[];
 extern const BehaviorScript bhvWaterBomb[];
 extern const BehaviorScript bhvWaterBombShadow[];
+extern const BehaviorScript bhvBubblePlayer[];
 extern const BehaviorScript bhvTTCRotatingSolid[];
 extern const BehaviorScript bhvTTCPendulum[];
 extern const BehaviorScript bhvTTCTreadmill[];

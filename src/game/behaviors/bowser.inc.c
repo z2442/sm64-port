@@ -66,8 +66,9 @@ void bhv_bowser_flame_spawn_loop(void) {
             o->oPosZ = bowser->oPosZ + (sp28 * sp24 - sp2C * sp20);
             o->oMoveAnglePitch = sp1C[5 * sp30 + 4] + 0xC00;
             o->oMoveAngleYaw = sp1C[5 * sp30 + 3] + (s16) bowser->oMoveAngleYaw;
-            if (!(sp30 & 1))
-                spawn_object(o, MODEL_RED_FLAME, bhvFlameMovingForwardGrowing);
+            if (!(sp30 & 1) && psp_np_world_bowser_fx(bowser)) { /* (WLAN, as sm64coopdx: the console of the nearest player breathes them, the other one gets them) */
+                psp_np_world_bowser_fx_spawned(spawn_object(o, MODEL_RED_FLAME, bhvFlameMovingForwardGrowing), 0);
+            }
         }
     }
 }
@@ -98,8 +99,11 @@ void bhv_bowser_body_anchor_loop(void) {
 s32 bowser_spawn_shockwave(void) {
     struct Object *wave;
     if (o->oBehParams2ndByte == 2) {
-        wave = spawn_object(o, MODEL_BOWSER_WAVE, bhvBowserShockWave);
-        wave->oPosY = o->oFloorHeight;
+        if (psp_np_world_bowser_fx(o)) { /* (WLAN, as sm64coopdx: made by the console of the nearest player, sent to the other one) */
+            wave = spawn_object(o, MODEL_BOWSER_WAVE, bhvBowserShockWave);
+            wave->oPosY = o->oFloorHeight;
+            psp_np_world_bowser_fx_spawned(wave, 2);
+        }
         return 1;
     }
     return 0;
@@ -401,10 +405,9 @@ void bowser_act_spit_fire_into_sky(void) // only in sky
     frame = o->header.gfx.unk38.animFrame;
     if (frame > 24 && frame < 36) {
         cur_obj_play_sound_1(SOUND_AIR_BOWSER_SPIT_FIRE);
-        if (frame == 35)
-            spawn_object_relative(1, 0, 0x190, 0x64, o, MODEL_RED_FLAME, bhvBlueBowserFlame);
-        else
-            spawn_object_relative(0, 0, 0x190, 0x64, o, MODEL_RED_FLAME, bhvBlueBowserFlame);
+        if (psp_np_world_bowser_fx(o)) { /* (WLAN, as sm64coopdx: made by the console of the nearest player, sent to the other one) */
+            psp_np_world_bowser_fx_spawned(spawn_object_relative(frame == 35 ? 1 : 0, 0, 0x190, 0x64, o, MODEL_RED_FLAME, bhvBlueBowserFlame), 1);
+        }
     }
     if (cur_obj_check_if_near_animation_end())
         o->oAction = 0;
@@ -768,14 +771,23 @@ void bowser_act_dance(void) {
         o->oAction = 0;
 }
 
+struct Object *gPspBowserRewardOf; /* (WLAN: the Bowser whose copy here left its key / grand star itself, see np_p_apply) */
 void bowser_spawn_grand_star_key(void) {
-    if (BITS)
+    /* (as sm64coopdx: a key / grand star that is already here, the one the other console's Bowser left, is the reward; only a new one is announced) */
+    struct Object *prevReward = cur_obj_nearest_object_with_behavior(BITS ? bhvGrandStar : bhvBowserKey);
+    gPspBowserRewardOf = o;
+    if (prevReward != NULL)
+        gSecondCameraFocus = prevReward;
+    else if (BITS)
         gSecondCameraFocus = spawn_object(o, MODEL_STAR, bhvGrandStar);
-    else {
+    else
         gSecondCameraFocus = spawn_object(o, MODEL_BOWSER_KEY, bhvBowserKey);
+    if (!BITS)
         cur_obj_play_sound_2(SOUND_GENERAL2_BOWSER_KEY);
+    if (prevReward == NULL) {
+        gSecondCameraFocus->oAngleVelYaw = o->oAngleVelYaw;
+        psp_np_world_bowser_reward(gSecondCameraFocus, BITS); /* (WLAN: the other console puts its own copy where this one is, and stops the battle music) */
     }
-    gSecondCameraFocus->oAngleVelYaw = o->oAngleVelYaw;
 }
 
 void bowser_fly_back_dead(void) {
@@ -841,15 +853,20 @@ void bowser_dead_hide(void) {
     o->oGravity = 0;
 }
 
+static struct Object *sBowserLastWordsHere; /* (WLAN) the Bowser whose last words were read on this console */
 s32 bowser_dead_not_bits_end(void) {
     s32 ret = 0;
+    if (sBowserLastWordsHere == o) {
+        psp_np_world_drive(o); /* (WLAN: the other console's copy follows this one until he is gone) */
+    }
     if (o->oBowserUnkF8 < 2) {
         if (o->oBowserUnkF8 == 0) {
             func_8031FFB4(SEQ_PLAYER_LEVEL, 60, 40);
             o->oBowserUnkF8++;
         }
         if (cur_obj_update_dialog(2, 18, sBowserDefeatedDialogText[o->oBehParams2ndByte], 0)) {
-            o->oBowserUnkF8++;
+            o->oBowserUnkF8 = 2; /* (++ in the original: 2 is "his last words are over", whichever console's state set the count meanwhile) */
+            sBowserLastWordsHere = o; /* (WLAN: this console read them, so it leads the twirl into the trophy, as sm64coopdx sends it from here) */
             cur_obj_play_sound_2(SOUND_GENERAL2_BOWSER_EXPLODE);
             sequence_player_unlower(SEQ_PLAYER_LEVEL, 60);
             sequence_player_fade_out(0, 1);
@@ -868,6 +885,9 @@ s32 bowser_dead_bits_end(void) {
     UNUSED s32 unused;
     s32 ret = 0;
     s32 dialogID;
+    if (sBowserLastWordsHere == o) {
+        psp_np_world_drive(o); /* (WLAN: the other console's copy follows this one until he is gone) */
+    }
     if (o->oBowserUnkF8 < 2) {
         if (gHudDisplay.stars < 120)
             dialogID = DIALOG_121;
@@ -878,6 +898,7 @@ s32 bowser_dead_bits_end(void) {
             o->oBowserUnkF8++;
         }
         if (cur_obj_update_dialog(2, 18, dialogID, 0)) {
+            sBowserLastWordsHere = o; /* (WLAN: see bowser_dead_not_bits_end) */
             cur_obj_set_model(MODEL_BOWSER2);
             sequence_player_unlower(SEQ_PLAYER_LEVEL, 60);
             sequence_player_fade_out(0, 1);
@@ -1180,6 +1201,7 @@ void bhv_bowser_init(void) {
     o->oAction = psp_np_world_peer_here() ? 20 : 5;
     o->oBowserUnk1AE = 0;
     o->oBowserEyesShut = 0;
+    sBowserLastWordsHere = NULL;
 }
 
 #undef BITDW
@@ -1321,7 +1343,8 @@ void falling_bowser_plat_act_1(void) {
     if (sp0->platform == o)
         if (sp0->oAction == 13 && sp0->oBowserUnkF4 & 0x10000)
             o->oAction = 2;
-    if (sp0->oHealth == 1 && (sp0->oAction == 3 || sp0->oHeldState != HELD_FREE))
+    /* (WLAN: Bowser carried by the other player counts as held here too: sm64coopdx syncs his held state) */
+    if (sp0->oHealth == 1 && (sp0->oAction == 3 || sp0->oHeldState != HELD_FREE || psp_np_world_bowser_carried(sp0)))
         o->oSubAction = 1;
     if (o->oSubAction == 0)
         o->oPlatformUnkFC = 0;
@@ -1329,6 +1352,9 @@ void falling_bowser_plat_act_1(void) {
         if ((gDebugInfo[4][6] + 20) * (o->oBehParams2ndByte - 1) < o->oPlatformUnkFC)
             o->oAction = 2;
         o->oPlatformUnkFC++;
+    }
+    if (o->oAction == 2) { /* sm64coopdx sends it now (network_send_object): it falls on every console, whichever Bowser made it go */
+        psp_np_world_signal(o, PSP_NP_SIG_BOWSER_PLAT, o->oBehParams2ndByte);
     }
 }
 

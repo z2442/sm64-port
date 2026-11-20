@@ -83,7 +83,14 @@ int psp_dve_probe(void) {
         return 0;
     }
     sModel = pspDveMgrGetModel();
-    if (sModel > 0) { /* 0 = PSP-1000 (has no TV output) */
+    /* Only the models whose TV output goes through the headphone / AV jack, the one this code was made and tested for: PSP-2000 (model 1) and
+     * the PSP-3000 boards (2, 3, 6, 8). The others get no TV code at all (no cable modules, no 4 MB VRAM, no cable checks, no audio routing):
+     * - PSP-1000 (0): no TV output;
+     * - PSP Go (4): its video goes through the multi-use connector, but the cable signals read here come from the headphone jack: plugging in
+     *   headphones looked like a video cable (the game froze when they were plugged in, and did not start with them already in);
+     * - PSP Street E1000 (10): no TV output, and the 4 MB VRAM switch and kernel modules were only extra risk around sleep / wake-up;
+     * - any later model: unknown. */
+    if (sModel == 1 || sModel == 2 || sModel == 3 || sModel == 6 || sModel == 8) {
         sAvail = 1;
         psp_dve_diag_load();
     }
@@ -326,6 +333,9 @@ void psp_dve_reset_lcd_if_tv(void) {
  * 2 = always speakers; 3 = always headphones) and with 0 it goes back to automatic. Only called by the cable watcher when there really is a VIDEO cable (not with headphones). */
 static int sRouteSpk;
 void psp_dve_audio_route(int want) {
+    if (!sAvail) {
+        return; /* (no TV code on this model: the system's own audio routing is never touched) */
+    }
     want = (want != 0);
     if (want != sRouteSpk) {
         (void) sceAudioRoutingSetMode(want ? 2 : 0);

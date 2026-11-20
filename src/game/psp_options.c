@@ -407,6 +407,7 @@ static const char *const sTrUp[LANG_COUNT] = TR("Up", "Haut", "Hoch", "ウエ");
 static const char *const sTrDown[LANG_COUNT] = TR("Down", "Bas", "Runter", "シタ");
 static const char *const sTrTvReset[LANG_COUNT] = TR("Reset TV Settings", "Réinit. réglages TV", "TV zurücksetzen", "TVセッテイヲショキカ");
 static const char *const sTrTvSafe[LANG_COUNT] = TR("Safe mode", "Mode sûr", "Sicherer Modus", "アンゼン");
+static const char *const sTrTvNoSupport[LANG_COUNT] = TR("Not supported", "Non compatible", "Nicht unterstützt", "ヒタイオウ");
 static const char *const sTrTvHelp[LANG_COUNT] = TR("L: Reconnect TV", "L: Reconnecter la TV", "L: TV neu verbinden", "L: TVサイセツゾク");
 static const char *const sTrCable[3][LANG_COUNT] = {
     TR("No cable", "Pas de cable", "Kein Kabel", "No cable"),
@@ -549,7 +550,9 @@ static const char *psp_opt_value_text(int row) {
                 int det;
                 switch (psp_dve_status(&det)) {
                     case PSP_DVE_LOAD_FAILED: snprintf(buf, sizeof(buf), "Plugin error %08X", (unsigned int) det); break;
-                    case PSP_DVE_PSP1000: snprintf(buf, sizeof(buf), "PSP-1000 (model %d)", det); break;
+                    case PSP_DVE_PSP1000: /* a model without the TV output this game supports (PSP-1000, PSP Go, PSP Street...): see psp_dve_probe */
+                        snprintf(buf, sizeof(buf), "%s", LT(sTrTvNoSupport));
+                        break;
                     default: snprintf(buf, sizeof(buf), "%s", LT(sTrTvSafe)); break;
                 }
                 return buf;
@@ -1633,6 +1636,7 @@ void psp_options_home_notice(void) {
 #include "camera.h"
 #include "course_table.h"
 #include "level_table.h"
+#include "level_update.h"
 #include "memory.h"
 #ifdef VERSION_EU
 #include "eu_translation.h"
@@ -1814,7 +1818,9 @@ void psp_np_hud_peer_place(int known, int level, UNUSED int area, int act) {
         return;
     }
     course = gLevelToCourseNumTable[level - 1];
-    if (sNpPeerCourse >= 0 && course != sNpPeerCourse && course < COURSE_CAKE_END) {
+    if (act == 99 || sNpPeerAct == 99 || gCurrCreditsEntry != NULL) {
+        /* (sm64coopdx network_player_update_course_level: no "entered" notices for a player in the ending / the credits, nor when it comes out of them) */
+    } else if (sNpPeerCourse >= 0 && course != sNpPeerCourse && course < COURSE_CAKE_END) {
         if (sNpPeerCourse == gCurrCourseNum && gCurrCourseNum != COURSE_NONE) {
             psp_np_popup(NPN_LEFT_THIS, 0, 0);
         } else if (course == gCurrCourseNum && gCurrCourseNum != COURSE_NONE) {

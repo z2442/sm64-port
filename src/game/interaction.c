@@ -25,6 +25,7 @@
 #include "thread6.h"
 #ifdef TARGET_PSP
 #include "pc/psp_netplay.h"
+#include "mario_actions_automatic.h"
 #endif
 
 #define INT_GROUND_POUND_OR_TWIRL (1 << 0) // 0x01
@@ -132,7 +133,7 @@ static u32 sBackwardKnockbackActions[][3] = {
 
 static u8 sDisplayingDoorText = FALSE;
 static u8 sJustTeleported = FALSE;
-static u8 sPssSlideStarted = FALSE;
+u8 sPssSlideStarted = FALSE; /* (not static: the WLAN multiplayer hands it to a player that comes in, see psp_netplay_game.c) */
 
 /**
  * Returns the type of hat Mario is wearing.
@@ -2237,6 +2238,21 @@ void mario_process_interactions(struct MarioState *m) {
 
 void check_death_barrier(struct MarioState *m) {
     if (m->pos[1] < m->floorHeight + 2048.0f) {
+#if defined(TARGET_PSP) && PSP_NETPLAY
+        /* WLAN multiplayer (sm64coopdx): a fall into the void with the other player alive in the area is a bubble (not in the cap stages) */
+        if (m->action == ACT_BUBBLED) {
+            m->pos[1] = m->floorHeight + 2048.0f;
+            if (m->vel[1] < 0.0f) {
+                m->vel[1] = 0.0f;
+            }
+            return;
+        }
+        if (mario_can_bubble(m) && gCurrCourseNum != COURSE_COTMC && gCurrCourseNum != COURSE_TOTWC && gCurrCourseNum != COURSE_VCUTM
+            && gCurrCourseNum != COURSE_WMOTR) {
+            mario_set_bubbled(m);
+            return;
+        }
+#endif
         if (level_trigger_warp(m, WARP_OP_WARP_FLOOR) == 20 && !(m->flags & MARIO_UNKNOWN_18)) {
             play_sound(SOUND_MARIO_WAAAOOOW, m->marioObj->header.gfx.cameraToObject);
         }

@@ -18,6 +18,7 @@
 #include "object_helpers.h"
 #include "object_list_processor.h"
 #include "game/psp_options.h"
+#include "pc/psp_netplay.h"
 #include "platform_displacement.h"
 #include "profiler.h"
 #include "spawn_object.h"
@@ -268,7 +269,6 @@ void spawn_particle(u32 activeParticleFlag, s16 model, const BehaviorScript *beh
  */
 void bhv_mario_update(void) {
     u32 particleFlags = 0;
-    s32 i;
 
     particleFlags = execute_mario_action(gCurrentObject);
     gCurrentObject->oMarioParticleFlags = particleFlags;
@@ -277,7 +277,14 @@ void bhv_mario_update(void) {
     // to sync it with the Mario object
     copy_mario_state_to_object();
 
-    i = 0;
+    spawn_mario_particles(particleFlags);
+}
+
+/**
+ * Spawn the particles of the given flags around gCurrentObject (Mario; in the WLAN multiplayer also the other player's model, see psp_netplay_game.c).
+ */
+void spawn_mario_particles(u32 particleFlags) {
+    s32 i = 0;
     while (sParticleTypes[i].particleFlag != 0) {
         if (particleFlags & sParticleTypes[i].particleFlag) {
             spawn_particle(sParticleTypes[i].activeParticleFlag, sParticleTypes[i].model,
@@ -679,6 +686,9 @@ void update_objects(UNUSED s32 unused) {
         update_non_terrain_objects();
         LPROF_END(lp_n, LP_NTER);
     }
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    psp_np_world_smooth_step();
+#endif
 
     // Unload any objects that have been deactivated
     cycleCounts[5] = get_clock_difference(cycleCounts[0]);

@@ -24,9 +24,12 @@ TARGET_WEB ?= 0
 # Build for PSP
 TARGET_PSP ?= 0
 # WLAN multiplayer (src/pc/psp_netplay.c), experimental. PSP_NETPLAY=0 removes the whole feature: nothing is built, linked or shown in
-# the menu. It is OFF by default; build with PSP_NETPLAY=1 to try it. 'make release' cannot include it: the release packer
+# the menu. It is ON by default; build with PSP_NETPLAY=0 to leave it out. 'make release' defaults to OFF because the release packer
 # (tools/psp/make_release.py) can only rebuild a sound bank that derives from the ROM, and the Luigi banks do not.
+ifneq ($(filter release,$(MAKECMDGOALS)),)
 PSP_NETPLAY ?= 0
+endif
+PSP_NETPLAY ?= 1
 # Enable gprof profiling for PSP builds (only works with TARGET_PSP=1)
 PROFILE_PSP ?= 0
 # Compiler to use (ido or gcc)

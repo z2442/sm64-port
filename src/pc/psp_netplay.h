@@ -59,6 +59,15 @@ typedef struct {
     int16_t vel[3];
     uint8_t headCam;        /* the sender looks around in first person (C-Up): head[] is its camera's head rotation */
     uint8_t act;            /* the act (star) it is playing in its course */
+    /* the moving platform it stands on (marioObj->platform, which sm64coopdx sends with every player): its kind and order in the platform table, 0xFF = none.
+     * Finding it again from the floor under the model failed while the two copies of a tilting platform were not tilted the same way. */
+    uint8_t platKind, platOrd;
+    uint8_t scaleXZ, scaleY; /* the model's scale in percent (the squash of a hard landing, of an object or of a jump on it: 100 = normal) */
+    uint32_t particles;      /* PARTICLE_* flags of the sender's last frame (dust, splashes, bubbles, sparkles, stars, fire...): shown around the model here too */
+    int8_t lives;            /* its lives: a player that loses one brings the other's down to its count (sm64coopdx PACKET_DEATH) */
+    uint8_t stompSeq;        /* +1 each time the sender lands on the other player (or ground-pounds it): that player's own console squashes its model */
+    uint8_t stompFrames;     /* how long that squash lasts (bounceSquishTimer: 4 for a jump, 20 for a ground pound) */
+    uint8_t pad2;
 } PspNpPlayer;
 /* Player vs player, like sm64coopdx: the two Marios are solid (they push each other and bounce off each other's head, a crouching one
  * makes the other twirl), and every attack of the game (punch, kick, dive, slide kick, ground pound, ...) hurts and knocks back the other
@@ -72,6 +81,7 @@ struct MarioState;
 struct MarioState *psp_np_game_remote_state(void); /* the other player as a MarioState (only what a fight needs is filled), NULL when it is not shown */
 void psp_np_game_remote_squish(int frames);       /* squashes the other player's model for that many frames */
 struct Object *psp_np_game_remote(void);        /* the other player's model, NULL when it is not shown */
+int psp_np_game_remote_touches(const struct Object *obj); /* the other player's body (Mario's hitbox) overlaps obj's hitbox, as obj_check_if_collided_with_object */
 uint32_t psp_np_game_remote_action(void);       /* its action (the sender's MarioState action) */
 int psp_np_game_remote_pose(float pos[3], short angle[3], unsigned int *action); /* its latest position, angles and action, also while its model is
                                                                                    * not shown (in a cannon); 0 when it is not in this level / area / act */
@@ -116,7 +126,9 @@ typedef struct {
     int16_t aux[3];   /* star spawn: where the star ends up */
 } PspNpWorldEvent;
 enum { PSP_NP_EV_COIN = 1, PSP_NP_EV_STAR, PSP_NP_EV_CAP, PSP_NP_EV_1UP, PSP_NP_EV_DEAD, PSP_NP_EV_ATTACK, PSP_NP_EV_SPAWN, PSP_NP_EV_ACTION, PSP_NP_EV_STARSPAWN, PSP_NP_EV_DIGEST, PSP_NP_EV_RESYNC,
-       PSP_NP_EV_ITEM /* like PACKET_COLLECT_ITEM of sm64coopdx: the object the player used (a secret's trigger, a tower door, a pillar detector) is used here too */ };
+       PSP_NP_EV_ITEM, /* like PACKET_COLLECT_ITEM of sm64coopdx: the object the player used (a secret's trigger, a tower door, a pillar detector) is used here too */
+       PSP_NP_EV_LEVEL /* like PACKET_LEVEL_MACRO / PACKET_LEVEL_SPAWN_INFO of sm64coopdx: an object of the area's lists that is gone (or a coin formation / goomba
+                        * triplet with some of its own gone), sent to a player that comes into the area */ };
 /* Stage 3: what a player sets off (doors opening, switches pressed, the water level of Wet-Dry World) is shown to the other one too. Set
  * PSP_NETPLAY_TRIGGERS to 0 to turn it off. */
 #ifndef PSP_NETPLAY_TRIGGERS
@@ -143,6 +155,9 @@ void psp_np_world_drive(struct Object *o); /* while called every frame, this con
 #define PSP_NP_SIG_LAKITU 2     /* the intro lakitu: this console's player started it (1), its text is over (2) */
 #define PSP_NP_SIG_MANTA_RING 3 /* this console's player passed a ring of the manta ray: value = its count of rings, extra = the ring's index */
 #define PSP_NP_SIG_NLE_STAR 4   /* a star that does not end the level came out for this console's player (Toad, MIPS): value = its number */
+#define PSP_NP_SIG_BOWSER_PLAT 5 /* a platform of the last Bowser arena started to fall here: value = its index (second parameter byte) */
+int psp_np_world_bowser_fx(const struct Object *bowser); /* Bowser's flames and shock waves: made by the console of the player nearest to him only */
+void psp_np_world_bowser_fx_spawned(struct Object *obj, int which); /* (one was made here: the other console makes the same one) */
 void psp_np_world_nle_star(const struct Object *star); /* (that star was just made: the other console shows it where it ends up) */
 void psp_np_world_signal(const struct Object *o, int sig, int value); /* tells the other console what one of these objects did here (found there by its home) */
 void psp_np_world_signal_ex(const struct Object *o, int sig, int value, int extra); /* the same, with one more number */
@@ -156,20 +171,27 @@ int psp_np_world_peer_here(void);                           /* linked, and the o
 int psp_np_world_bowser_carried(const struct Object *o);   /* the other player carries this Bowser by the tail (this copy hangs from its model) */
 void psp_np_world_bowser_carry_step(struct Object *o);       /* puts it there */
 int psp_np_world_bowser_give_up(int frames);                /* a Bowser waiting for the other console's state (action 20) for that many frames: should he start the fight here? */
+void psp_np_world_bowser_reward(const struct Object *reward, int isStar); /* this console made the key / grand star of a beaten Bowser: tells the other one where, and that the fight is over */
+void psp_np_world_smooth_step(void);                        /* after the objects' update: eases away the jumps the other console's corrections made (only the picture) */
 #else
+static inline void psp_np_world_smooth_step(void) { }
+static inline void psp_np_world_bowser_reward(const struct Object *reward, int isStar) { (void) reward; (void) isStar; }
 static inline short psp_np_attack_yaw(const struct Object *o, short def) { (void) o; return def; }
 static inline int psp_np_world_peer_here(void) { return 0; }
 static inline int psp_np_world_bowser_carried(const struct Object *o) { (void) o; return 0; }
 static inline void psp_np_world_bowser_carry_step(struct Object *o) { (void) o; }
 static inline int psp_np_world_bowser_give_up(int frames) { (void) frames; return 1; }
 #endif
+int psp_np_world_rescuer(float pos[3]); /* the other player can pop a bubbled player (it is here, alive and not in a bubble itself): where it is */
 int psp_np_world_remote_on(const struct Object *o);  /* the other player stands on this object (a platform, a switch): sm64coopdx's cur_obj_is_any_player_on_platform */
 struct Object *psp_np_world_nearest_player(const struct Object *o); /* the player (Mario's object or the other player's model) nearest to o: sm64coopdx's nearest_player_to_object */
 int psp_np_world_dialog_ok(const struct Object *o); /* this console's Mario may start a dialog with o (the retargeted enemy that only the OTHER player is near must not freeze this one) */
 int psp_np_world_remote_within(float x, float y, float z, float dist); /* the other player is in this area and within dist of the point (respawners wait for BOTH players to be far) */
 void psp_np_world_retarget(struct Object *o);          /* an enemy this console simulates aims at the nearest player (it could be the other one) */
 void psp_np_world_star(struct Object *parent, struct Object *star, int type); /* a boss spawned a star: the other console gets it too */
-void psp_np_world_follow_step(struct Object *o);       /* what a followed object does instead of its behavior (reports what hit it) */
+int psp_np_world_follow_step(struct Object *o);        /* a followed object, before its behavior: reports what hit it; 1 = it is only placed this frame */
+void psp_np_world_follow_running(struct Object *o);
+int psp_np_world_quiet(void); /* 1 while the world is not synced (the ending and the credits) */    /* the followed object whose behavior is running now (NULL: none) */
 void psp_np_world_spawned(struct Object *parent, struct Object *obj, int model, const void *behavior); /* every spawn_object (host: announces loot of enemies) */
 int psp_np_world_send(const PspNpWorldEvent *e);   /* queues an event for the other console (reliable, in order); 0 if the queue is full */
 int psp_np_world_take(PspNpWorldEvent *e);         /* next event received, 0 if none */
@@ -226,6 +248,7 @@ static inline int psp_np_hud_peer_act(int course, int *peerIsLuigi) { (void) cou
 static inline void psp_np_hud_patch(void) {}
 struct Object;
 static inline struct Object *psp_np_game_remote(void) { return 0; }
+static inline int psp_np_game_remote_touches(const struct Object *obj) { (void) obj; return 0; }
 static inline unsigned int psp_np_game_remote_action(void) { return 0; }
 static inline int psp_np_game_remote_pose(float pos[3], short angle[3], unsigned int *action) { (void) pos; (void) angle; (void) action; return 0; }
 static inline int psp_np_game_remote_vanished(void) { return 0; }
@@ -247,16 +270,21 @@ static inline void psp_np_world_signal(const struct Object *o, int sig, int valu
 #define PSP_NP_SIG_LAKITU 2
 #define PSP_NP_SIG_MANTA_RING 3
 #define PSP_NP_SIG_NLE_STAR 4
+#define PSP_NP_SIG_BOWSER_PLAT 5
+static inline int psp_np_world_bowser_fx(const struct Object *bowser) { (void) bowser; return 1; }
+static inline void psp_np_world_bowser_fx_spawned(struct Object *obj, int which) { (void) obj; (void) which; }
 static inline void psp_np_world_nle_star(const struct Object *star) { (void) star; }
 static inline void psp_np_world_signal_ex(const struct Object *o, int sig, int value, int extra) { (void) o; (void) sig; (void) value; (void) extra; }
 #define PSP_NP_LAKITU_OTHER 0x4C414B49u
 #define PSP_NP_BOX_REMOTE 0x52424F58u
 static inline int psp_np_world_remote_on(const struct Object *o) { (void) o; return 0; }
+static inline int psp_np_world_rescuer(float pos[3]) { (void) pos; return 0; }
 static inline struct Object *psp_np_world_nearest_player(const struct Object *o) { (void) o; return 0; }
 static inline int psp_np_world_peer_here(void) { return 0; }
 static inline int psp_np_world_bowser_carried(const struct Object *o) { (void) o; return 0; }
 static inline void psp_np_world_bowser_carry_step(struct Object *o) { (void) o; }
 static inline int psp_np_world_bowser_give_up(int frames) { (void) frames; return 1; }
+static inline void psp_np_world_bowser_reward(const struct Object *reward, int isStar) { (void) reward; (void) isStar; }
 static inline int psp_np_world_remote_within(float x, float y, float z, float dist) { (void) x; (void) y; (void) z; (void) dist; return 0; }
 
 #endif

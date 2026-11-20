@@ -469,6 +469,7 @@ void bhv_ferris_wheel_platform_update(void);
 void bhv_water_bomb_spawner_update(void);
 void bhv_water_bomb_update(void);
 void bhv_water_bomb_shadow_update(void);
+void bhv_bubble_player_loop(void);
 void bhv_ttc_rotating_solid_init(void);
 void bhv_ttc_rotating_solid_update(void);
 void bhv_ttc_pendulum_init(void);
@@ -575,5 +576,7 @@ Gfx *geo_scale_bowser_key(s32 run, struct GraphNode *node, UNUSED f32 mtx[4][4])
 // Water splash
 extern struct WaterDropletParams gShallowWaterSplashDropletParams;
 extern struct WaterDropletParams gShallowWaterWaveDropletParams;
+
+void psp_np_ttc_speed_changed(s16 oldSpeed); /* (WLAN multiplayer: see behavior_actions.c) */
 
 #endif // BEHAVIOR_ACTIONS_H

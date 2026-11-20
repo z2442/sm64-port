@@ -32,5 +32,6 @@ void stop_and_set_height_to_floor(struct MarioState *);
 s32 stationary_ground_step(struct MarioState *);
 s32 perform_ground_step(struct MarioState *);
 s32 perform_air_step(struct MarioState *, u32);
+void set_vel_from_pitch_and_yaw(struct MarioState *m);
 
 #endif // MARIO_STEP_H

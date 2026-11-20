@@ -259,6 +259,9 @@ void hoot_awake_loop(void) {
         return;
     }
     if (o->oInteractStatus == INT_STATUS_HOOT_GRABBED_BY_MARIO) {
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+        psp_np_world_drive(o); /* (this console's player flies it: the other console follows this copy, whoever it thinks is nearer) */
+#endif
         hoot_action_loop();
         cur_obj_init_animation(1);
     } else {

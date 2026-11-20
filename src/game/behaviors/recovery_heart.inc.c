@@ -12,22 +12,21 @@ struct ObjectHitbox sRecoveryHeartHitbox = {
 };
 
 void bhv_recovery_heart_loop(void) {
-    s32 healsLocal;
     obj_set_hitbox(o, &sRecoveryHeartHitbox);
-    /* sm64coopdx: the heart spins for any player that touches it, and heals the nearest one that does */
+    /* sm64coopdx: the heart spins for any player that touches it (as fast as the nearest one runs), and each turn heals this console's player, as in the
+     * original game, also the turns completed after it went past (the heart keeps spinning a while). sm64coopdx heals the nearest player whose
+     * interactObj is the heart, and its own console's player when there is none: no player ever interacts with it, so that is always the case. */
     const s32 localTouches = obj_check_if_collided_with_object(o, gMarioObject);
     f32 touchVel = gMarioStates[0].forwardVel;
     s32 remoteTouches = 0;
-    healsLocal = localTouches;
 #if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
     {
         struct Object *remote = psp_np_game_remote();
         struct MarioState *remoteState = psp_np_game_remote_state();
-        if (remote != NULL && remoteState != NULL && obj_check_if_collided_with_object(o, remote)) {
+        if (remote != NULL && remoteState != NULL && psp_np_game_remote_touches(o)) {
             remoteTouches = 1;
             if (!localTouches || dist_between_objects(o, remote) < dist_between_objects(o, gMarioObject)) {
                 touchVel = remoteState->forwardVel;
-                healsLocal = 0;
             }
         }
     }
@@ -49,9 +48,7 @@ void bhv_recovery_heart_loop(void) {
     }
 
     if ((o->oSpinningHeartTotalSpin += o->oAngleVelYaw) >= 0x10000) {
-        if (healsLocal) {
-            gMarioStates[0].healCounter += 4;
-        }
+        gMarioStates[0].healCounter += 4;
         o->oSpinningHeartTotalSpin -= 0x10000;
     }
 
