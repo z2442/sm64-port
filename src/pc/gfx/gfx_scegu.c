@@ -194,7 +194,9 @@ static uint32_t shader_broken[27] = {
     153094656  // Noise
 };
 
-unsigned int __attribute__((aligned(64))) list[262144 * 2];
+/* 768 KB (it was 2 MB): the biggest frame measured in every course, the castle, the Bowser fights and the ending used ~160 KB of it (the vertices go to
+ * sVArena, not here). If a frame ever needs more, the list is closed and started again (gfx_scegu_list_restart), as it already was. */
+unsigned int __attribute__((aligned(64))) list[196608];
 
 /* sceGuGetMemory stores transient vertices in the display list. Menu text can
  * emit many small sprites, so continue in a fresh list before an allocation

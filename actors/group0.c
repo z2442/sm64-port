@@ -9,6 +9,16 @@
 #include "mario/model.inc.c"
 
 #include "luigi/model.inc.c"
+#if defined(TARGET_PSP) && PSP_NETPLAY /* (the other sm64coopdx characters: only in the builds with the WLAN multiplayer) */
+#include "wario/model.inc.c"
+#include "waluigi/model.inc.c"
+#include "toad_player/model.inc.c"
+/* their caps (after the player models: they use their textures) */
+#include "luigi_cap/model.inc.c"
+#include "toad_cap/model.inc.c"
+#include "waluigi_cap/model.inc.c"
+#include "wario_cap/model.inc.c"
+#endif
 
 #include "bubble/model.inc.c"
 

@@ -114,7 +114,8 @@ void exclamation_box_spawn_contents(struct Struct802C0DF0 *a0, u8 a1) {
                 o->oBehParams |= a0->unk2 << 24;
                 break;
             }
-            sp1C = spawn_object(o, a0->model, a0->behavior);
+            /* (WLAN multiplayer: a cap is the one of the character of the player that broke the box, as sm64coopdx) */
+            sp1C = spawn_object(o, psp_np_cap_model(o->unused2 == PSP_NP_BOX_REMOTE ? psp_np_remote_char() : gPspLocalChar, a0->model), a0->behavior);
             sp1C->oVelY = 20.0f;
             sp1C->oForwardVel = 3.0f;
             sp1C->oMoveAngleYaw = gMarioObject->oMoveAngleYaw;

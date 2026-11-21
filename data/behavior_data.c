@@ -5438,7 +5438,6 @@ const BehaviorScript bhvWaterBomb[] = {
 const BehaviorScript bhvBubblePlayer[] = {
     BEGIN(OBJ_LIST_DEFAULT),
     OR_INT(oFlags, OBJ_FLAG_UPDATE_GFX_POS_AND_ANGLE),
-    BILLBOARD(),
     BEGIN_LOOP(),
         CALL_NATIVE(bhv_bubble_player_loop),
     END_LOOP(),

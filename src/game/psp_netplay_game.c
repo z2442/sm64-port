@@ -1,5 +1,5 @@
 /* WLAN multiplayer, game side (see pc/psp_netplay.c for the network): captures this player's pose, and shows the other player as a second
- * Mario / Luigi object. Like the castle's mirror Mario, the second model uses the same geo layout as Mario, so it shares Mario's body state
+ * Mario (Luigi, Toad, Waluigi, Wario) object. Like the castle's mirror Mario, the second model uses the same geo layout as Mario, so it shares Mario's body state
  * (eyes, hands, head turn) while its position, angles and animation come from the network.
  *
  * Everything here runs on the game thread, between two frames (called from psp_netplay_frame). */
@@ -16,6 +16,7 @@
 #include "behavior_data.h"
 #include "engine/graph_node.h"
 #include "game_init.h"
+#include "ingame_menu.h"
 #include "level_update.h"
 #include "mario.h"
 #include "memory.h"
@@ -51,7 +52,12 @@ static struct MarioState sNetMs;          /* only marioObj / animation / unkB0 a
 static struct MarioAnimation sNetAnimList; /* its own animation buffer: the local Mario keeps using the game's one */
 static void *sNetAnimBuf;
 static int sAnimReady;
-static int sLocalLuigi;
+static int sLocalChar;  /* the character whose model the local Mario object has (PSP_CHAR_*) */
+/* each character's model (sm64coopdx's characters, PSP_CHAR_* order): they all use Mario's geo callbacks and animations */
+static const int sCharModel[PSP_CHAR_COUNT] = { MODEL_MARIO, MODEL_LUIGI, MODEL_TOAD_PLAYER, MODEL_WALUIGI, MODEL_WARIO };
+static int np_char_model(int character) {
+    return sCharModel[(character >= 0 && character < PSP_CHAR_COUNT) ? character : PSP_CHAR_MARIO];
+}
 static struct MarioBodyState sNetBody; /* the other player's body state: what the geo callbacks of its model read (see BODY_STATE in mario_misc.c) */
 static u8 sVoiceSeqSeen;               /* last voice of the other player already played here */
 static int sVoiceSeqKnown;
@@ -236,7 +242,16 @@ static int np_act(void) {
     if (gCurrCreditsEntry != NULL) {
         return NP_ACT_CREDITS; /* (the same scene of the credits is the same place for both: each console plays them on its own) */
     }
-    return COURSE_IS_MAIN_COURSE(gCurrCourseNum) ? (gCurrActNum & 15) : 0;
+    if (!COURSE_IS_MAIN_COURSE(gCurrCourseNum)) {
+        return 0;
+    }
+    {
+        /* sm64coopdx keys it on the star the player picked (gCurrActStarNum, set from gDialogCourseActNum at the act selector), not on the act whose
+         * objects the game loaded (gCurrActNum). Those differ when a player picks a star it already has after one it lacks: the game then loads the
+         * act of the first missing star (lvl_update_obj_and_load_act_button_actions). Keyed on gCurrActNum, two different stars of Tick Tock Clock
+         * put both players in the same place. (Both consoles play the host's save file, as in sm64coopdx, so the same star loads the same act on both.) */
+        return (gDialogCourseActNum >= 1 && gDialogCourseActNum <= 7) ? gDialogCourseActNum : (gCurrActNum & 7);
+    }
 }
 
 /* sm64coopdx (packet_object.c, network.c): nothing of the world is synced while a player watches the ending and the credits, which are the same every time;
@@ -345,6 +360,7 @@ int psp_np_game_capture(PspNpPlayer *out) {
     out->act = (uint8_t) np_act();
     out->stompSeq = sStompSeq;
     out->stompFrames = sStompFrames;
+    out->character = gPspLocalChar;
     out->lives = (int8_t) (gMarioStates[0].numLives < -1 ? -1 : (gMarioStates[0].numLives > 127 ? 127 : gMarioStates[0].numLives));
     np_p_ident(gMarioObject != NULL ? gMarioObject->platform : NULL, &out->platKind, &out->platOrd);
     out->scaleXZ = (uint8_t) (m->header.gfx.scale[0] * 100.0f + 0.5f);
@@ -371,7 +387,7 @@ int psp_np_game_remote_pose(float pos[3], short angle[3], unsigned int *action) 
     return 1;
 }
 
-/* Shows the other player (in == NULL: hides it). remoteIsLuigi: the other console is the client, which plays as Luigi. */
+/* Shows the other player (in == NULL: hides it), with the model of the character it plays as (in->character). */
 /* The particles of the other player's model (sm64coopdx runs every player's particles): the flags of its last frame make the same spawners as the local Mario's
  * (spawn_mario_particles, object_list_processor.c) around its model. A burst (a ground pound's stars, a splash) is made when its flag comes up, not again for
  * every frame the same packet stands. The idle water wave and the leaves follow the local Mario's state, so they are left out. */
@@ -395,9 +411,9 @@ static void np_remote_particles(struct Object *o, u32 flags, int paused) {
 static struct Object *sRemBubble; /* the bubble around the other player's model (ACT_BUBBLED) */
 static s16 sYawRate; /* the other player's turning speed while it swings Bowser (psp_np_game_apply) */
 static int sYawAge;
-void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
+void psp_np_game_apply(const PspNpPlayer *in) {
     struct Object *o;
-    const int model = remoteIsLuigi ? MODEL_LUIGI : MODEL_MARIO;
+    const int model = np_char_model(in != NULL ? in->character : PSP_CHAR_MARIO);
     /* this console is in a pause menu that stops the game (not the multiplayer one, see psp_live_pause): no object is updated, so the model is
      * moved by hand */
     const int paused = (sCurrPlayMode == NP_PLAY_MODE_PAUSED && !psp_live_pause());
@@ -415,16 +431,8 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
             sStompSeen = in->stompSeq;
         }
     }
-    {
-        /* sm64coopdx (network_send_death / network_receive_death): when a player loses a life, the other one's count comes down to it if it has more */
-        static int sRemLives = 1000;
-        if (in != NULL) {
-            if (in->lives < sRemLives && sRemLives != 1000 && in->lives < gMarioStates[0].numLives) {
-                gMarioStates[0].numLives = in->lives;
-            }
-            sRemLives = in->lives;
-        }
-    }
+    /* (Each player keeps its own lives: they used to come down to the other player's count whenever it lost one, which could take them
+     * below 0.) */
     /* The grand star (sm64coopdx, network_receive_player): every player flies off with it. Each console plays the cutscene of its own player, and draws
      * the other one 100 to the side (and, flying, 100 lower: jumbo_star_cutscene_flying with playerIndex 1), as each sm64coopdx client does with the
      * other players. A player whose console missed the taking goes too as soon as the other one is in the cutscene. The ending and the credits are not
@@ -658,7 +666,7 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
     /* its bubble (sm64coopdx): it pops by itself when the other player is out of it (bhv_bubble_player_loop) */
     if (in->action == ACT_BUBBLED && !paused && (sRemBubble == NULL || sRemBubble->activeFlags == ACTIVE_FLAG_DEACTIVATED
                                                 || sRemBubble->behavior != segmented_to_virtual(bhvBubblePlayer) || sRemBubble->parentObj != o)) {
-        sRemBubble = spawn_object(o, MODEL_BUBBLE, bhvBubblePlayer);
+        sRemBubble = spawn_object(o, MODEL_BUBBLE_PLAYER, bhvBubblePlayer);
     }
 
     /* animation: the same calls the game makes for Mario, on this object and its own buffer. It runs on by itself between packets (like Mario's);
@@ -706,14 +714,14 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
         }
     }
 
-    /* its voice (Mario's or Luigi's, whichever it is) is played here, from its position */
+    /* its voice (its character's) is played here, from its position */
     if (!sVoiceSeqKnown) {
         sVoiceSeqSeen = in->voiceSeq;
         sVoiceSeqKnown = 1;
     } else if (in->voiceSeq != sVoiceSeqSeen) {
         sVoiceSeqSeen = in->voiceSeq;
         if (in->voice != 0) {
-            psp_play_remote_voice(in->voice, remoteIsLuigi, o->header.gfx.cameraToObject);
+            psp_play_remote_voice(in->voice, in->character, o->header.gfx.cameraToObject);
         }
     }
 
@@ -738,30 +746,90 @@ void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi) {
     }
 }
 
-/* The client plays as Luigi: the local Mario object just gets Luigi's model (and goes back to Mario's when the room ends). */
-void psp_np_game_local_luigi(int on) {
-    gPspLuigiVoice = on ? 1 : 0;
-    if (on == sLocalLuigi || gMarioObject == NULL) {
+/* In a room this player plays as the character chosen on the Multiplayer page: the local Mario object gets that character's model and voice (and
+ * goes back to Mario's when the room ends). After a level / area change Mario is created again with his own model, so it is checked every frame. */
+void psp_np_game_keep_local_char(int character) {
+    const int model = np_char_model(character);
+    if (character < 0 || character >= PSP_CHAR_COUNT) {
+        character = PSP_CHAR_MARIO;
+    }
+    gPspLocalChar = (u8) character;
+    if (gMarioObject == NULL || gLoadedGraphNodes[model] == NULL) {
         return;
     }
-    if (gLoadedGraphNodes[MODEL_LUIGI] != NULL && gLoadedGraphNodes[MODEL_MARIO] != NULL) {
-        gMarioObject->header.gfx.sharedChild = gLoadedGraphNodes[on ? MODEL_LUIGI : MODEL_MARIO];
-        sLocalLuigi = on;
+    if (gMarioObject->header.gfx.sharedChild != gLoadedGraphNodes[model]
+        && (character != PSP_CHAR_MARIO || sLocalChar != PSP_CHAR_MARIO)) {
+        gMarioObject->header.gfx.sharedChild = gLoadedGraphNodes[model];
     }
+    sLocalChar = character;
 }
 
-/* After a level / area change Mario is created again with his own model: Luigi's is set again for the client. */
-void psp_np_game_keep_local_luigi(int want) {
-    gPspLuigiVoice = want ? 1 : 0;
-    if (want && gMarioObject != NULL && gLoadedGraphNodes[MODEL_LUIGI] != NULL
-        && gMarioObject->header.gfx.sharedChild != gLoadedGraphNodes[MODEL_LUIGI]) {
-        gMarioObject->header.gfx.sharedChild = gLoadedGraphNodes[MODEL_LUIGI];
-        sLocalLuigi = 1;
-    } else if (!want && sLocalLuigi) {
-        psp_np_game_local_luigi(0);
+
+/* ---- The characters' caps (sm64coopdx Character.capModelId...): the cap object of a player (blown off, in a box, dropped by an enemy) and the one an enemy
+ * holds are the cap of that player's character ---- */
+static const int sCharCapModel[PSP_CHAR_COUNT][4] = { /* normal, metal, wing, winged metal */
+    { MODEL_MARIOS_CAP, MODEL_MARIOS_METAL_CAP, MODEL_MARIOS_WING_CAP, MODEL_MARIOS_WINGED_METAL_CAP },
+    { MODEL_LUIGIS_CAP, MODEL_LUIGIS_METAL_CAP, MODEL_LUIGIS_WING_CAP, MODEL_LUIGIS_WINGED_METAL_CAP },
+    { MODEL_TOADS_CAP, MODEL_TOADS_METAL_CAP, MODEL_TOADS_WING_CAP, MODEL_TOADS_WINGED_METAL_CAP },
+    { MODEL_WALUIGIS_CAP, MODEL_WALUIGIS_METAL_CAP, MODEL_WALUIGIS_WING_CAP, MODEL_WALUIGIS_WINGED_METAL_CAP },
+    { MODEL_WARIOS_CAP, MODEL_WARIOS_METAL_CAP, MODEL_WARIOS_WING_CAP, MODEL_WARIOS_WINGED_METAL_CAP },
+};
+
+/* One of Mario's cap models as the cap of a character (PSP_CHAR_*); any other model is returned as it is */
+int psp_np_cap_model(int character, int model) {
+    int k, m;
+    if (character <= PSP_CHAR_MARIO || character >= PSP_CHAR_COUNT) {
+        return model;
     }
+    for (k = 0; k < 4; k++) {
+        if (model == sCharCapModel[PSP_CHAR_MARIO][k]) {
+            m = sCharCapModel[character][k];
+            return gLoadedGraphNodes[m] != NULL ? m : model;
+        }
+    }
+    return model;
 }
 
+/* The other player's character (PSP_CHAR_*), as its last state said (Mario if none) */
+int psp_np_remote_char(void) {
+    return (sLastInValid && sLastIn.character < PSP_CHAR_COUNT) ? sLastIn.character : PSP_CHAR_MARIO;
+}
+
+/* The cap a Klepto, an Ukiki or a Mr. Blizzard holds (sm64coopdx geo_mario_cap_display_list): the cap of the player it took it from. Who that is was
+ * written in the object's unused1 (character + 1) when it took it here; else, the local player's if it is the one without its cap (the other player's
+ * otherwise). */
+extern const Gfx mario_cap_seg3_dl_03022F48[], luigi_cap_seg3_dl_03022F48[], waluigi_cap_seg3_dl_03022F48[], wario_cap_seg3_dl_03022F48[];
+extern const Gfx toad_cap_mesh_layer_1[], toad_cap_mesh_layer_5[], toad_cap_material_revert_render_settings[];
+static const Gfx sToadCapEnemyDl[] = {
+    gsSPDisplayList(toad_cap_mesh_layer_1),
+    gsSPDisplayList(toad_cap_mesh_layer_5),
+    gsSPDisplayList(toad_cap_material_revert_render_settings),
+    gsSPEndDisplayList(),
+};
+int psp_np_enemy_cap_char(struct Object *o) {
+    int c;
+    if (o != NULL && o->unused1 > 0 && o->unused1 <= PSP_CHAR_COUNT) {
+        c = (int) o->unused1 - 1;
+    } else if (psp_netplay_state() == PSP_NP_CONNECTED && gMarioState != NULL && (gMarioState->flags & MARIO_NORMAL_CAP)) {
+        c = psp_np_remote_char();
+    } else {
+        c = gPspLocalChar;
+    }
+    return (c >= 0 && c < PSP_CHAR_COUNT) ? c : PSP_CHAR_MARIO;
+}
+
+Gfx *geo_psp_enemy_cap(s32 callContext, struct GraphNode *node, UNUSED Mat4 *mtx) {
+    static const Gfx *const sDl[PSP_CHAR_COUNT] = { mario_cap_seg3_dl_03022F48, luigi_cap_seg3_dl_03022F48, sToadCapEnemyDl, waluigi_cap_seg3_dl_03022F48,
+                                                    wario_cap_seg3_dl_03022F48 };
+    struct GraphNodeGenerated *gen = (struct GraphNodeGenerated *) node;
+    int c;
+    if (callContext != GEO_CONTEXT_RENDER) {
+        return NULL;
+    }
+    c = psp_np_enemy_cap_char((struct Object *) gCurGraphNodeObject);
+    gen->fnNode.node.flags = (gen->fnNode.node.flags & 0xFF) | ((c == PSP_CHAR_TOAD ? LAYER_ALPHA : LAYER_OPAQUE) << 8);
+    return (Gfx *) sDl[c];
+}
 
 #if PSP_NETPLAY_WORLD
 /* ---- World events: what one player picks up (coins, stars, caps, 1-ups) disappears for the other one too ----
@@ -2574,6 +2642,56 @@ void psp_np_world_signal_ex(const struct Object *o, int sig, int value, int extr
     psp_np_world_send(&e);
 }
 
+/* The puzzle chests (Jolly Roger Bay, its sunken ship, Dire, Dire Docks), as sm64coopdx: the console whose player opens a chest decides whether it is the
+ * right one and at once sends the whole puzzle (the maker's answer count and "last one was wrong", and the action of each of its four chests), with the sound
+ * to play; the other console takes it as it is. Before, they went with the platforms, each chest and the maker driven by the console of the player nearest to
+ * it: what the player who opened a chest did came late to the other console, and a correction from that other console could put the answer count back here,
+ * so the next right chest counted as wrong and shocked the player. value: answer count (bits 0-3), wrong (bit 4), the action of chest n in bits 5 + 2 (n - 1) */
+static int np_w_chests_pack(const struct Object *maker) {
+    int v = (maker->oTreasureChestUnkF4 & 15) | ((maker->oTreasureChestUnkF8 & 1) << 4), i;
+    for (i = 0; i < NUM_OBJ_LISTS; i++) {
+        struct ObjectNode *head = &gObjectLists[i];
+        struct Object *obj;
+        for (obj = (struct Object *) head->next; obj != (struct Object *) head; obj = (struct Object *) obj->header.next) {
+            if (np_w_alive(obj) && obj->parentObj == maker && obj->behavior == segmented_to_virtual(bhvTreasureChestBottom)
+                && obj->oBehParams2ndByte >= 1 && obj->oBehParams2ndByte <= 4) {
+                v |= (obj->oAction & 3) << (5 + 2 * (obj->oBehParams2ndByte - 1));
+            }
+        }
+    }
+    return v;
+}
+
+void psp_np_world_chests(const struct Object *maker, int sound) {
+    PspNpWorldEvent e;
+    int i;
+    if (maker == NULL || psp_netplay_state() != PSP_NP_CONNECTED) {
+        return;
+    }
+    memset(&e, 0, sizeof(e));
+    e.type = PSP_NP_EV_ACTION;
+    e.level = (uint8_t) gCurrLevelNum;
+    e.area = (uint8_t) np_area_key();
+    e.coinValue = NP_W_ACT_SIG;
+    e.bhv = PSP_NP_SIG_CHESTS;
+    e.value = (int16_t) np_w_chests_pack(maker);
+    e.pos[0] = (s16) maker->oPosX;
+    e.pos[1] = (s16) maker->oPosY;
+    e.pos[2] = (s16) maker->oPosZ;
+    e.aux[0] = (int16_t) sound;
+    psp_np_world_send(&e);
+    /* (a player that comes into the area later gets the puzzle as it is now, with no sound: the record keeps only the latest one of this maker) */
+    e.aux[0] = 0;
+    for (i = 0; i < sWLogN; i++) {
+        if (sWLog[i].type == PSP_NP_EV_ACTION && sWLog[i].coinValue == NP_W_ACT_SIG && sWLog[i].bhv == PSP_NP_SIG_CHESTS
+            && sWLog[i].pos[0] == e.pos[0] && sWLog[i].pos[1] == e.pos[1] && sWLog[i].pos[2] == e.pos[2]) {
+            sWLog[i] = e;
+            return;
+        }
+    }
+    np_w_log(&e);
+}
+
 /* patch 313: a star that does not end the level, given to this console's player by Toad or MIPS (bhv_spawn_star_no_level_exit). sm64coopdx syncs that star
  * (bhv_spawned_star_loop): the other players see it too and any of them can take it. Here the other console makes it where it ends up, over this player
  * (set_home_to_mario), with no cutscene there; taking it on either console takes it on both (PSP_NP_EV_STAR). */
@@ -2618,6 +2736,48 @@ static struct Object *np_w_find_home(const BehaviorScript *bhv, const s16 *pos, 
 
 static int np_w_sig_apply(const PspNpWorldEvent *e) {
     struct Object *o;
+    if (e->bhv == PSP_NP_SIG_CHESTS) { /* (see psp_np_world_chests) */
+        const void *makers[3] = { segmented_to_virtual(bhvTreasureChestsJrb), segmented_to_virtual(bhvTreasureChestsShip), segmented_to_virtual(bhvTreasureChests) };
+        struct Object *maker = NULL, *obj;
+        f32 best = 300.0f;
+        int i, k;
+        for (i = 0; i < NUM_OBJ_LISTS; i++) {
+            struct ObjectNode *head = &gObjectLists[i];
+            for (obj = (struct Object *) head->next; obj != (struct Object *) head; obj = (struct Object *) obj->header.next) {
+                for (k = 0; k < 3; k++) {
+                    if (np_w_alive(obj) && obj->behavior == makers[k]) {
+                        const f32 dx = obj->oPosX - e->pos[0], dy = obj->oPosY - e->pos[1], dz = obj->oPosZ - e->pos[2];
+                        const f32 d = sqrtf(dx * dx + dy * dy + dz * dz);
+                        if (d < best) {
+                            best = d;
+                            maker = obj;
+                        }
+                    }
+                }
+            }
+        }
+        if (maker == NULL) {
+            return 0;
+        }
+        maker->oTreasureChestUnkF4 = e->value & 15;
+        maker->oTreasureChestUnkF8 = (e->value >> 4) & 1;
+        for (i = 0; i < NUM_OBJ_LISTS; i++) {
+            struct ObjectNode *head = &gObjectLists[i];
+            for (obj = (struct Object *) head->next; obj != (struct Object *) head; obj = (struct Object *) obj->header.next) {
+                if (np_w_alive(obj) && obj->parentObj == maker && obj->behavior == segmented_to_virtual(bhvTreasureChestBottom)
+                    && obj->oBehParams2ndByte >= 1 && obj->oBehParams2ndByte <= 4) {
+                    /* (a wrong chest is not made tangible here: it only shocks the player that opened it, on that player's console) */
+                    obj->oAction = (e->value >> (5 + 2 * (obj->oBehParams2ndByte - 1))) & 3;
+                }
+            }
+        }
+        if (e->aux[0] == 1) {
+            play_sound(SOUND_GENERAL2_RIGHT_ANSWER, gDefaultSoundArgs);
+        } else if (e->aux[0] == 2) {
+            play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+        }
+        return 1;
+    }
     if (e->bhv == PSP_NP_SIG_BOWSER_PLAT) {
         /* sm64coopdx (bhv_falling_bowser_platform_loop): the console where a platform starts to fall sends it, and a platform that falls never goes back
          * (ignore_if_true: action > 1). It falls here too, whichever console's Bowser made it go */
@@ -2648,6 +2808,7 @@ static int np_w_sig_apply(const PspNpWorldEvent *e) {
         }
         if (e->value) {
             o->oUkikiHasHat |= UKIKI_HAT_ON;
+            o->unused1 = (u32) psp_np_remote_char() + 1; /* (it wears the other player's cap: see psp_np_enemy_cap_char) */
             if (o->oUkikiTextState == UKIKI_TEXT_DEFAULT || o->oUkikiTextState == UKIKI_TEXT_STEAL_HAT || o->oUkikiTextState == UKIKI_TEXT_STOLE_HAT) {
                 o->oUkikiTextState = UKIKI_TEXT_HAS_HAT;
             }
@@ -3495,7 +3656,8 @@ static const struct {
     { bhvWfElevatorTowerPlatform, 0, { 0 } },
     { bhvLllRotatingBlockWithFireBars, 0, { NPF(oAngleVelYaw) } },
     { bhvLllSinkingSquarePlatforms, 0, { NPF(oLllWoodPieceOscillationTimer) } },
-    { bhvJrbSlidingBox, 0, { NPF(oJrbSlidingBoxUnkF8), NPF(oJrbSlidingBoxUnkFC) } },
+    { bhvJrbSlidingBox, 0, { NPF(oJrbSlidingBoxUnkF8), NPF(oJrbSlidingBoxUnkFC), NPF(oParentRelativePosZ) } }, /* (where it is on the ship: it adds up its slide
+          * every frame, so with only its swing corrected a console that entered at another moment kept it off its place, half into the ship) */
     { bhvShipPart3, 0, { NPF(oShipPart3UnkF4) } },
     { bhvInSunkenShip3, 0, { NPF(oShipPart3UnkF4) } },
     { bhvLllVolcanoFallingTrap, 0, { NPF(oRollingLogUnkF4), NPF(oAngleVelPitch) } },
@@ -3533,10 +3695,6 @@ static const struct {
     { bhvBowlingBall, 2, { NPF(oBowlingBallTargetYaw) } },
     { bhvFreeBowlingBall, 2, { 0 } },
     { bhvPitBowlingBall, 2, { 0 } },
-    /* the puzzle chests of Jolly Roger Bay: the answer counter lives in the object that makes the chests (default list: only scanned in that course) */
-    { bhvTreasureChestsJrb, 2, { NPF(oTreasureChestUnkF4), NPF(oTreasureChestUnkF8), NPF(oTreasureChestUnkFC) } },
-    { bhvTreasureChestsShip, 2, { NPF(oTreasureChestUnkF4), NPF(oTreasureChestUnkF8), NPF(oTreasureChestUnkFC) } },
-    { bhvTreasureChestBottom, 2, { NPF(oIntangibleTimer) } },
     /* patch 282: the bosses and the other enemies with a long script of their own. Every console runs the script; what the console of the nearest player says is copied by
      * the other one, but only from the moment this one is past its own start (the camera cutscene and the text of Bowser and Eyerok, the parts of the pokey, the hands of Eyerok)
      * and never the grabs (a chuckya holding a player, a Bowser held by the tail), which belong to the console of that player (np_p_ready / np_p_state_ok).
@@ -3569,11 +3727,10 @@ static const struct {
     /* patch 309: Yoshi on the castle roof (sm64coopdx syncs where it walks to; the player it talks to drives it, see yoshi.inc.c) */
     { bhvYoshi, 2, { NPF(oYoshiChosenHome), NPF(oYoshiTargetYaw), NPF(oHomeX), NPF(oHomeZ), NPF(oYoshiBlinkTimer) } },
     /* patch 312: the rest of what sm64coopdx keeps in step by its fields. The flamethrowers (they start blowing when a player comes near, from their own
-     * action and timer: in step, their flames come out together on both consoles), the puzzle chests of Dire, Dire Docks (as those of Jolly Roger Bay),
+     * action and timer: in step, their flames come out together on both consoles),
      * the ring maker of the jet stream there (its timer decides when each ring comes out, and the count of the rings passed is shared) and the maker of
      * the sliding snow mounds of Snowman's Land (its timer decides when each mound comes out). The console of the nearest player drives them. */
     { bhvFlamethrower, 2, { NPF(oFlameThowerUnk110) } },
-    { bhvTreasureChests, 2, { NPF(oTreasureChestUnkF4), NPF(oTreasureChestUnkF8), NPF(oTreasureChestUnkFC) } },
     { bhvJetStreamRingSpawner, 2, { NPF(oWaterRingSpawnerRingsCollected), NPF(oWaterRingMgrNextRingIndex), NPF(oWaterRingMgrLastRingCollected) } },
     { bhvSnowMoundSpawn, 2, { 0 } },
     /* patch 318: platforms that turn or flap on a timer started when each console loaded the area (the octagonal platform of Rainbow Ride and Bowser in the Sky,

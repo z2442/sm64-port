@@ -373,15 +373,15 @@ void print_act_selector_strings(void) {
 #ifdef TARGET_PSP
     {
         /* multiplayer, like sm64coopdx: the other player's head over the number of the act it is playing in this course */
-        int luigi = 0;
-        const int act = psp_np_hud_peer_act(gCurrCourseNum, &luigi);
+        int peerChar = 0;
+        const int act = psp_np_hud_peer_act(gCurrCourseNum, &peerChar);
         if (act >= 1 && act <= sVisibleStars) {
             const u8 *const *glyphs = segmented_to_virtual(main_hud_lut);
             const s32 x = act * 34 - sVisibleStars * 17 + 139 - 4;
             const s32 y = 20;
             gSPDisplayList(gDisplayListHead++, dl_hud_img_begin);
             gDPPipeSync(gDisplayListHead++);
-            gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, luigi ? texture_hud_char_luigi_head : glyphs[GLYPH_MARIO_HEAD]);
+            gDPSetTextureImage(gDisplayListHead++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, psp_char_head(peerChar) != NULL ? psp_char_head(peerChar) : glyphs[GLYPH_MARIO_HEAD]);
             gSPDisplayList(gDisplayListHead++, dl_hud_img_load_tex_block);
             gSPTextureRectangle(gDisplayListHead++, x << 2, y << 2, (x + 15) << 2, (y + 15) << 2, G_TX_RENDERTILE, 0, 0, 4 << 10, 1 << 10);
             gSPDisplayList(gDisplayListHead++, dl_hud_img_end);

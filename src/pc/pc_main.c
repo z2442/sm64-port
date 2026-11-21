@@ -374,7 +374,14 @@ void main_func(const char *argv0) {
     psp_setup_exit_callback();
 #endif
 
+#ifdef TARGET_PSP
+    /* 1.5 MB (it was 2.9 MB, twice the N64's): without the N64's segments, what a level keeps in it is its objects, graph nodes and collision.
+     * The most measured (the castle's inside, with the other player) was ~420 KB. The freed memory is what lets the other characters' voices fit
+     * in a PSP-1000. */
+    static u32 pool[0x180000 / sizeof(u32)];
+#else
     static u32 pool[0x165000/8 / 4 * sizeof(void *) * 4];
+#endif
     main_pool_init(pool, pool + sizeof(pool) / sizeof(pool[0]));
     gEffectsMemoryPool = mem_pool_init(0x4000, MEMORY_POOL_LEFT);
 

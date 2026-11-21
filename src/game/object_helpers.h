@@ -270,6 +270,9 @@ void obj_set_collision_data(struct Object *obj, const void *segAddr);
 void cur_obj_if_hit_wall_bounce_away(void);
 s32 cur_obj_hide_if_mario_far_away_y(f32 distY);
 Gfx *geo_offset_klepto_held_object(s32 callContext, struct GraphNode *node, UNUSED Mat4 mtx);
+#if defined(TARGET_PSP) && PSP_NETPLAY
+Gfx *geo_psp_enemy_cap(s32 callContext, struct GraphNode *node, Mat4 *mtx); /* (psp_netplay_game.c) the cap an enemy holds: its owner's character's */
+#endif
 s32 geo_offset_klepto_debug(s32 a0, struct GraphNode *a1, UNUSED s32 sp8);
 s32 obj_is_hidden(struct Object *obj);
 void enable_time_stop(void);

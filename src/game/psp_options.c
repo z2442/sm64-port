@@ -73,6 +73,7 @@ enum {
     OPT_TVAREAY, /* TV Height */
     OPT_TVSHIFT, /* TV Vertical Shift */
     OPT_NETFPS,  /* Online FPS Limit (Multiplayer page): 30 (safe, the default) or 60 while a room is up */
+    OPT_NETCHAR, /* Character (Multiplayer page): the one this player plays as in a room (PSP_CHAR_*, sm64coopdx's characters) */
     OPT_RESET,
     OPT_COUNT
 };
@@ -105,7 +106,7 @@ static const u8 sPgMain[] = { ROW_VIDEO, ROW_AUDIO, ROW_CONTROLS
     , ROW_NETPAGE
 #endif
 };
-static const u8 sPgNet[] = { ROW_NETHOST, ROW_NETJOIN, OPT_NETFPS, ROW_NETLEAVE };
+static const u8 sPgNet[] = { ROW_NETHOST, ROW_NETJOIN, OPT_NETCHAR, OPT_NETFPS, ROW_NETLEAVE };
 static const u8 sPgAudio[] = { ROW_MUSIC, ROW_SFX, ROW_SOUNDMODE, ROW_AUDRESET };
 static const u8 sPgVideo[] = { OPT_FPSCAP, OPT_PACING, OPT_OBJDIST, OPT_FARDIST, OPT_CULLOBJ, OPT_SHOWFPS, OPT_SOUNDCPU, ROW_TVPAGE, OPT_RESET };
 static const u8 sPgTv[] = { OPT_TVOUT, OPT_TVASPECT, OPT_TVAREA, OPT_TVAREAY, OPT_TVSHIFT, ROW_TVRESET };
@@ -163,6 +164,8 @@ unsigned int gPspOptChanges;   /* how many times an option was changed (read by 
 
 /* Each row has its values from lowest to highest (right = more), and sDef is the index of the default value. */
 static const char *const sFpsTxt[2] = { "30", "60" };
+/* the characters (sm64coopdx's, in its order: PSP_CHAR_*) */
+static const char *const sCharTxt[PSP_CHAR_COUNT] = { "Mario", "Luigi", "Toad", "Waluigi", "Wario" };
 static const int sFpsCap[2] = { 30, 60 };
 static const char *const sPacingTxt[2] = { "Keep FPS", "Keep Speed" };
 static const char *const sOnOffTxt[2] = { "Off", "On" };
@@ -182,10 +185,10 @@ static const char *const sTvAspTxt[2] = { "4:3", "16:9" };
 static const char *const sTvShiftTxt[121] = { "-60","-59","-58","-57","-56","-55","-54","-53","-52","-51","-50","-49","-48","-47","-46","-45","-44","-43","-42","-41","-40","-39","-38","-37","-36","-35","-34","-33","-32","-31","-30","-29","-28","-27","-26","-25","-24","-23","-22","-21","-20","-19","-18","-17","-16","-15","-14","-13","-12","-11","-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","53","54","55","56","57","58","59","60" };
 #define TV_AREA_MIN 60 /* value i of the row is TV_AREA_MIN + i percent */
 static const char *const sTvAreaTxt[41] = { "60%","61%","62%","63%","64%","65%","66%","67%","68%","69%","70%","71%","72%","73%","74%","75%","76%","77%","78%","79%","80%","81%","82%","83%","84%","85%","86%","87%","88%","89%","90%","91%","92%","93%","94%","95%","96%","97%","98%","99%","100%" };
-static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 4, 2, 41, 41, 121, 2, 0 };
-static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0 }; /* 60 fps, Keep FPS, counter Off, Object / Far Distance 150 %, culling Vertical */
+static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 4, 2, 41, 41, 121, 2, PSP_CHAR_COUNT, 0 };
+static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0, 0 }; /* 60 fps, Keep FPS, counter Off, Object / Far Distance 150 %, culling Vertical */
 
-static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0 }; /* index chosen in each row */
+static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0, 0 }; /* index chosen in each row */
 #define VOL_STEP 5 /* the menu raises / lowers the volume in steps of 5 */
 static int sMusic = 100; /* 0 a 100 */
 static int sSfx = 100;
@@ -389,6 +392,7 @@ static const char *const sTrLabel[OPT_COUNT][LANG_COUNT] = {
     TR("TV Height", "Hauteur TV", "TV-Höhe", "TVタカサ"),
     TR("TV Vertical Shift", "Décalage vertical TV", "TV vertikal", "TVタテイチ"),
     TR("Online FPS Limit", "Limite FPS en ligne", "Online-FPS-Limit", "オンラインFPSセイゲン"),
+    TR("Character", "Personnage", "Charakter", "キャラクター"),
     TR("Reset to Defaults", "Réinitialiser", "Zurücksetzen", "ショキチニモドス"),
 };
 static const char *const sTrPacing[2][LANG_COUNT] = {
@@ -526,6 +530,7 @@ static const char *psp_opt_value_text(int row) {
     switch (row) {
         case OPT_FPSCAP: return psp_netplay_state() == PSP_NP_CONNECTED ? sFpsTxt[psp_opt_fps_cap() >= 60] : sFpsTxt[sVal[row]];
         case OPT_NETFPS: return sFpsTxt[sVal[row]];
+        case OPT_NETCHAR: return sCharTxt[sVal[row]];
         case OPT_PACING: return LT(sTrPacing[sVal[row]]);
         case OPT_SHOWFPS: return LT(sTrOnOff[sVal[row]]);
         case OPT_SOUNDCPU: return LT(sTrOnOff[sVal[row]]);
@@ -607,6 +612,24 @@ static int psp_opt_row_skip(int row) {
     return psp_opt_row_grey(row) && row != ROW_TVPAGE;
 }
 
+/* The other player's character can't be picked (no two players are the same character): the Character row skips it */
+static int sNpLinked;
+static int sNpPeerKnown;
+static int sNpPeerChar; /* the other player's character (PSP_CHAR_*) */
+static int psp_opt_char_taken(int c) {
+    return sNpLinked && sNpPeerKnown && c == sNpPeerChar;
+}
+/* the next character from cur in that direction that is free (-1: none) */
+static int psp_opt_char_next(int cur, int dir) {
+    int v;
+    for (v = cur + dir; v >= 0 && v < PSP_CHAR_COUNT; v += dir) {
+        if (!psp_opt_char_taken(v)) {
+            return v;
+        }
+    }
+    return -1;
+}
+
 static int psp_opt_can_dec(int row) {
     if (psp_opt_tv_row_off(row) || (row == OPT_FPSCAP && psp_netplay_state() == PSP_NP_CONNECTED)) return 0;
     if (row == ROW_DEAD) return configDeadzone > 0;
@@ -614,6 +637,7 @@ static int psp_opt_can_dec(int row) {
     if (row == ROW_SFX) return sSfx > 0;
     if (row == ROW_SOUNDMODE) return sSndMode > 0;
     if (row == OPT_TVOUT) return psp_opt_tv_ready() && sVal[row] > 0;
+    if (row == OPT_NETCHAR) return psp_opt_char_next(sVal[row], -1) >= 0;
     return row < OPT_RESET && sVal[row] > 0;
 }
 static int psp_opt_can_inc(int row) {
@@ -623,6 +647,7 @@ static int psp_opt_can_inc(int row) {
     if (row == ROW_SFX) return sSfx < 100;
     if (row == ROW_SOUNDMODE) return sSndMode < 2;
     if (row == OPT_TVOUT) return psp_opt_tv_ready() && psp_dve_cable_state() != 0 && sVal[row] < ((psp_dve_cable() == PSP_CABLE_COMPONENT) ? 3 : 2);
+    if (row == OPT_NETCHAR) return psp_opt_char_next(sVal[row], 1) >= 0;
     return row < OPT_RESET && sVal[row] < sCount[row] - 1;
 }
 
@@ -694,7 +719,7 @@ static void psp_opt_change(int row, int dir, int wrap) {
     if (row < 0 || row >= OPT_RESET) {
         return;
     }
-    nv = sVal[row] + dir;
+    nv = (row == OPT_NETCHAR) ? psp_opt_char_next(sVal[row], dir) : sVal[row] + dir; /* (the other player's character is skipped) */
     if (nv < 0 || nv >= sCount[row]) {
         if (!(wrap && sCount[row] == 2)) {
             return;
@@ -720,7 +745,7 @@ static int psp_opt_is_tv_row(int row) {
 static void psp_opt_reset(void) {
     int i;
     for (i = 0; i < OPT_RESET; i++) {
-        if (!psp_opt_is_tv_row(i)) {
+        if (!psp_opt_is_tv_row(i) && i != OPT_NETCHAR) { /* (the character is not a graphics setting) */
             sVal[i] = sDef[i];
         }
     }
@@ -781,7 +806,7 @@ static char sCfgName[40] = CTRL_FILE;
 static int sSawNew; /* the file had at least one setting of the new format (if not, it is an old one and gets migrated) */
 
 static const char *const sRowKey[OPT_COUNT] = {
-    "fps_limit", "frame_pacing", "fps_counter", "show_sound_cpu", "object_distance", "far_distance", "object_culling", "tv_output", "tv_aspect", "tv_width", "tv_height", "tv_shift_y", "online_fps_limit", NULL,
+    "fps_limit", "frame_pacing", "fps_counter", "show_sound_cpu", "object_distance", "far_distance", "object_culling", "tv_output", "tv_aspect", "tv_width", "tv_height", "tv_shift_y", "online_fps_limit", "online_character", NULL,
 };
 static const char *const sBindKey[NUM_BINDS] = {
     "a_button", "b_button", "start", "l_trigger", "r_trigger", "z_trigger", "c_up", "c_down", "c_left", "c_right",
@@ -810,6 +835,7 @@ static const char *const *psp_opt_texts(int row) {
         case OPT_TVAREAY: return sTvAreaTxt;
         case OPT_TVSHIFT: return sTvShiftTxt;
         case OPT_NETFPS: return sFpsTxt;
+        case OPT_NETCHAR: return sCharTxt;
         default: return NULL;
     }
 }
@@ -992,6 +1018,7 @@ void psp_options_save_file(const char *filename) {
         "60% to 100%, in steps of 1% (how much of the TV frame HEIGHT the picture uses; lower it if your TV cuts off the top / bottom edges; if the picture looks squashed, adjust it against the width)",
         "-60 to 60 (moves the picture vertically inside the TV frame, in lines of the 480-line signal; positive = down, negative = up; it needs room, so lower TV Height first)",
         "30 or 60 (the FPS limit while a Multiplayer room is up; 30 is the stable one; with 60 the timing of every tick is written to sm64_net.txt)",
+        "Mario, Luigi, Toad, Waluigi or Wario (who you play as in a Multiplayer room)",
         NULL,
     };
     static const char *const sBindComment[NUM_BINDS] = {
@@ -1020,7 +1047,7 @@ void psp_options_save_file(const char *filename) {
                "\n[Graphics]\n");
     for (i = 0; i < OPT_RESET; i++) {
 #if !PSP_NETPLAY
-        if (i == OPT_NETFPS) {
+        if (i == OPT_NETFPS || i == OPT_NETCHAR) {
             continue; /* multiplayer is not built in: its setting is not written (an old line in the file is simply ignored) */
         }
 #endif
@@ -1680,12 +1707,9 @@ static int sNpPopupCount;
 static char sNpPeerName[PSP_NP_NAME_BYTES + 8];
 static u8 sNpPeerTag[NP_LINE_MAX];
 static s16 sNpPeerTagWidth;
-static int sNpPeerLuigi;
-static int sNpLinked;
 static int sNpPeerCourse = -1; /* -1: not seen yet in this room */
 static int sNpPeerLevel;
 static int sNpPeerAct;
-static int sNpPeerKnown;
 
 /* name tag interpolation (60 fps): the 1st frame of a tick is drawn halfway from the previous position, the 2nd at the real one */
 static Mtx *sNpTagMtx;
@@ -1693,13 +1717,16 @@ static f32 sNpTagX, sNpTagY;
 static u32 sNpTagTick;
 static int sNpTagValid;
 
-/* A player's text colour, as sm64coopdx does it (network_get_player_text_color): halfway between its cap's colour and white. Mario's cap
- * is red and Luigi's green. */
-static void psp_np_player_colour(int luigi, u8 *rgb) {
-    static const u8 sCap[2][3] = { { 0xFF, 0x00, 0x00 }, { 0x00, 0xFF, 0x00 } };
+/* A player's text colour, as sm64coopdx does it (network_get_player_text_color): halfway between its cap's colour and white. The caps of
+ * the characters' default palettes (sm64coopdx palettes/<character>.ini): Mario red, Luigi green, Toad red, Waluigi purple, Wario yellow. */
+static void psp_np_player_colour(int character, u8 *rgb) {
+    static const u8 sCap[PSP_CHAR_COUNT][3] = { { 0xFF, 0x00, 0x00 }, { 0x00, 0xFF, 0x00 }, { 0xFF, 0x00, 0x00 }, { 0x61, 0x26, 0xB0 }, { 0xFF, 0xBD, 0x00 } };
     int i;
+    if (character < 0 || character >= PSP_CHAR_COUNT) {
+        character = PSP_CHAR_MARIO;
+    }
     for (i = 0; i < 3; i++) {
-        rgb[i] = (u8) (127 + sCap[luigi ? 1 : 0][i] / 2);
+        rgb[i] = (u8) (127 + sCap[character][i] / 2);
     }
 }
 
@@ -1764,7 +1791,7 @@ static void psp_np_popup(int kind, int course, int level) {
     psp_opt_str(p->line[0], txt, NP_LINE_MAX);
     p->width[0] = p->nameWidth + psp_opt_width(p->line[0]);
     p->lines = 1;
-    psp_np_player_colour(sNpPeerLuigi, p->rgb);
+    psp_np_player_colour(sNpPeerChar, p->rgb);
     if (kind == NPN_ENTERED) {
         if (course >= COURSE_MIN && course < COURSE_CAKE_END) {
             psp_np_course_name(p->line[1], course);
@@ -1781,7 +1808,7 @@ static void psp_np_popup(int kind, int course, int level) {
 
 /* The other player's name: the console's nickname as far as the game's font can write it; without one (or with nothing writable), the
  * character it plays as. */
-void psp_np_hud_peer_name(const char *utf8, int peerIsLuigi) {
+void psp_np_hud_peer_name(const char *utf8, int peerChar) {
     int i, any = 0;
 
     snprintf(sNpPeerName, sizeof(sNpPeerName), "%s", utf8 != NULL ? utf8 : "");
@@ -1792,11 +1819,11 @@ void psp_np_hud_peer_name(const char *utf8, int peerIsLuigi) {
         }
     }
     if (!any) {
-        snprintf(sNpPeerName, sizeof(sNpPeerName), "%s", peerIsLuigi ? "Luigi" : "Mario");
+        snprintf(sNpPeerName, sizeof(sNpPeerName), "%s", sCharTxt[(peerChar >= 0 && peerChar < PSP_CHAR_COUNT) ? peerChar : 0]);
         psp_opt_str(sNpPeerTag, sNpPeerName, NP_LINE_MAX);
     }
     sNpPeerTagWidth = psp_opt_width(sNpPeerTag);
-    sNpPeerLuigi = peerIsLuigi;
+    sNpPeerChar = peerChar;
 }
 
 void psp_np_hud_link(int up) {
@@ -1835,14 +1862,14 @@ void psp_np_hud_peer_place(int known, int level, UNUSED int area, int act) {
 }
 
 /* For the act selector (menu/star_select.c): the act the other player is playing if it is in that course right now, else 0. */
-int psp_np_hud_peer_act(int course, int *peerIsLuigi) {
+int psp_np_hud_peer_act(int course, int *peerChar) {
     if (!sNpLinked || !sNpPeerKnown || course == COURSE_NONE || sNpPeerCourse != course) {
         return 0;
     }
-    if (peerIsLuigi != NULL) {
-        *peerIsLuigi = sNpPeerLuigi;
+    if (peerChar != NULL) {
+        *peerChar = sNpPeerChar;
     }
-    return sNpPeerAct;
+    return (sNpPeerAct == 99) ? 0 : sNpPeerAct; /* (the star it picked, see np_act; 99 = the credits) */
 }
 
 static void psp_np_codes(s16 x, s16 y, const u8 *codes, u8 r, u8 g, u8 b, u8 a) {
@@ -1941,7 +1968,7 @@ static void psp_np_draw_tag(void) {
         static const s8 sOutline[4][2] = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } };
         u8 rgb[3];
         int k;
-        psp_np_player_colour(sNpPeerLuigi, rgb);
+        psp_np_player_colour(sNpPeerChar, rgb);
         gDPSetEnvColor(gDisplayListHead++, rgb[0] / 4, rgb[1] / 4, rgb[2] / 4, alpha);
         for (k = 0; k < 4; k++) {
             print_generic_string(-sNpPeerTagWidth / 2 + sOutline[k][0], sOutline[k][1], sNpPeerTag);
@@ -2251,6 +2278,21 @@ int psp_options_pause_frame(int can_open) {
 
     psp_opt_draw();
     return 1;
+}
+
+/* The character chosen on the Multiplayer page (PSP_CHAR_*): the one this player plays as in a room */
+int psp_options_np_character(void) {
+    return sVal[OPT_NETCHAR];
+}
+
+/* The client picked the character the host plays as (the host keeps it): it moves to the next free one, and the Character row shows it */
+void psp_options_np_character_bump(int taken) {
+    int v = sVal[OPT_NETCHAR];
+    do {
+        v = (v + 1) % PSP_CHAR_COUNT;
+    } while (v == taken);
+    sVal[OPT_NETCHAR] = v;
+    gPspOptChanges++;
 }
 
 /* Sets "TV Output" to this value ONLY for this session (does not save the file): the game booted with the console already in its native TV mode. */

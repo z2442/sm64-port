@@ -476,9 +476,9 @@ u8 sMaxChannelsForSoundBank[SOUND_BANK_COUNT] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }
 #else
 #define BANK27_SIZE 0x40
 #endif
-/* PSP: bank 2 (Mario's voice) also holds Luigi's voice ids (see PSP_LUIGI_VOICE_OFFSET), so it has room for them */
+/* PSP: bank 2 (Mario's voice) also holds the other characters' voice ids (see PSP_LUIGI_VOICE_OFFSET), so it has room for them */
 u8 sNumSoundsPerBank[SOUND_BANK_COUNT] = {
-    0x70, 0x30, 0x80, 0x80, 0x20, 0x80, 0x20, BANK27_SIZE, 0x80, 0x80,
+    0x70, 0x30, 0xFF, 0x80, 0x20, 0x80, 0x20, BANK27_SIZE, 0x80, 0x80,
 };
 #undef BANK27_SIZE
 
@@ -902,21 +902,43 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
 #endif
 #endif
 
-/* Luigi's voice (WLAN multiplayer, see sound/sequences/00_sound_player.s): his version of a Mario voice id is the same id plus this offset.
- * Only the ids below PSP_VOICE_MARIO_IDS (Mario's own lines, not Peach's) have one. */
+/* The voices of the other characters (WLAN multiplayer, see sound/sequences/00_sound_player.s): a character's version of a Mario voice id is the
+ * same id plus the character's offset. Only the ids below PSP_VOICE_MARIO_IDS (Mario's own lines, not Peach's) have one. Waluigi uses Luigi's
+ * voice, lower (as sm64coopdx: frequency x 0.88, see get_sound_freq_scale). */
 #ifdef VERSION_JP
 #define PSP_LUIGI_VOICE_OFFSET 0x38
+#define PSP_TOAD_VOICE_OFFSET  0x70
+#define PSP_WARIO_VOICE_OFFSET 0xA8
 #else
 #define PSP_LUIGI_VOICE_OFFSET 0x40
+#define PSP_TOAD_VOICE_OFFSET  0x80
+#define PSP_WARIO_VOICE_OFFSET 0xC0
 #endif
 #define PSP_VOICE_MARIO_IDS 0x38
-u8 gPspLuigiVoice = 0;    /* the local player is Luigi: his voice lines are Luigi's */
+#define PSP_WALUIGI_FREQ_SCALE 0.88f
+u8 gPspLocalChar = PSP_CHAR_MARIO; /* the local player's character (PSP_CHAR_*): his voice lines are that character's */
 static const f32 *sPspRemoteVoicePos; /* where the other player's voice comes from: what tells its sounds from this player's */
+static u8 sPspRemoteVoiceChar;        /* the other player's character, for the voice sounds that come from sPspRemoteVoicePos */
 u8 gPspVoiceNoRemap = 0;  /* set while a voice of the OTHER player is played (it already is the right one) */
 u32 gPspVoiceLast = 0;    /* the local Mario's last voice request (as Mario's id) and a counter that changes with each: sent to the other console */
 u8 gPspVoiceSeq = 0;
 u32 gPspSfxRing[4];     /* the local Mario's last sounds of the action bank (steps, jumps, landings...) and their counter: sent to the other console */
 u8 gPspSfxSeq = 0;
+
+/* The voice id offset of a character (0: Mario's voice) */
+static u32 psp_voice_offset(u8 character) {
+    switch (character) {
+        case PSP_CHAR_LUIGI:
+        case PSP_CHAR_WALUIGI:
+            return PSP_LUIGI_VOICE_OFFSET;
+        case PSP_CHAR_TOAD:
+            return PSP_TOAD_VOICE_OFFSET;
+        case PSP_CHAR_WARIO:
+            return PSP_WARIO_VOICE_OFFSET;
+        default:
+            return 0;
+    }
+}
 
 static s32 psp_voice_filter(s32 soundBits, const f32 *pos) {
     if (((u32) soundBits & SOUNDARGS_MASK_BANK) == 0 && gMarioState != NULL && gMarioState->marioObj != NULL
@@ -931,26 +953,33 @@ static s32 psp_voice_filter(s32 soundBits, const f32 *pos) {
                 gPspVoiceLast = (u32) soundBits;
                 gPspVoiceSeq++;
             }
-            if (gPspLuigiVoice) {
-                soundBits += (s32) (PSP_LUIGI_VOICE_OFFSET << SOUNDARGS_SHIFT_SOUNDID);
-            }
+            soundBits += (s32) (psp_voice_offset(gPspLocalChar) << SOUNDARGS_SHIFT_SOUNDID);
         }
     }
     return soundBits;
 }
 
+/* get_sound_freq_scale: a voice of Waluigi's (Luigi's voice, from the position of a Waluigi) is played lower */
+static int psp_voice_is_waluigi(u8 bankIndex, const f32 *pos) {
+    if (bankIndex != 2 || pos == NULL) {
+        return FALSE;
+    }
+    if (pos == sPspRemoteVoicePos) {
+        return sPspRemoteVoiceChar == PSP_CHAR_WALUIGI;
+    }
+    return gPspLocalChar == PSP_CHAR_WALUIGI && gMarioState != NULL && gMarioState->marioObj != NULL
+           && pos == gMarioState->marioObj->header.gfx.cameraToObject;
+}
+
 /* The other console's player made a voice sound: played from where its model is. */
-void psp_play_remote_voice(u32 soundBits, int luigi, f32 *pos) {
+void psp_play_remote_voice(u32 soundBits, int character, f32 *pos) {
     const u32 id = (soundBits & SOUNDARGS_MASK_SOUNDID) >> SOUNDARGS_SHIFT_SOUNDID;
     if ((soundBits & SOUNDARGS_MASK_BANK) != (2u << SOUNDARGS_SHIFT_BANK) || id >= PSP_VOICE_MARIO_IDS) {
         return;
     }
-    if (luigi) {
-        soundBits += (u32) (PSP_LUIGI_VOICE_OFFSET << SOUNDARGS_SHIFT_SOUNDID);
-    }
-#if PSP_SFX_EXTRA
+    soundBits += psp_voice_offset((u8) character) << SOUNDARGS_SHIFT_SOUNDID;
     sPspRemoteVoicePos = pos;
-#endif
+    sPspRemoteVoiceChar = (u8) character;
     gPspVoiceNoRemap = 1;
     play_sound((s32) soundBits, pos);
     gPspVoiceNoRemap = 0;
@@ -1331,7 +1360,11 @@ f32 get_sound_freq_scale(u8 bankIndex, u8 item) {
     } else {
         f2 = 0.0f;
     }
-    return f2 / US_FLOAT(15.0) + US_FLOAT(1.0);
+    f2 = f2 / US_FLOAT(15.0) + US_FLOAT(1.0);
+    if (psp_voice_is_waluigi(bankIndex, gSoundBanks[bankIndex][item].x)) {
+        f2 *= PSP_WALUIGI_FREQ_SCALE;
+    }
+    return f2;
 }
 #ifdef VERSION_JP
 #define VAL 48.0
@@ -2197,14 +2230,16 @@ void get_currently_playing_sound(u8 bankIndex, u8 *numPlayingSounds, u8 *arg2, u
 
 static void psp_stop_sound_exact(u32 soundBits, f32 *vec);
 
-/* stop_sound: stops a sound by its id and the position it comes from. PSP: a voice of Mario's has a second id for Luigi (PSP_LUIGI_VOICE_OFFSET), and the
- * sound that is playing is the one that was asked for: the snoring (a sound that goes on until it is stopped) of a Luigi that wakes up must be stopped under
+/* stop_sound: stops a sound by its id and the position it comes from. PSP: a voice of Mario's has another id for each character (PSP_*_VOICE_OFFSET), and the
+ * sound that is playing is the one that was asked for: the snoring (a sound that goes on until it is stopped) of a Luigi (Toad, Wario...) that wakes up must be stopped under
  * ITS id too, or it stays in the voice channel and blocks every voice of a lower priority until a damage voice replaces it. */
 void func_803205E8(u32 soundBits, f32 *vec) {
     psp_stop_sound_exact(soundBits, vec);
     if ((soundBits & SOUNDARGS_MASK_BANK) == (2u << SOUNDARGS_SHIFT_BANK)
         && ((soundBits & SOUNDARGS_MASK_SOUNDID) >> SOUNDARGS_SHIFT_SOUNDID) < PSP_VOICE_MARIO_IDS) {
         psp_stop_sound_exact(soundBits + ((u32) PSP_LUIGI_VOICE_OFFSET << SOUNDARGS_SHIFT_SOUNDID), vec);
+        psp_stop_sound_exact(soundBits + ((u32) PSP_TOAD_VOICE_OFFSET << SOUNDARGS_SHIFT_SOUNDID), vec);
+        psp_stop_sound_exact(soundBits + ((u32) PSP_WARIO_VOICE_OFFSET << SOUNDARGS_SHIFT_SOUNDID), vec);
     }
 }
 

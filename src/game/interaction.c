@@ -25,6 +25,7 @@
 #include "thread6.h"
 #ifdef TARGET_PSP
 #include "pc/psp_netplay.h"
+#include "object_list_processor.h"
 #include "mario_actions_automatic.h"
 #endif
 
@@ -361,7 +362,7 @@ void mario_blow_off_cap(struct MarioState *m, f32 capSpeed) {
 
         m->flags &= ~(MARIO_NORMAL_CAP | MARIO_CAP_ON_HEAD);
 
-        capObject = spawn_object(m->marioObj, MODEL_MARIOS_CAP, bhvNormalCap);
+        capObject = spawn_object(m->marioObj, psp_np_cap_model(gPspLocalChar, MODEL_MARIOS_CAP), bhvNormalCap); /* (WLAN multiplayer: the cap of the player's character, as sm64coopdx) */
 
         capObject->oPosY += (m->action & ACT_FLAG_SHORT_HITBOX) ? 120.0f : 180.0f;
         capObject->oForwardVel = capSpeed;
@@ -380,6 +381,11 @@ u32 mario_lose_cap_to_enemy(u32 arg) {
         save_file_set_flags(arg == 1 ? SAVE_FLAG_CAP_ON_KLEPTO : SAVE_FLAG_CAP_ON_UKIKI);
         gMarioState->flags &= ~(MARIO_NORMAL_CAP | MARIO_CAP_ON_HEAD);
         wasWearingCap = TRUE;
+#ifdef TARGET_PSP
+        if (gCurrentObject != NULL) {
+            gCurrentObject->unused1 = (u32) gPspLocalChar + 1; /* (WLAN multiplayer: the Klepto / Ukiki holds this player's character's cap, see psp_np_enemy_cap_char) */
+        }
+#endif
     }
 
     return wasWearingCap;

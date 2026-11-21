@@ -22,14 +22,32 @@ void bhv_bubble_player_loop(void) {
         obj_mark_for_deletion(o);
         return;
     }
-    /* (the bubble sprite is 32 units, standing on its bottom edge: it is scaled to wrap the model and centred on its middle) */
-    scale = sins(gGlobalTimer * 800) * 0.3f + 7.0f;
+    /* sm64coopdx: a 3D bubble (the water bomb's model, MODEL_BUBBLE_PLAYER) that turns slowly and throbs, centred 35 above the player's position.
+     * The drawn model of a bubbled player is shifted from its position (bubbled_offset_visual: 25 forward, 35 down along its own up, 35 up),
+     * and only the drawn position of the other player is known here: the shift is taken back with the model's angles, as on both consoles. */
+    {
+        const s16 pitch = player->header.gfx.angle[0], yaw = player->header.gfx.angle[1];
+        Vec3f forward, right, up;
+        Vec3f globalUp = { 0.0f, 1.0f, 0.0f };
+        forward[0] = sins(yaw) * coss(pitch);
+        forward[1] = -sins(pitch);
+        forward[2] = coss(yaw) * coss(pitch);
+        vec3f_normalize(forward);
+        vec3f_cross(right, forward, globalUp);
+        vec3f_normalize(right);
+        vec3f_cross(up, right, forward);
+        vec3f_normalize(up);
+        o->oPosX = player->header.gfx.pos[0] - forward[0] * 25.0f + up[0] * 35.0f;
+        o->oPosY = player->header.gfx.pos[1] - forward[1] * 25.0f + up[1] * 35.0f;
+        o->oPosZ = player->header.gfx.pos[2] - forward[2] * 25.0f + up[2] * 35.0f;
+    }
+    o->oFaceAnglePitch += 300;
+    o->oFaceAngleYaw += 230;
+    o->oFaceAngleRoll += 170;
+    scale = sins(gGlobalTimer * 800) * 0.1f + 1.4f;
     o->header.gfx.scale[0] = scale;
-    o->header.gfx.scale[1] = sins(gGlobalTimer * 1500) * 0.4f + scale;
+    o->header.gfx.scale[1] = sins(gGlobalTimer * 1500) * 0.2f + scale;
     o->header.gfx.scale[2] = scale;
-    o->oPosX = player->header.gfx.pos[0];
-    o->oPosY = player->header.gfx.pos[1] + 60.0f - 16.0f * o->header.gfx.scale[1];
-    o->oPosZ = player->header.gfx.pos[2];
 }
 
 // Fields 0xF4 & 0xF8 seem to be angles for bubble and cannon

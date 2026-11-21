@@ -63,9 +63,11 @@ void bhv_falling_pillar_loop(void) {
     switch (o->oAction) {
         case FALLING_PILLAR_ACT_IDLE:
             // When Mario is within 1300 units of distance...
-            if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 1300)) {
+            /* (sm64coopdx: any player comes near, and it leans towards the nearest one; so it falls on both consoles, not only on the one
+             * whose player came near) */
+            if (is_point_within_radius_of_any_player(o->oPosX, o->oPosY, o->oPosZ, 1300)) {
                 // Begin slightly moving towards Mario.
-                o->oMoveAngleYaw = o->oAngleToMario;
+                o->oMoveAngleYaw = obj_angle_to_object(o, nearest_player_to_object(o));
                 o->oForwardVel = 1.0f;
 
                 // Spawn the invisible hitboxes.

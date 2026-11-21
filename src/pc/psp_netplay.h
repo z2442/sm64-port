@@ -67,7 +67,7 @@ typedef struct {
     int8_t lives;            /* its lives: a player that loses one brings the other's down to its count (sm64coopdx PACKET_DEATH) */
     uint8_t stompSeq;        /* +1 each time the sender lands on the other player (or ground-pounds it): that player's own console squashes its model */
     uint8_t stompFrames;     /* how long that squash lasts (bounceSquishTimer: 4 for a jump, 20 for a ground pound) */
-    uint8_t pad2;
+    uint8_t character;       /* the character it plays as (PSP_CHAR_*, audio/external.h): its model, voice, HUD head and name tag colour here */
 } PspNpPlayer;
 /* Player vs player, like sm64coopdx: the two Marios are solid (they push each other and bounce off each other's head, a crouching one
  * makes the other twirl), and every attack of the game (punch, kick, dive, slide kick, ground pound, ...) hurts and knocks back the other
@@ -93,10 +93,13 @@ struct MarioBodyState *psp_np_game_body_state(int index); /* body state the geo 
 int psp_np_game_drawing_remote(void);                       /* the model being drawn is the other player's */
 int psp_np_game_remote_head_cam(void);                      /* the other player looks around in first person: its headAngle is that head rotation */
 int psp_np_game_capture(PspNpPlayer *out);
-void psp_np_game_apply(const PspNpPlayer *in, int remoteIsLuigi);
+void psp_np_game_apply(const PspNpPlayer *in);
 void psp_np_game_remove_remote(void);
-void psp_np_game_local_luigi(int on);
-void psp_np_game_keep_local_luigi(int want);
+void psp_np_game_keep_local_char(int character); /* PSP_CHAR_*: the local player's model and voice (Mario outside a room) */
+int psp_np_cap_model(int character, int model);  /* one of Mario's cap models as that character's cap (sm64coopdx capModelId...) */
+int psp_np_remote_char(void);                    /* the other player's character (PSP_CHAR_*) */
+struct Object;
+int psp_np_enemy_cap_char(struct Object *o);     /* whose cap (character) an enemy that took one holds */
 
 /* Names, notices and name tags, like sm64coopdx's (drawn by game/psp_options.c, which has the menu font and the translations):
  * "<name> connected / disconnected / entered <course> / entered this level / left this level", and the other player's name over its head.
@@ -105,10 +108,10 @@ void psp_np_game_keep_local_luigi(int want);
 #ifndef PSP_NETPLAY_NAMETAGS
 #define PSP_NETPLAY_NAMETAGS 1
 #endif
-void psp_np_hud_peer_name(const char *utf8, int peerIsLuigi); /* "" = unknown yet */
+void psp_np_hud_peer_name(const char *utf8, int peerChar); /* "" = unknown yet; peerChar: the character it plays as (PSP_CHAR_*) */
 void psp_np_hud_link(int up);                                 /* the other player connected / disconnected */
 void psp_np_hud_peer_place(int known, int level, int area, int act); /* where the other player is (every frame while linked) */
-int psp_np_hud_peer_act(int course, int *peerIsLuigi);        /* the act the other player is in if it is in that course, else 0 */
+int psp_np_hud_peer_act(int course, int *peerChar);           /* the act the other player is in if it is in that course, else 0 */
 void psp_np_hud_draw(void);                                   /* once per drawn frame, at the end of the display list */
 void psp_np_hud_patch(void);                                  /* between the two frames of a 60 fps tick (interpolation) */
 
@@ -156,6 +159,8 @@ void psp_np_world_drive(struct Object *o); /* while called every frame, this con
 #define PSP_NP_SIG_MANTA_RING 3 /* this console's player passed a ring of the manta ray: value = its count of rings, extra = the ring's index */
 #define PSP_NP_SIG_NLE_STAR 4   /* a star that does not end the level came out for this console's player (Toad, MIPS): value = its number */
 #define PSP_NP_SIG_BOWSER_PLAT 5 /* a platform of the last Bowser arena started to fall here: value = its index (second parameter byte) */
+#define PSP_NP_SIG_CHESTS 6      /* this console's player opened a puzzle chest, right or wrong: the whole puzzle (see psp_np_world_chests) */
+void psp_np_world_chests(const struct Object *maker, int sound); /* the puzzle chests of maker (JRB, its ship, DDD) after this player's chest: 1 right, 2 wrong */
 int psp_np_world_bowser_fx(const struct Object *bowser); /* Bowser's flames and shock waves: made by the console of the player nearest to him only */
 void psp_np_world_bowser_fx_spawned(struct Object *obj, int which); /* (one was made here: the other console makes the same one) */
 void psp_np_world_nle_star(const struct Object *star); /* (that star was just made: the other console shows it where it ends up) */
@@ -242,9 +247,11 @@ static inline void psp_netplay_save_read(unsigned char *out512) { (void) out512;
 static inline void psp_netplay_save_write(const unsigned char *in512) { (void) in512; }
 static inline void psp_netplay_shutdown(void) {}
 static inline unsigned int psp_netplay_suspend(void) { return 0x80000000u; }
-static inline void psp_np_game_local_luigi(int on) { (void) on; }
 static inline void psp_np_hud_draw(void) {}
-static inline int psp_np_hud_peer_act(int course, int *peerIsLuigi) { (void) course; (void) peerIsLuigi; return 0; }
+static inline int psp_np_cap_model(int character, int model) { (void) character; return model; }
+static inline int psp_np_remote_char(void) { return 0; }
+static inline int psp_np_enemy_cap_char(struct Object *o) { (void) o; return 0; }
+static inline int psp_np_hud_peer_act(int course, int *peerChar) { (void) course; (void) peerChar; return 0; }
 static inline void psp_np_hud_patch(void) {}
 struct Object;
 static inline struct Object *psp_np_game_remote(void) { return 0; }
@@ -271,6 +278,8 @@ static inline void psp_np_world_signal(const struct Object *o, int sig, int valu
 #define PSP_NP_SIG_MANTA_RING 3
 #define PSP_NP_SIG_NLE_STAR 4
 #define PSP_NP_SIG_BOWSER_PLAT 5
+#define PSP_NP_SIG_CHESTS 6
+static inline void psp_np_world_chests(const struct Object *maker, int sound) { (void) maker; (void) sound; }
 static inline int psp_np_world_bowser_fx(const struct Object *bowser) { (void) bowser; return 1; }
 static inline void psp_np_world_bowser_fx_spawned(struct Object *obj, int which) { (void) obj; (void) which; }
 static inline void psp_np_world_nle_star(const struct Object *star) { (void) star; }

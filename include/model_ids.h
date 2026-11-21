@@ -563,6 +563,28 @@
 #define MODEL_CHUCKYA                     0xDF        // chuckya_geo
 #define MODEL_WHITE_PUFF                  0xE0        // white_puff_geo
 #define MODEL_TRAJECTORY_MARKER_BALL          0xE1        // bowling_ball_track_geo - duplicate used in SSL Pyramid small sized and as a track ball
+#define MODEL_BUBBLE_PLAYER               0xE2        // water_bomb_geo (WLAN multiplayer: the bubble of a player that died, as sm64coopdx)
+/* WLAN multiplayer: the other sm64coopdx characters (their ids there) */
+#define MODEL_TOAD_PLAYER                 0xE8        // toad_player_geo
+#define MODEL_WALUIGI                     0xED        // waluigi_geo
+#define MODEL_WARIO                       0xF2        // wario_geo
+/* their caps (the cap object: blown off, in a box, dropped by Klepto / Mr. Blizzard), sm64coopdx's ids */
+#define MODEL_LUIGIS_CAP                  0xE4        // luigis_cap_geo
+#define MODEL_LUIGIS_METAL_CAP            0xE5        // luigis_metal_cap_geo
+#define MODEL_LUIGIS_WING_CAP             0xE6        // luigis_wing_cap_geo
+#define MODEL_LUIGIS_WINGED_METAL_CAP     0xE7        // luigis_winged_metal_cap_geo
+#define MODEL_TOADS_CAP                   0xE9        // toads_cap_geo
+#define MODEL_TOADS_METAL_CAP             0xEA        // toads_metal_cap_geo
+#define MODEL_TOADS_WING_CAP              0xEB        // toads_wing_cap_geo
+#define MODEL_TOADS_WINGED_METAL_CAP      0xEC        // toads_winged_metal_cap_geo
+#define MODEL_WALUIGIS_CAP                0xEE        // waluigis_cap_geo
+#define MODEL_WALUIGIS_METAL_CAP          0xEF        // waluigis_metal_cap_geo
+#define MODEL_WALUIGIS_WING_CAP           0xF0        // waluigis_wing_cap_geo
+#define MODEL_WALUIGIS_WINGED_METAL_CAP   0xF1        // waluigis_winged_metal_cap_geo
+#define MODEL_WARIOS_CAP                  0xF3        // warios_cap_geo
+#define MODEL_WARIOS_METAL_CAP            0xF4        // warios_metal_cap_geo
+#define MODEL_WARIOS_WING_CAP             0xF5        // warios_wing_cap_geo
+#define MODEL_WARIOS_WINGED_METAL_CAP     0xF6        // warios_winged_metal_cap_geo
 
 // Menu Models (overwrites Level Geometry IDs)
 #define MODEL_MAIN_MENU_MARIO_SAVE_BUTTON         MODEL_LEVEL_GEOMETRY_03   // main_menu_geo_0001D0

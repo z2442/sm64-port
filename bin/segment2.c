@@ -208,10 +208,36 @@ ALIGNED8 static const u8 texture_hud_char_mario_head[] = {
 #include "textures/segment2/segment2.05A00.rgba16.inc.c"
 };
 
-// PSP multiplayer: Luigi's head for the HUD (lives, camera) of the player that plays as Luigi (from sm64coopdx)
+// PSP multiplayer: the heads of the other characters for the HUD (lives, camera, the act select) of the player that plays as one (from sm64coopdx)
 ALIGNED8 const u8 texture_hud_char_luigi_head[] = {
 #include "textures/segment2/custom_luigi_head.rgba16.inc.c"
 };
+#if defined(TARGET_PSP) && PSP_NETPLAY
+ALIGNED8 static const u8 texture_hud_char_toad_head[] = {
+#include "textures/segment2/custom_toad_head.rgba16.inc.c"
+};
+ALIGNED8 static const u8 texture_hud_char_waluigi_head[] = {
+#include "textures/segment2/custom_waluigi_head.rgba16.inc.c"
+};
+ALIGNED8 static const u8 texture_hud_char_wario_head[] = {
+#include "textures/segment2/custom_wario_head.rgba16.inc.c"
+};
+#endif
+
+#ifdef TARGET_PSP
+/* The head of a character (PSP_CHAR_*, see audio/external.h) for the HUD; NULL for Mario (the game's own glyph) */
+const u8 *psp_char_head(int character) {
+    switch (character) {
+        case 1: return texture_hud_char_luigi_head;
+#if PSP_NETPLAY
+        case 2: return texture_hud_char_toad_head;
+        case 3: return texture_hud_char_waluigi_head;
+        case 4: return texture_hud_char_wario_head;
+#endif
+        default: return NULL;
+    }
+}
+#endif
 
 ALIGNED8 static const u8 texture_hud_char_star[] = {
 #include "textures/segment2/segment2.05C00.rgba16.inc.c"

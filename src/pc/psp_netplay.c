@@ -17,7 +17,7 @@
  *            writes it to the Memory Stick, the client only to its in-memory copy.
  *   PROGACK  receiver -> sender (a = the PROGRESS sequence number)
  *   STATE    either side -> the other, ~30 times a second, unreliable: the sender's pose (level, area, position, angles, animation), which the
- *            receiver shows as a second Mario / Luigi (game/psp_netplay_game.c). Old or repeated ones are dropped by their sequence number.
+ *            receiver shows as a second player, with the model of its character (game/psp_netplay_game.c). Old or repeated ones are dropped by their sequence number.
  *   LEAVE    either side
  */
 #include "psp_netplay.h"
@@ -40,6 +40,8 @@ extern void save_file_load_all(void);
 extern void psp_netplay_adopt_host_save(int hostFile); /* game/save_file.c */
 extern int psp_netplay_merge_progress(const void *data, int size); /* game/save_file.c */
 extern void psp_netplay_refresh_hud(void);                         /* game/save_file.c */
+extern int psp_options_np_character(void);                         /* game/psp_options.c: the character chosen on the Multiplayer page */
+extern void psp_options_np_character_bump(int taken);              /* game/psp_options.c: the client moves off the host's character */
 
 #define NP_PORT 0x5C64
 #define NP_SAVE_BYTES 512
@@ -202,6 +204,7 @@ static void np_events_reset(void) {
 static char sMyName[PSP_NP_NAME_BYTES];
 static char sPeerName[PSP_NP_NAME_BYTES];
 static volatile int sPeerNameNew;
+static int sPeerChar; /* the other player's character (PSP_CHAR_*), as its states say (game thread) */
 
 static uint8_t sRx[PSP_NP_FLD_BYTES + 64]; /* the biggest packet is a batch of enemy states */
 static uint8_t sTx[PSP_NP_FLD_BYTES + 64];
@@ -1185,7 +1188,7 @@ void psp_netplay_frame(void) {
         psp_netplay_merge_progress(tmp, len);
     }
     if (sState == PSP_NP_CONNECTED && (sHost || sOverride)) {
-        /* the other player: this player's pose goes out, the other one's comes in and is shown as a second Mario (Luigi if it is the client) */
+        /* the other player: this player's pose goes out, the other one's comes in and is shown as a second player (with its character's model) */
         PspNpPlayer me, it;
         int have, lock;
         const uint32_t now = sceKernelGetSystemTimeLow();
@@ -1201,16 +1204,24 @@ void psp_netplay_frame(void) {
             it = sStateIn;
         }
         sceKernelCpuResumeIntr(lock);
-        psp_np_game_apply(have ? &it : NULL, sHost);
-        psp_np_game_keep_local_luigi(!sHost);
-        /* names and notices (drawn by psp_np_hud_draw in game/psp_options.c) */
+        psp_np_game_apply(have ? &it : NULL);
+        if (have && !sHost && it.character == psp_options_np_character()) {
+            psp_options_np_character_bump(it.character); /* no two players are the same character: the host keeps it, the client takes the next free one */
+        }
+        psp_np_game_keep_local_char(psp_options_np_character()); /* (the character chosen on the Multiplayer page, as sm64coopdx: it can be changed at any time) */
+        /* names and notices (drawn by psp_np_hud_draw in game/psp_options.c); the name tag's colour (and the name, without a nickname) is the other
+         * player's character's, which it can change at any time */
+        if (have && it.character != sPeerChar) {
+            sPeerChar = it.character;
+            sPeerNameNew = 1;
+        }
         if (sPeerNameNew || !sGameActive) {
             char name[PSP_NP_NAME_BYTES];
             lock = sceKernelCpuSuspendIntr();
             memcpy(name, sPeerName, sizeof(name));
             sPeerNameNew = 0;
             sceKernelCpuResumeIntr(lock);
-            psp_np_hud_peer_name(name, sHost); /* (no name yet: "Luigi" / "Mario", whichever it plays as) */
+            psp_np_hud_peer_name(name, sPeerChar); /* (no name yet: the character it plays as) */
         }
         if (!sGameActive) {
             psp_np_hud_link(1);
@@ -1222,7 +1233,8 @@ void psp_netplay_frame(void) {
         sGameActive = 1;
     } else if (sGameActive) {
         psp_np_game_remove_remote();
-        psp_np_game_keep_local_luigi(0);
+        psp_np_game_keep_local_char(0); /* (Mario) */
+        sPeerChar = 0;
         psp_np_hud_link(0);
 #if PSP_NETPLAY_WORLD
         psp_np_world_reset();

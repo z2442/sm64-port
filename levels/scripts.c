@@ -67,6 +67,28 @@ const LevelScript level_main_scripts_entry[] = {
     ALLOC_LEVEL_POOL(),
     LOAD_MODEL_FROM_GEO(MODEL_MARIO,                   mario_geo),
     LOAD_MODEL_FROM_GEO(MODEL_LUIGI,                   luigi_geo),
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    LOAD_MODEL_FROM_GEO(MODEL_BUBBLE_PLAYER,           water_bomb_geo), /* (sm64coopdx: in every level, like Mario's own models) */
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGI,                 waluigi_geo),    /* (the other sm64coopdx characters) */
+    LOAD_MODEL_FROM_GEO(MODEL_WARIO,                   wario_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOAD_PLAYER,             toad_player_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_LUIGIS_CAP, luigis_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_LUIGIS_METAL_CAP, luigis_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_LUIGIS_WING_CAP, luigis_wing_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_LUIGIS_WINGED_METAL_CAP, luigis_winged_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOADS_CAP, toads_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOADS_METAL_CAP, toads_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOADS_WING_CAP, toads_wing_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOADS_WINGED_METAL_CAP, toads_winged_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGIS_CAP, waluigis_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGIS_METAL_CAP, waluigis_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGIS_WING_CAP, waluigis_wing_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGIS_WINGED_METAL_CAP, waluigis_winged_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WARIOS_CAP, warios_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WARIOS_METAL_CAP, warios_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WARIOS_WING_CAP, warios_wing_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WARIOS_WINGED_METAL_CAP, warios_winged_metal_cap_geo),
+#endif
     LOAD_MODEL_FROM_GEO(MODEL_SMOKE,                   smoke_geo),
     LOAD_MODEL_FROM_GEO(MODEL_SPARKLES,                sparkles_geo),
     LOAD_MODEL_FROM_GEO(MODEL_BUBBLE,                  bubble_geo),

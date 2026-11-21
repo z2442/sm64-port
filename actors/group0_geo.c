@@ -17,3 +17,12 @@
 #include "sparkle_animation/geo.inc.c"
 #include "mario/geo.inc.c"
 #include "luigi/geo.inc.c"
+#if defined(TARGET_PSP) && PSP_NETPLAY
+#include "wario/geo.inc.c"
+#include "waluigi/geo.inc.c"
+#include "toad_player/geo.inc.c"
+#include "luigi_cap/geo.inc.c"
+#include "toad_cap/geo.inc.c"
+#include "waluigi_cap/geo.inc.c"
+#include "wario_cap/geo.inc.c"
+#endif

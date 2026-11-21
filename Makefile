@@ -362,11 +362,11 @@ SOUND_BANKS_DIR := sound/sound_banks/
 SOUND_SEQ_JSON := sound/sequences.json
 SOUND_NP_DEPS := $(SOUND_BIN_DIR)/netplay.mode
 ifneq ($(PSP_NETPLAY),1)
-# Luigi's voice (his two sound banks and sample sets) only exists for the WLAN multiplayer. Without it the sound data is exactly the original one
+# The voices of the other characters (Luigi, Toad and Wario: their sound banks and sample sets) only exist for the WLAN multiplayer. Without it the sound data is exactly the original one
 # (tools/psp/make_release.py needs that: it checks that the sound bank data comes from the game's ROM). The banks and the list of banks of each sequence
 # are used from filtered copies in the build folder (see the rules below).
-SOUND_SAMPLE_DIRS := $(filter-out sound/samples/sfx_custom_luigi%,$(SOUND_SAMPLE_DIRS))
-SOUND_BANK_FILES := $(foreach f,$(SOUND_BANK_FILES),$(if $(findstring custom_luigi,$(f)),,$(f)))
+SOUND_SAMPLE_DIRS := $(filter-out sound/samples/sfx_custom_%,$(SOUND_SAMPLE_DIRS))
+SOUND_BANK_FILES := $(foreach f,$(SOUND_BANK_FILES),$(if $(findstring _custom_,$(f)),,$(f)))
 SOUND_BANKS_DIR := $(SOUND_BIN_DIR)/sound_banks/
 SOUND_SEQ_JSON := $(SOUND_BIN_DIR)/sequences.json
 SOUND_NP_DEPS += $(SOUND_BIN_DIR)/sound_banks.stamp $(SOUND_BIN_DIR)/sequences.json
@@ -717,8 +717,10 @@ $(BUILD_DIR)/src/game/ingame_menu.o: $(BUILD_DIR)/include/text_strings.h
 
 # Luigi (WLAN multiplayer): its textures are generated from the PNGs before group0.c includes them
 LUIGI_TEXTURES := $(patsubst actors/luigi/%.png,$(BUILD_DIR)/actors/luigi/%.inc.c,$(wildcard actors/luigi/*.png))
+# (and the other sm64coopdx characters)
+LUIGI_TEXTURES += $(foreach c,wario waluigi toad_player,$(patsubst actors/$(c)/%.png,$(BUILD_DIR)/actors/$(c)/%.inc.c,$(wildcard actors/$(c)/*.png)))
 $(BUILD_DIR)/actors/group0.o: $(LUIGI_TEXTURES)
-$(BUILD_DIR)/bin/segment2.o: $(BUILD_DIR)/textures/segment2/custom_luigi_head.rgba16.inc.c
+$(BUILD_DIR)/bin/segment2.o: $(foreach c,luigi toad waluigi wario,$(BUILD_DIR)/textures/segment2/custom_$(c)_head.rgba16.inc.c)
 
 ################################################################
 # TEXTURE GENERATION                                           #
@@ -793,12 +795,17 @@ $(ENDIAN_BITWIDTH): tools/determine-endian-bitwidth.c
 #	@rm $@.dummy1
 #	@rm $@.dummy2
 
-# What the sound data was built for (WLAN multiplayer on / off). When it changes, the sound data is rebuilt and the Luigi files of the other mode are dropped.
+# What the sound data was built for (WLAN multiplayer on / off; "chars": with the voices of all the characters). When it changes, the sound data is rebuilt and the character voice files of the other mode are dropped.
 .PHONY: FORCE
 FORCE:
+ifeq ($(TARGET_PSP),1)
+# The code is built differently with and without the WLAN multiplayer too (for example levels/scripts.c loads the other characters' models only
+# with it): when PSP_NETPLAY changes (pbp after release, or the other way round), every object is built again instead of keeping ones of the other mode.
+$(O_FILES) $(GODDARD_O_FILES): $(SOUND_BIN_DIR)/netplay.mode
+endif
 $(SOUND_BIN_DIR)/netplay.mode: FORCE
 	@mkdir -p $(dir $@)
-	@echo $(PSP_NETPLAY) | cmp -s - $@ || { echo $(PSP_NETPLAY) > $@; $(if $(filter 1,$(PSP_NETPLAY)),,rm -rf $(BUILD_DIR)/sound/samples/sfx_custom_luigi* $(SOUND_BIN_DIR)/sound_banks $(SOUND_BIN_DIR)/sound_banks.stamp;) }
+	@echo $(PSP_NETPLAY) chars | cmp -s - $@ || { echo $(PSP_NETPLAY) chars > $@; $(if $(filter 1,$(PSP_NETPLAY)),,rm -rf $(BUILD_DIR)/sound/samples/sfx_custom_* $(SOUND_BIN_DIR)/sound_banks $(SOUND_BIN_DIR)/sound_banks.stamp;) }
 
 ifneq ($(PSP_NETPLAY),1)
 $(SOUND_BIN_DIR)/sound_banks.stamp: $(SOUND_BANK_FILES) $(SOUND_BIN_DIR)/netplay.mode
@@ -808,7 +815,7 @@ $(SOUND_BIN_DIR)/sound_banks.stamp: $(SOUND_BANK_FILES) $(SOUND_BIN_DIR)/netplay
 	touch $@
 
 $(SOUND_BIN_DIR)/sequences.json: sound/sequences.json $(SOUND_BIN_DIR)/netplay.mode
-	sed -e 's/, *"[0-9A-Fa-f]*_custom_luigi[a-z_]*"//g' $< > $@
+	sed -e 's/, *"[0-9A-Fa-f]*_custom_[a-z_]*"//g' $< > $@
 endif
 
 $(SOUND_BIN_DIR)/sound_data.ctl: sound/sound_banks/ $(SOUND_BANK_FILES) $(SOUND_SAMPLE_AIFCS) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
