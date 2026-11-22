@@ -195,7 +195,13 @@ __attribute__((noinline, aligned(4))) void meLibOnProcess(void) {
              * split into the command-list model used by the OOT port.
              * A "job" is 1..PSP_ME_JOB_MAX consecutive blocks: the main thread does not touch the audio state while the ME
              * works (see audio_psp_tick_begin / audio_psp_tick_end), so the caches of the two CPUs do not overwrite each other. */
-            meCoreDcacheWritebackInvalidateAll();
+            /* meLibDcacheWritebackInvalidateAll, not meCoreDcacheWritebackInvalidateAll: the meCore one is a jump into Sony's ME firmware image
+             * (sysCall(64) at 0x88300000), whose address comes from a table picked ONCE at boot from the image found there, and that image differs
+             * between models (libmecore's README). After a sleep the ME is reset and the firmware puts its image back: a stale table would jump into
+             * the wrong code (suspected cause of the PSP Street's hard freezes after a wake, at the start of dialogs and cutscenes). The meLib one
+             * is the same operation done directly (the standard Allegrex loop: two index writeback-invalidates per line, one per way), with no
+             * firmware involved. */
+            meLibDcacheWritebackInvalidateAll();
             if (count > PSP_ME_JOB_MAX) {
                 count = PSP_ME_JOB_MAX;
             }
@@ -204,7 +210,7 @@ __attribute__((noinline, aligned(4))) void meLibOnProcess(void) {
                 audio_psp_generate_cpu(output, frames);
                 output += frames * 2;
             }
-            meCoreDcacheWritebackInvalidateAll();
+            meLibDcacheWritebackInvalidateAll();
             meLibSync();
             sPspMeState = PSP_ME_STATE_IDLE;
             meLibSync();

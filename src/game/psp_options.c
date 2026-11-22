@@ -72,7 +72,6 @@ enum {
     OPT_TVAREA,  /* TV Width */
     OPT_TVAREAY, /* TV Height */
     OPT_TVSHIFT, /* TV Vertical Shift */
-    OPT_NETFPS,  /* Online FPS Limit (Multiplayer page): 30 (safe, the default) or 60 while a room is up */
     OPT_NETCHAR, /* Character (Multiplayer page): the one this player plays as in a room (PSP_CHAR_*, sm64coopdx's characters) */
     OPT_RESET,
     OPT_COUNT
@@ -106,7 +105,7 @@ static const u8 sPgMain[] = { ROW_VIDEO, ROW_AUDIO, ROW_CONTROLS
     , ROW_NETPAGE
 #endif
 };
-static const u8 sPgNet[] = { ROW_NETHOST, ROW_NETJOIN, OPT_NETCHAR, OPT_NETFPS, ROW_NETLEAVE };
+static const u8 sPgNet[] = { ROW_NETHOST, ROW_NETJOIN, OPT_NETCHAR, ROW_NETLEAVE };
 static const u8 sPgAudio[] = { ROW_MUSIC, ROW_SFX, ROW_SOUNDMODE, ROW_AUDRESET };
 static const u8 sPgVideo[] = { OPT_FPSCAP, OPT_PACING, OPT_OBJDIST, OPT_FARDIST, OPT_CULLOBJ, OPT_SHOWFPS, OPT_SOUNDCPU, ROW_TVPAGE, OPT_RESET };
 static const u8 sPgTv[] = { OPT_TVOUT, OPT_TVASPECT, OPT_TVAREA, OPT_TVAREAY, OPT_TVSHIFT, ROW_TVRESET };
@@ -185,10 +184,10 @@ static const char *const sTvAspTxt[2] = { "4:3", "16:9" };
 static const char *const sTvShiftTxt[121] = { "-60","-59","-58","-57","-56","-55","-54","-53","-52","-51","-50","-49","-48","-47","-46","-45","-44","-43","-42","-41","-40","-39","-38","-37","-36","-35","-34","-33","-32","-31","-30","-29","-28","-27","-26","-25","-24","-23","-22","-21","-20","-19","-18","-17","-16","-15","-14","-13","-12","-11","-10","-9","-8","-7","-6","-5","-4","-3","-2","-1","0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","53","54","55","56","57","58","59","60" };
 #define TV_AREA_MIN 60 /* value i of the row is TV_AREA_MIN + i percent */
 static const char *const sTvAreaTxt[41] = { "60%","61%","62%","63%","64%","65%","66%","67%","68%","69%","70%","71%","72%","73%","74%","75%","76%","77%","78%","79%","80%","81%","82%","83%","84%","85%","86%","87%","88%","89%","90%","91%","92%","93%","94%","95%","96%","97%","98%","99%","100%" };
-static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 4, 2, 41, 41, 121, 2, PSP_CHAR_COUNT, 0 };
-static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0, 0 }; /* 60 fps, Keep FPS, counter Off, Object / Far Distance 150 %, culling Vertical */
+static const int sCount[OPT_COUNT] = { 2, 2, 2, 2, 5, 5, 2, 4, 2, 41, 41, 121, PSP_CHAR_COUNT, 0 };
+static const int sDef[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0 }; /* 60 fps, Keep FPS, counter Off, Object / Far Distance 150 %, culling Vertical */
 
-static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0, 0 }; /* index chosen in each row */
+static int sVal[OPT_COUNT] = { 1, 0, 0, 0, 1, 1, 1, 0, 1, 40, 40, 60, 0, 0 }; /* index chosen in each row */
 #define VOL_STEP 5 /* the menu raises / lowers the volume in steps of 5 */
 static int sMusic = 100; /* 0 a 100 */
 static int sSfx = 100;
@@ -391,7 +390,6 @@ static const char *const sTrLabel[OPT_COUNT][LANG_COUNT] = {
     TR("TV Width", "Largeur TV", "TV-Breite", "TVヨコハバ"),
     TR("TV Height", "Hauteur TV", "TV-Höhe", "TVタカサ"),
     TR("TV Vertical Shift", "Décalage vertical TV", "TV vertikal", "TVタテイチ"),
-    TR("Online FPS Limit", "Limite FPS en ligne", "Online-FPS-Limit", "オンラインFPSセイゲン"),
     TR("Character", "Personnage", "Charakter", "キャラクター"),
     TR("Reset to Defaults", "Réinitialiser", "Zurücksetzen", "ショキチニモドス"),
 };
@@ -529,7 +527,6 @@ static const char *psp_opt_value_text(int row) {
     static char buf[40];
     switch (row) {
         case OPT_FPSCAP: return psp_netplay_state() == PSP_NP_CONNECTED ? sFpsTxt[psp_opt_fps_cap() >= 60] : sFpsTxt[sVal[row]];
-        case OPT_NETFPS: return sFpsTxt[sVal[row]];
         case OPT_NETCHAR: return sCharTxt[sVal[row]];
         case OPT_PACING: return LT(sTrPacing[sVal[row]]);
         case OPT_SHOWFPS: return LT(sTrOnOff[sVal[row]]);
@@ -589,13 +586,13 @@ static const char *psp_opt_value_text(int row) {
 /* Greyed-out row (not usable now): shown grey and the cursor skips it. */
 /* Exception: only the "TV Settings" row (in Graphics) can be selected even if it is greyed out, so that the reason (no cable, etc.) can be read below; pressing X plays the buzz. */
 /* Multiplayer rows: Host / Join only when nothing is running (or after an error); Leave only when something is. */
-/* The fps limit in force: while a multiplayer link is up the game is held at 30 fps unless "Online FPS Limit" (Multiplayer page) says 60 (at 60 fps the WLAN
- * latency was seen to climb on both consoles, so 30 is the default). The chosen FPS Limit is kept and comes back when the link ends. */
+/* The fps limit in force: while a multiplayer link is up the game is held at 30 fps (at 60 fps the PSP can't keep up with the game plus the WLAN link).
+ * The chosen FPS Limit is kept and comes back when the link ends. */
 int psp_opt_fps_cap(void) {
     if (psp_netplay_state() != PSP_NP_CONNECTED) {
         return gPspOptFpsCap;
     }
-    return (sVal[OPT_NETFPS] == 1 && gPspOptFpsCap >= 60) ? 60 : 30; /* "Online FPS Limit" (Multiplayer page), never above the FPS Limit */
+    return 30;
 }
 static int psp_opt_net_grey(int row) {
     const int st = psp_netplay_state();
@@ -806,7 +803,7 @@ static char sCfgName[40] = CTRL_FILE;
 static int sSawNew; /* the file had at least one setting of the new format (if not, it is an old one and gets migrated) */
 
 static const char *const sRowKey[OPT_COUNT] = {
-    "fps_limit", "frame_pacing", "fps_counter", "show_sound_cpu", "object_distance", "far_distance", "object_culling", "tv_output", "tv_aspect", "tv_width", "tv_height", "tv_shift_y", "online_fps_limit", "online_character", NULL,
+    "fps_limit", "frame_pacing", "fps_counter", "show_sound_cpu", "object_distance", "far_distance", "object_culling", "tv_output", "tv_aspect", "tv_width", "tv_height", "tv_shift_y", "online_character", NULL,
 };
 static const char *const sBindKey[NUM_BINDS] = {
     "a_button", "b_button", "start", "l_trigger", "r_trigger", "z_trigger", "c_up", "c_down", "c_left", "c_right",
@@ -834,7 +831,6 @@ static const char *const *psp_opt_texts(int row) {
         case OPT_TVAREA:
         case OPT_TVAREAY: return sTvAreaTxt;
         case OPT_TVSHIFT: return sTvShiftTxt;
-        case OPT_NETFPS: return sFpsTxt;
         case OPT_NETCHAR: return sCharTxt;
         default: return NULL;
     }
@@ -1017,7 +1013,6 @@ void psp_options_save_file(const char *filename) {
         "60% to 100%, in steps of 1% (how much of the TV frame WIDTH the picture uses; lower it if your TV cuts off the left / right edges)",
         "60% to 100%, in steps of 1% (how much of the TV frame HEIGHT the picture uses; lower it if your TV cuts off the top / bottom edges; if the picture looks squashed, adjust it against the width)",
         "-60 to 60 (moves the picture vertically inside the TV frame, in lines of the 480-line signal; positive = down, negative = up; it needs room, so lower TV Height first)",
-        "30 or 60 (the FPS limit while a Multiplayer room is up; 30 is the stable one; with 60 the timing of every tick is written to sm64_net.txt)",
         "Mario, Luigi, Toad, Waluigi or Wario (who you play as in a Multiplayer room)",
         NULL,
     };
@@ -1047,7 +1042,7 @@ void psp_options_save_file(const char *filename) {
                "\n[Graphics]\n");
     for (i = 0; i < OPT_RESET; i++) {
 #if !PSP_NETPLAY
-        if (i == OPT_NETFPS || i == OPT_NETCHAR) {
+        if (i == OPT_NETCHAR) {
             continue; /* multiplayer is not built in: its setting is not written (an old line in the file is simply ignored) */
         }
 #endif

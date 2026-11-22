@@ -264,14 +264,14 @@ You can change all of these in the Options menu.
 
 ### Where things are saved
 
-Everything is stored on the Memory Stick in `PSP\SAVEDATA\SM64PORT\`:
+Everything is stored on the Memory Stick in `PSP\SAVEDATA\SM64PORT\`, except the two reports, which go to the root of the Memory Stick:
 
 | File | Contents |
 |---|---|
 | `sm64_save_file.bin` | Your game progress (stars, coins…) |
 | `sm64config.txt` | All your settings (graphics, audio, controls) as plain text |
-| `freeze.txt` | Only after a freeze: a small report of what the game was doing (see Troubleshooting) |
-| `crash.txt` | Only after a crash: where the game stopped (see Troubleshooting) |
+| `ms0:/freeze.txt` | Only after a freeze: a small report of what the game was doing (see Troubleshooting) |
+| `ms0:/crash.txt` | Only after a crash: where the game stopped (see Troubleshooting) |
 
 `sm64config.txt` can be opened with Notepad. Each line is `name = value`. To start from scratch, delete the file (or use *Reset to Defaults*).
 
@@ -316,7 +316,7 @@ Check the paths are exactly `PSP\GAME\SM64\EBOOT.PBP` and `PSP\GAME\SM64\SM64.PR
 Start the game again: if TV was turned on and did not last about 5 seconds, the game switches TV Output back to *Off* by itself on the next launch and uses the PSP's own screen.
 
 **The game freezes**
-If the game stops drawing frames for about 4 seconds, a small watchdog writes `freeze.txt` in `PSP\SAVEDATA\SM64PORT\` (and rewrites it every 4 s while the freeze lasts, up to 12 s). It lists where the main thread was, what each thread is waiting on, the GPU and audio-processor state, the level / Mario action and the battery level and voltage. If the game recovers by itself it adds a line saying so. Attach the file to your issue. If the whole console locks up so hard that no code runs, no file can be written: in that case the *absence* of `freeze.txt` is itself useful information.
+If the game stops drawing frames for about 4 seconds, a small watchdog writes `freeze.txt` in the root of the Memory Stick (and rewrites it every 4 s while the freeze lasts, up to 12 s). It lists where the main thread was, what each thread is waiting on, the GPU and audio-processor state, the level / Mario action and the battery level and voltage. If the game recovers by itself it adds a line saying so. Attach the file to your issue. If the whole console locks up so hard that no code runs, no file can be written: in that case the *absence* of `freeze.txt` is itself useful information.
 
 If the game crashes instead (it goes back to the system menu by itself), it writes `crash.txt` in the same folder first: the error, the game code it happened in and the code addresses on that thread's stack. Attach it too, saying which version you built (the addresses only make sense with that build).
 

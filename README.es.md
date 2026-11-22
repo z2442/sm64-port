@@ -264,14 +264,14 @@ Todo esto se puede cambiar en el menú de opciones.
 
 ### Dónde se guarda todo
 
-Todo va al Memory Stick, en `PSP\SAVEDATA\SM64PORT\`:
+Todo va al Memory Stick, en `PSP\SAVEDATA\SM64PORT\`, salvo los dos informes, que van a la raíz del Memory Stick:
 
 | Archivo | Contenido |
 |---|---|
 | `sm64_save_file.bin` | Tu progreso (estrellas, monedas…) |
 | `sm64config.txt` | Todos tus ajustes (gráficos, audio, controles) en texto plano |
-| `freeze.txt` | Solo tras un congelamiento: un informe corto de lo que hacía el juego (ver Solución de problemas) |
-| `crash.txt` | Solo tras un crasheo: dónde se detuvo el juego (ver Solución de problemas) |
+| `ms0:/freeze.txt` | Solo tras un congelamiento: un informe corto de lo que hacía el juego (ver Solución de problemas) |
+| `ms0:/crash.txt` | Solo tras un crasheo: dónde se detuvo el juego (ver Solución de problemas) |
 
 `sm64config.txt` se puede abrir con el Bloc de notas. Cada línea es `nombre = valor`. Para empezar de cero, borra el archivo (o usa *Reset to Defaults*).
 
@@ -316,7 +316,7 @@ Revisa que las rutas sean exactamente `PSP\GAME\SM64\EBOOT.PBP` y `PSP\GAME\SM64
 Vuelve a iniciar el juego: si se encendió la TV y no duró unos 5 segundos, el juego pone TV Output en *Off* solo en el siguiente arranque y usa la pantalla de la propia PSP.
 
 **El juego se congela**
-Si el juego deja de dibujar cuadros durante unos 4 segundos, un pequeño vigía escribe `freeze.txt` en `PSP\SAVEDATA\SM64PORT\` (y lo reescribe cada 4 s mientras dure el congelamiento, hasta los 12 s). Indica dónde estaba el hilo principal, en qué espera cada hilo, el estado del GPU y del procesador de audio, el nivel / acción de Mario y la carga y el voltaje de la batería. Si el juego se recupera solo, lo añade al final. Adjunta el archivo a tu issue. Si la consola se bloquea tan a fondo que no corre ningún código, no se puede escribir nada: en ese caso la *ausencia* de `freeze.txt` también es un dato útil.
+Si el juego deja de dibujar cuadros durante unos 4 segundos, un pequeño vigía escribe `freeze.txt` en la raíz del Memory Stick (y lo reescribe cada 4 s mientras dure el congelamiento, hasta los 12 s). Indica dónde estaba el hilo principal, en qué espera cada hilo, el estado del GPU y del procesador de audio, el nivel / acción de Mario y la carga y el voltaje de la batería. Si el juego se recupera solo, lo añade al final. Adjunta el archivo a tu issue. Si la consola se bloquea tan a fondo que no corre ningún código, no se puede escribir nada: en ese caso la *ausencia* de `freeze.txt` también es un dato útil.
 
 Si en cambio el juego crashea (vuelve solo al menú del sistema), antes escribe `crash.txt` en la misma carpeta: el error, el código del juego donde ocurrió y las direcciones de código en la pila de ese hilo. Adjúntalo también, diciendo qué versión compilaste (las direcciones solo tienen sentido con esa compilación).
 

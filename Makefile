@@ -969,6 +969,14 @@ ifeq ($(TARGET_PSP),1)
 		psp-prxgen $@ $@.prx; \
 	fi
 
+# The port's version, shown by the XMB (Triangle > Information) for the EBOOT: change it here for each release (`make ... PORT_VERSION=x.y.z`
+# overrides it). It goes into PARAM.SFO as APP_VER "0X.YZ" and DISC_VERSION "X.YZ": the XMB has two digits after the point (minor and patch,
+# 9 at most each), so 1.2.0 shows as 01.20. (Not VERSION: that one is the game's region, us/jp/eu/sh.)
+PORT_VERSION ?= 1.2.0
+PORT_VERSION_XYZ := $(shell echo '$(PORT_VERSION)' | sed 's/[-+].*//')
+SFO_VERSION = $(shell echo '$(PORT_VERSION_XYZ)' | awk -F. '{m=$$2>9?9:$$2;p=$$3>9?9:$$3;printf "$(1)",$$1,m,p}')
+SFOFLAGS := -s APP_VER=$(call SFO_VERSION,%02d.%d%d) -s DISC_VERSION=$(call SFO_VERSION,%d.%d%d)
+
 ifneq ($(filter jp sh,$(VERSION)),)
   TITLE     := "スーパーマリオ64"
   EBOOT_DIR := psp/JP_EBOOT
@@ -1046,7 +1054,8 @@ $(BUILD_DIR)/src/pc/psp_watchdog.o: $(CRASHLOG_DIR)/crashlog_prx.inc
 
 pbp: $(EXE)
 	@mkdir -p $(BUILD_DIR)/mario64
-	mksfoex -d MEMSIZE=1 $(TITLE) $(BUILD_DIR)/PARAM.SFO
+	mksfoex -d MEMSIZE=1 $(SFOFLAGS) $(TITLE) $(BUILD_DIR)/PARAM.SFO
+	$(PYTHON) tools/psp/sort_sfo.py $(BUILD_DIR)/PARAM.SFO # keys in alphabetical order, as in Sony's (see the script)
 	@if [ "$(PROFILE_PSP)" = "1" ]; then \
 		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO $(EBOOT_DIR)/ICON0.png NULL NULL $(EBOOT_DIR)/PIC0.png $(EBOOT_DIR)/SND0.at3 $(EXE) NULL; \
 	else \
