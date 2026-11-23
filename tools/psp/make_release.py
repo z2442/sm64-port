@@ -439,6 +439,16 @@ def main():
 
     # ---- 2. sound banks: the port builds them byte-swapped for the little-endian PSP, so they are
     # produced from the ROM blob with a per-word swap map; the sample data itself is a plain copy.
+    # It goes bank by bank (the header of the file lists each bank's offset and size): every bank of
+    # the ROM is position-independent, so it is found the same in the build even when the build adds
+    # banks of its own after them (the multiplayer characters' voices, PSP_NETPLAY=1). Those extra banks
+    # do not come from the ROM and stay in the template like the rest of the port's own data.
+    def bank_table(data, fmt):
+        count = struct.unpack(fmt + "H", data[2:4])[0]
+        if 4 + 8 * count > len(data):
+            return None
+        return [struct.unpack(fmt + "II", data[4 + 8 * i:12 + 8 * i]) for i in range(count)]
+
     for label, built in (("ctl", ctl_built), ("tbl", tbl_built)):
         key = "@sound %s " % label
         done = False
@@ -447,34 +457,57 @@ def main():
             if not ent:
                 continue
             size, locs = ent
-            if lang not in locs or size != len(built):
+            if lang not in locs:
                 continue
             rid = langs.index(lang)
             romoff = locs[lang][0]
             src = images[rid][romoff:romoff + size]
-            codes = classify_words(src, built)
-            if codes is None:
+            rom_banks = bank_table(src, ">")
+            built_banks = bank_table(built, "<")
+            if not rom_banks or not built_banks or len(built_banks) < len(rom_banks):
                 continue
-            last = max((i for i, c in enumerate(codes) if c), default=-1)
-            head = (last + 1) * 4          # bytes that differ (swapped); the rest is a plain copy
-            if size - head < 1024:
-                head = size                # a short tail is not worth (or able) to be located on its own
-            if head:
-                packed = bytearray((head // 4 + 3) // 4)
-                for i, c in enumerate(codes[:head // 4]):
-                    packed[i // 4] |= c << ((i % 4) * 2)
-                occ = find_all(prx, built[:head], 2)
-                if len(occ) != 1:
-                    die("cannot locate the sound %s in the module" % label)
-                entries.append((occ[0], head, rid, 0, 0, romoff, len(maps)))
-                maps.extend(packed)
-            if head < size:
-                tail = built[head:]
-                occ = find_all(prx, tail, 2)
-                if len(occ) != 1:
-                    die("cannot locate the sound %s data in the module" % label)
-                entries.append((occ[0], len(tail), rid, 0, 0, romoff + head, NOMAP))
-            report.append("sound %s: %d bytes from the %s ROM (%d swapped, %d copied)" % (label, size, lang, head, size - head))
+            pairs = []      # (built offset, rom offset, length, swap codes)
+            ok = True
+            for (ro, rl), (bo, bl) in zip(rom_banks, built_banks):
+                if rl != bl or ro + rl > len(src) or bo + bl > len(built):
+                    ok = False
+                    break
+                if rl == 0:
+                    continue
+                codes = classify_words(src[ro:ro + rl], built[bo:bo + bl])
+                if codes is None:
+                    ok = False
+                    break
+                pairs.append((bo, ro, rl, codes))
+            if not ok:
+                continue
+            # the header itself only when it is the ROM's (same banks): with extra banks it is the port's own
+            hdr = 4 + 8 * len(rom_banks)
+            if len(built_banks) == len(rom_banks):
+                codes = classify_words(src[:hdr], built[:hdr])
+                if codes is not None:
+                    pairs.append((0, 0, hdr, codes))
+            occ = find_all(prx, built, 2)
+            if len(occ) != 1:
+                die("cannot locate the sound %s in the module" % label)
+            base = occ[0]
+            swapped = copied = 0
+            for bo, ro, rl, codes in pairs:
+                if any(codes):
+                    packed = bytearray((len(codes) + 3) // 4)
+                    for i, c in enumerate(codes):
+                        packed[i // 4] |= c << ((i % 4) * 2)
+                    entries.append((base + bo, rl, rid, 0, 0, romoff + ro, len(maps)))
+                    maps.extend(packed)
+                    swapped += rl
+                else:
+                    entries.append((base + bo, rl, rid, 0, 0, romoff + ro, NOMAP))
+                    copied += rl
+            extra = len(built_banks) - len(rom_banks)
+            own = sum(bl for _, bl in built_banks[len(rom_banks):])
+            report.append("sound %s: %d banks from the %s ROM (%d bytes swapped, %d copied; banks that share data count once per bank)%s" % (
+                label, len(rom_banks), lang, swapped, copied,
+                ", %d banks of the port's own (%d bytes) left in the template" % (extra, own) if extra else ""))
             done = True
             break
         if not done:

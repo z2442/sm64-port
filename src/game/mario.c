@@ -1900,6 +1900,7 @@ void init_mario(void) {
 
     if (save_file_get_cap_pos(capPos)) {
         capObject = spawn_object(gMarioState->marioObj, psp_np_cap_model(gPspLocalChar, MODEL_MARIOS_CAP), bhvNormalCap); /* (the cap of the player's character) */
+        psp_np_cap_owner(capObject, gPspLocalChar);
 
         capObject->oPosX = capPos[0];
         capObject->oPosY = capPos[1];

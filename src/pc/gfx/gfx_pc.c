@@ -3269,7 +3269,20 @@ static void gfx_sp_quad_flip_2d(void) {
     gfx_scegu_draw_quad_2d((float *)&q[0]);
 }
 
+/* PSP: the mirror room's reflection is drawn with a flipped matrix, so its front faces come out as back faces. geo_mirror_mario_backface_culling (mario_misc.c)
+ * turns this unused geometry bit on around the reflection; while it is on, every model's own culling changes are mirrored too (CULL_BACK <-> CULL_FRONT).
+ * Without it, a material that turns back-face culling on again (the extra characters' models do, after their double-sided parts) left both culls on and
+ * the rest of the reflection vanished. */
+#define G_PSP_MIRROR 0x00000008
+static uint32_t gfx_cull_swap(uint32_t m) {
+    return (m & ~G_CULL_BOTH) | ((m & G_CULL_BACK) ? G_CULL_FRONT : 0) | ((m & G_CULL_FRONT) ? G_CULL_BACK : 0);
+}
+
 static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
+    if ((rsp.geometry_mode & G_PSP_MIRROR) && !((clear | set) & G_PSP_MIRROR)) {
+        clear = gfx_cull_swap(clear);
+        set = gfx_cull_swap(set);
+    }
     rsp.geometry_mode &= ~clear;
     rsp.geometry_mode |= set;
     gfx_mark_tri_pipeline_dirty();

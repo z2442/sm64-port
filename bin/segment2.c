@@ -222,6 +222,9 @@ ALIGNED8 static const u8 texture_hud_char_waluigi_head[] = {
 ALIGNED8 static const u8 texture_hud_char_wario_head[] = {
 #include "textures/segment2/custom_wario_head.rgba16.inc.c"
 };
+ALIGNED8 static const u8 texture_hud_char_toad_yellow_head[] = {
+#include "textures/segment2/custom_toad_yellow_head.rgba16.inc.c"
+};
 #endif
 
 #ifdef TARGET_PSP
@@ -230,13 +233,51 @@ const u8 *psp_char_head(int character) {
     switch (character) {
         case 1: return texture_hud_char_luigi_head;
 #if PSP_NETPLAY
-        case 2: return texture_hud_char_toad_head;
-        case 3: return texture_hud_char_waluigi_head;
-        case 4: return texture_hud_char_wario_head;
+        case 2: return texture_hud_char_toad_head; /* (Blue Toad) */
+        case 3: return texture_hud_char_toad_yellow_head;
+        case 4: return texture_hud_char_waluigi_head;
+        case 5: return texture_hud_char_wario_head;
 #endif
         default: return NULL;
     }
 }
+#endif
+
+#if defined(TARGET_PSP) && (defined(VERSION_US) || defined(VERSION_EU))
+/* PSP: the color (HUD) font of the US and European versions has no J, Q, X (nor V and Z in US). sm64coopdx drew them (textures/segment2/custom_hud_*):
+ * with them the menu titles can say what they mean (a missing letter used to be a NULL texture, which hangs the drawing). */
+ALIGNED8 static const u8 texture_hud_char_custom_J[] = {
+#include "textures/segment2/custom_hud_j.rgba16.inc.c"
+};
+ALIGNED8 static const u8 texture_hud_char_custom_Q[] = {
+#include "textures/segment2/custom_hud_q.rgba16.inc.c"
+};
+ALIGNED8 static const u8 texture_hud_char_custom_X[] = {
+#include "textures/segment2/custom_hud_x.rgba16.inc.c"
+};
+#ifdef VERSION_US
+ALIGNED8 static const u8 texture_hud_char_custom_V[] = {
+#include "textures/segment2/custom_hud_v.rgba16.inc.c"
+};
+ALIGNED8 static const u8 texture_hud_char_custom_Z[] = {
+#include "textures/segment2/custom_hud_z.rgba16.inc.c"
+};
+#endif
+#define PSP_HUD_J texture_hud_char_custom_J
+#define PSP_HUD_Q texture_hud_char_custom_Q
+#define PSP_HUD_X texture_hud_char_custom_X
+#ifdef VERSION_US
+#define PSP_HUD_V texture_hud_char_custom_V
+#define PSP_HUD_Z texture_hud_char_custom_Z
+#endif
+#else
+#define PSP_HUD_J 0x0
+#define PSP_HUD_Q 0x0
+#define PSP_HUD_X 0x0
+#ifdef VERSION_US
+#define PSP_HUD_V 0x0
+#define PSP_HUD_Z 0x0
+#endif
 #endif
 
 ALIGNED8 static const u8 texture_hud_char_star[] = {
@@ -1838,11 +1879,11 @@ const u8 *const main_hud_lut[] = {
     texture_hud_char_4, texture_hud_char_5, texture_hud_char_6, texture_hud_char_7,
     texture_hud_char_8, texture_hud_char_9, texture_hud_char_A, texture_hud_char_B,
     texture_hud_char_C, texture_hud_char_D, texture_hud_char_E, texture_hud_char_F,
-    texture_hud_char_G, texture_hud_char_H, texture_hud_char_I,               0x0,
+    texture_hud_char_G, texture_hud_char_H, texture_hud_char_I,         PSP_HUD_J,
     texture_hud_char_K, texture_hud_char_L, texture_hud_char_M, texture_hud_char_N,
-    texture_hud_char_O, texture_hud_char_P,               0x0, texture_hud_char_R,
+    texture_hud_char_O, texture_hud_char_P,         PSP_HUD_Q, texture_hud_char_R,
     texture_hud_char_S, texture_hud_char_T, texture_hud_char_U, texture_hud_char_V,
-    texture_hud_char_W,               0x0, texture_hud_char_Y, texture_hud_char_Z,
+    texture_hud_char_W,         PSP_HUD_X, texture_hud_char_Y, texture_hud_char_Z,
                   0x0,               0x0,               0x0,               0x0,
                   0x0,               0x0,               0x0,               0x0,
                   0x0,               0x0,               0x0,               0x0,
@@ -1854,11 +1895,11 @@ const u8 *const main_hud_lut[] = {
     texture_hud_char_4, texture_hud_char_5, texture_hud_char_6, texture_hud_char_7,
     texture_hud_char_8, texture_hud_char_9, texture_hud_char_A, texture_hud_char_B,
     texture_hud_char_C, texture_hud_char_D, texture_hud_char_E, texture_hud_char_F,
-    texture_hud_char_G, texture_hud_char_H, texture_hud_char_I,               0x0,
+    texture_hud_char_G, texture_hud_char_H, texture_hud_char_I,         PSP_HUD_J,
     texture_hud_char_K, texture_hud_char_L, texture_hud_char_M, texture_hud_char_N,
-    texture_hud_char_O, texture_hud_char_P,               0x0, texture_hud_char_R,
-    texture_hud_char_S, texture_hud_char_T, texture_hud_char_U,               0x0,
-    texture_hud_char_W,               0x0, texture_hud_char_Y,               0x0,
+    texture_hud_char_O, texture_hud_char_P,         PSP_HUD_Q, texture_hud_char_R,
+    texture_hud_char_S, texture_hud_char_T, texture_hud_char_U,         PSP_HUD_V,
+    texture_hud_char_W,         PSP_HUD_X, texture_hud_char_Y,         PSP_HUD_Z,
                   0x0,               0x0,               0x0,               0x0,
                   0x0,               0x0,               0x0,               0x0,
                   0x0,               0x0,               0x0,               0x0,
@@ -1883,6 +1924,17 @@ const u8 *const main_hud_lut[] = {
     texture_hud_char_apostrophe, texture_hud_char_double_quote,
 #endif
 };
+
+#if defined(TARGET_PSP) && (defined(VERSION_US) || defined(VERSION_EU))
+/* PSP: the US and European dialog fonts have no slash ('/' came out as a space: the game's texts use code 0xD0 as a wide space); this one, drawn for the port
+ * in the style of the font, takes the unused code 0xD3 */
+ALIGNED8 static const u8 texture_font_char_custom_slash[] = {
+#include "textures/segment2/custom_font_slash.ia4.inc.c"
+};
+#define PSP_FONT_SLASH texture_font_char_custom_slash
+#else
+#define PSP_FONT_SLASH 0x0
+#endif
 
 // Main small font print table 0x02008338-0x02008737
 const u8 *const main_font_lut[] = {
@@ -1923,7 +1975,7 @@ const u8 *const main_font_lut[] = {
     0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
     0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
     0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+    0x0           , 0x0, 0x0, PSP_FONT_SLASH, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
     0x0,
     texture_font_char_eu_open_parentheses,
     texture_font_char_eu_close_open_parentheses,
@@ -2006,7 +2058,7 @@ const u8 *const main_font_lut[] = {
                   0x0,               0x0,               0x0,               0x0,
                   0x0,               0x0,               0x0,               0x0,
                   0x0,               0x0,               0x0,               0x0,
-                  0x0,               0x0,               0x0,               0x0,
+                  0x0           ,               0x0,               0x0,               PSP_FONT_SLASH,
                   0x0,               0x0,               0x0,               0x0,
                   0x0,               0x0,               0x0,               0x0,
                   0x0,               0x0,               0x0,               0x0,

@@ -694,18 +694,30 @@ Gfx *geo_mirror_mario_backface_culling(s32 callContext, struct GraphNode *node, 
 
     if (callContext == GEO_CONTEXT_RENDER && (gCurGraphNodeObject == &gMirrorMario || gCurGraphNodeObject == &gMirrorRemote)) {
         u32 layer;
-        gfx = alloc_display_list(3 * sizeof(*gfx));
+        gfx = alloc_display_list(4 * sizeof(*gfx));
 
         /* bit 0: 0 = before the body, 1 = after it. Bits 2 and up (sm64coopdx's Luigi model): the layer this node is for, one node per layer, so the
-         * culling is turned around in the translucent and alpha layers too (Mario's model only has the opaque one: its parameters are 0 and 1). */
+         * culling is turned around in the translucent and alpha layers too (Mario's model only has the opaque one: its parameters are 0 and 1).
+         * PSP: bit 0x8 marks the reflection for the renderer, which then also turns around the culling changes of the model's own materials (gfx_pc.c,
+         * G_PSP_MIRROR): the extra characters turn back-face culling off and on again around their double-sided parts. */
         if ((asGenerated->parameter & 0x01) == 0) {
             gSPClearGeometryMode(&gfx[0], G_CULL_BACK);
             gSPSetGeometryMode(&gfx[1], G_CULL_FRONT);
-            gSPEndDisplayList(&gfx[2]);
+#ifdef TARGET_PSP
+            gSPSetGeometryMode(&gfx[2], 0x00000008);
+#else
+            gSPNoOp(&gfx[2]);
+#endif
+            gSPEndDisplayList(&gfx[3]);
         } else {
-            gSPClearGeometryMode(&gfx[0], G_CULL_FRONT);
-            gSPSetGeometryMode(&gfx[1], G_CULL_BACK);
-            gSPEndDisplayList(&gfx[2]);
+#ifdef TARGET_PSP
+            gSPClearGeometryMode(&gfx[0], 0x00000008);
+#else
+            gSPNoOp(&gfx[0]);
+#endif
+            gSPClearGeometryMode(&gfx[1], G_CULL_FRONT);
+            gSPSetGeometryMode(&gfx[2], G_CULL_BACK);
+            gSPEndDisplayList(&gfx[3]);
         }
         layer = ((asGenerated->parameter & 0x02) == 2) ? LAYER_TRANSPARENT : LAYER_OPAQUE;
         if ((asGenerated->parameter & 0xFC) != 0) {

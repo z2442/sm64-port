@@ -861,8 +861,8 @@ static struct Object *sBubble; /* the bubble around this player (bhvBubblePlayer
 
 s32 mario_can_bubble(struct MarioState *m) {
     float pos[3];
-    if (m != gMarioState || m->action == ACT_BUBBLED || m->numLives <= 0) {
-        return FALSE;
+    if (m != gMarioState || m->action == ACT_BUBBLED || m->numLives <= 0 || !psp_np_room_setting(PSP_NP_SET_BUBBLE)) {
+        return FALSE; /* (the room's Bubble On Death rule: off, a death is a normal death) */
     }
     return psp_np_world_rescuer(pos);
 }

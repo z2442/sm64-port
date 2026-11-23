@@ -772,6 +772,7 @@ const GeoLayout toad_player_geo[] = {
         GEO_OPEN_NODE(),
             GEO_SCALE(LAYER_FORCE, 4096),
             GEO_OPEN_NODE(),
+                GEO_ASM(0, geo_psp_toad_palette), /* (Blue / Yellow Toad: before everything else of the model) */
                 GEO_ASM(LAYER_OPAQUE << 2, geo_mirror_mario_backface_culling),
                 GEO_ASM(LAYER_ALPHA << 2, geo_mirror_mario_backface_culling),
                 GEO_ASM(LAYER_TRANSPARENT << 2, geo_mirror_mario_backface_culling),

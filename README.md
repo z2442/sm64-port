@@ -14,6 +14,7 @@ and the PSP port by [z2442](https://github.com/z2442/sm64-port).
 - All settings live in **one readable text file**, `sm64config.txt`, that you can also edit by hand.
 - Progress is saved on the Memory Stick like a normal PSP game.
 - **Four versions from the same code**: US, JP, EU (English, French and German, with the PAL layout adapted to the PSP's 16:9 screen) and Shindou (experimental). See [Supported versions](#supported-versions).
+- **WLAN multiplayer for 2 players** (PSP ad hoc, no router or internet), in the style of sm64coopdx, with Mario, Luigi, Blue Toad, Yellow Toad, Waluigi and Wario. See [Multiplayer (WLAN)](#multiplayer-wlan).
 
 > **This repository does not contain the game's data.** You need your **own copy of the Super Mario 64 ROM** of the version you want,
 > which the build process turns into the PSP version. No ROM is included and none will be provided.
@@ -245,22 +246,39 @@ You can change all of these in the Options menu.
 ### The Options menu
 
 1. Press **Start** to pause the game.
-2. Press **R** (the pause screen shows "**R Options**" at the bottom right).
+2. Press **R** (the pause screen shows "**R: Options**" at the bottom right).
 
 | Buttons | Action |
 |---|---|
 | D-pad / stick **up–down** | Move between options |
-| D-pad **left–right** or **✕** | Change the value / enter a page |
-| **□** or **○** | Go back |
+| D-pad **left–right** or **A** | Change the value / enter a page |
+| **B** | Go back |
 | **Start** or **R** | Close the menu (and save everything) |
+
+A, B, R and Start are the game's buttons: the menu follows your control settings (by default A is **✕** and B is **□**).
 
 **Pages**
 
 - **Graphics** — FPS Limit (30 / 60), Frame Pacing (*Keep FPS* / *Keep Speed*), Object Distance and Far Distance (100 %–300 %),
   Object Culling (*Original* / *Vertical*), FPS Counter, Show Sound CPU, **TV Settings** (sub-page, needs a video cable: see section 3: TV Output (*Off* / *240p* / *480i* / *480p*; applied right away; only 480p asks you to confirm), TV Aspect (*4:3* / *16:9*), TV Width and TV Height (*60%* to *100%*), TV Vertical Shift, Reset TV Settings), Reset to Defaults.
 - **Audio** — Music Volume and Effects Volume, from 0 to 100 (100 is the game's original loudness), and Sound Mode: Stereo, Mono or Headset. Sound Mode is the same setting as the one in the file-select screen (it is saved in the save file, so changing it in either place changes both).
-- **Controls** — choose a button and press **✕**; the screen says "Press a button" — press the PSP button you want (it waits about 5 seconds).
+- **Controls** — choose a button and press **A**; the screen says "Press a button" — press the PSP button you want (it waits about 5 seconds).
   If that button was already used by another action, the two are swapped. Also Stick Deadzone and Reset to Defaults.
+- **Exit to Title** (last row of the first page) — goes back to Mario's head, the screen the game starts on. Press **A** once and again to confirm. It is grey inside a multiplayer room (leave the room first).
+
+### Multiplayer (WLAN)
+
+Two PSPs can play together over the PSP's own wireless connection (ad hoc: no router and no internet), in the style of sm64coopdx: each player moves freely and can be in a different level.
+
+1. Turn on the **WLAN switch** on both consoles (with it off, the menu does not open).
+2. On the file-select screen press **SELECT** to open the **Multiplayer** menu. Choose your **Character** there: Mario, Luigi, Blue Toad, Yellow Toad, Waluigi or Wario (two players cannot use the same one). Your name is the PSP's nickname.
+3. One player chooses **Host a Game**, sets the room rules (Nametags, Player Interaction, Knockback, On Star Collection, Bubble On Death, Skip Intro) and then picks the save file to play with.
+4. The other player chooses **Join a Game** and picks the room from the list (it shows the host's nickname and the players).
+
+- Up to **2 players**. Multiplayer always runs at 30 FPS.
+- The room uses the **host's save file**: progress is saved there. The client plays on a copy kept in memory, and the client's own save files are not changed.
+- **Both players need the same version (US / JP / EU / SH) and the same release.** A room from another version or release is listed as *Other version* and cannot be joined.
+- During the game, **Start → R: Options → Multiplayer** shows the room rules (read-only) and has **Leave Room**. If the connection is lost or the host closes the room, the client goes back to the file select with a notice.
 
 ### Where things are saved
 
@@ -420,13 +438,13 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 - **z2442's Ocarina of Time port (oot-PSP) and Daedalus** — the TV-output helper module (`psp/dvemgr`) is adapted from the one in the OoT port, which in turn follows the video-out method used by the Daedalus N64 emulator for the PSP.
 - **ghurone / Sonic-R-PSP** — the ideas of the cached vertex arena and of letting the GE do the lateral clipping, and the compiler-flag hint, come from their Sonic R port for the PSP.
 - **beckerd ([psp_mk64_portable](https://github.com/beckerd/psp_mk64_portable)) and JustKidding23 ([Ocarina-of-Time-PSP](https://github.com/JustKidding23/Ocarina-of-Time-PSP), based on [z2442/oot-PSP](https://github.com/z2442/oot-PSP))** — the idea of shipping no game data and building it on the PSP, from the player's own ROM, the first time the game is launched comes from these two PSP ports (Mario Kart 64 and Ocarina of Time). The installer in this repository (`psp/installer/`) is a separate implementation: it rebuilds `SM64.PRX` from a template and a manifest instead.
-- **sm64coopdx / sm64ex-coop** — reference for the multiplayer feature's synchronization design (multiplayer is disabled in this release), and source of the character assets adapted for this port (Luigi, Toad, Waluigi and Wario): models and textures, HUD heads, sound banks and voice samples. The voice lines are credited there to Andrat (Luigi, also used for Waluigi), Dark the Eagle (Wario) and Ninten_King_64 (Toad). sm64coopdx builds on sm64ex-coop (djoslin0 and contributors) and DynOS (PeachyPeach). These assets belong to their respective authors.
-- **Claude (Anthropic)** — AI assistant that wrote or helped write most of the later code changes of this port: the 60 fps adaptation and frame pacing, the rendering and GE optimizations, the options menu, the JP/EU/SH version support and the documentation.
+- **sm64coopdx / sm64ex-coop** — reference for the multiplayer feature's design (synchronization, menus, notices, room settings), and source of the character assets adapted for this port (Luigi, Toad, Waluigi and Wario): models and textures, HUD heads, sound banks and voice samples. The voice lines are credited there to Andrat (Luigi, also used for Waluigi), Dark the Eagle (Wario) and Ninten_King_64 (Toad). sm64coopdx builds on sm64ex-coop (djoslin0 and contributors) and DynOS (PeachyPeach). These assets belong to their respective authors and are not covered by this project's license; they are included because the multiplayer needs them. sm64coopdx publishes no license for them: if you are one of their authors and want them removed or credited differently, open an issue.
+- **Claude (Anthropic)** — AI assistant that wrote or helped write most of the later code changes of this port: the 60 fps adaptation and frame pacing, the rendering and GE optimizations, the options menu, the JP/EU/SH version support, the WLAN multiplayer, the no-PC installer and the documentation.
 - Everyone else who contributed to the PSP project and everyone listed in this repository's Git history (`git shortlog -sn`).
 
 **Tools used**
 
 - **pspdev** (PSPSDK and the PSP toolchain) to build, and **PPSSPP** to test.
 
-The game's own data (models, textures, music, sounds) is **not** distributed here: it is extracted from the ROM that you provide.
+The game's own data (models, textures, music, sounds) is **not** distributed here: it is extracted from the ROM that you provide. The only game-like assets in the repository and in the releases are the extra multiplayer characters taken from sm64coopdx (see above).
 The repository does include a few Nintendo-derived files that the PSP needs to show the game in its menu (`psp/EBOOT/`: icon, background picture and sound). They are not covered by this project's license and belong to their owners; if you are a rights holder and want them removed, open an issue.

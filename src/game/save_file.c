@@ -684,6 +684,13 @@ void psp_netplay_refresh_hud(void) {
     }
 }
 
+/* The current file goes to the other console (it merges it and sends back what it has that this one lacks): used after the link rebuilt itself. */
+void psp_netplay_share_progress(void) {
+    if (gCurrSaveFileNum >= 1 && gCurrSaveFileNum <= NUM_SAVE_FILES) {
+        psp_netplay_progress_changed(&gSaveBuffer.files[gCurrSaveFileNum - 1][0], sizeof(struct SaveFile));
+    }
+}
+
 /* The client plays with a copy of the host's save file kept only in memory. The save file the host was playing (hostFile) is copied over the one
  * this console has selected, so the rest of the game keeps working with its own file number. Writes go to the in-memory copy (see osEepromLongWrite),
  * never to the Memory Stick. */

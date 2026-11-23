@@ -14,6 +14,7 @@ y en el port a PSP de [z2442](https://github.com/z2442/sm64-port).
 - Todos los ajustes se guardan en **un solo archivo de texto legible**, `sm64config.txt`, que también puedes editar a mano.
 - El progreso se guarda en el Memory Stick como cualquier juego de PSP.
 - **Cuatro versiones con el mismo código**: US, JP, EU (inglés, francés y alemán, con el formato PAL adaptado a la pantalla 16:9 de la PSP) y Shindou (experimental). Mira [Versiones compatibles](#versiones-compatibles).
+- **Multijugador por WLAN para 2 jugadores** (ad hoc de la PSP, sin router ni internet), al estilo de sm64coopdx, con Mario, Luigi, Toad azul, Toad amarillo, Waluigi y Wario. Mira [Multijugador (WLAN)](#multijugador-wlan).
 
 > **Este repositorio NO incluye los datos del juego.** Necesitas **tu propia copia de la ROM de Super Mario 64** de la versión que quieras;
 > el proceso de compilación la convierte en la versión de PSP. No se incluye ninguna ROM ni se va a facilitar.
@@ -245,22 +246,39 @@ Todo esto se puede cambiar en el menú de opciones.
 ### El menú de opciones
 
 1. Pulsa **Start** para pausar el juego.
-2. Pulsa **R** (la pantalla de pausa muestra "**R Options**" abajo a la derecha).
+2. Pulsa **R** (la pantalla de pausa muestra "**R: Options**" abajo a la derecha).
 
 | Botones | Acción |
 |---|---|
 | Cruceta / stick **arriba–abajo** | Moverse entre opciones |
-| Cruceta **izquierda–derecha** o **✕** | Cambiar el valor / entrar a una página |
-| **□** o **○** | Volver |
+| Cruceta **izquierda–derecha** o **A** | Cambiar el valor / entrar a una página |
+| **B** | Volver |
 | **Start** o **R** | Cerrar el menú (y guardar todo) |
+
+A, B, R y Start son los botones del juego: el menú sigue tu configuración de controles (por defecto A es **✕** y B es **□**).
 
 **Páginas**
 
 - **Graphics** — FPS Limit (30 / 60), Frame Pacing (*Keep FPS* / *Keep Speed*), Object Distance y Far Distance (100 %–300 %),
   Object Culling (*Original* / *Vertical*), FPS Counter, Show Sound CPU, **TV Settings** (sub-página, necesita cable de video: ver sección 3: TV Output (*Off* / *240p* / *480i* / *480p*; se aplica al momento; solo el 480p pide confirmar), TV Aspect (*4:3* / *16:9*), TV Width y TV Height (*60%* a *100%*), TV Vertical Shift, Reset TV Settings), Reset to Defaults.
 - **Audio** — Music Volume y Effects Volume, de 0 a 100 (100 es el volumen original del juego), y Sound Mode: Stereo, Mono o Headset. Es el mismo ajuste que el de la pantalla de selección de archivo (se guarda en el archivo de guardado, así que cambiarlo en cualquiera de los dos sitios cambia ambos).
-- **Controls** — elige un botón y pulsa **✕**; la pantalla dice "Press a button": pulsa el botón de la PSP que quieras (espera unos 5 segundos).
+- **Controls** — elige un botón y pulsa **A**; la pantalla dice "Press a button": pulsa el botón de la PSP que quieras (espera unos 5 segundos).
   Si ese botón ya lo usaba otra acción, las dos se intercambian. También Stick Deadzone y Reset to Defaults.
+- **Exit to Title** (última fila de la primera página) — vuelve a la cabeza de Mario, la pantalla con la que arranca el juego. Pulsa **A** una vez y otra más para confirmar. Sale en gris dentro de una sala multijugador (primero sal de la sala).
+
+### Multijugador (WLAN)
+
+Dos PSP pueden jugar juntas por la conexión inalámbrica de la propia PSP (ad hoc: sin router y sin internet), al estilo de sm64coopdx: cada jugador se mueve libremente y puede estar en un nivel distinto.
+
+1. Enciende el **interruptor WLAN** en las dos consolas (si está apagado, el menú no se abre).
+2. En la pantalla de selección de archivo pulsa **SELECT** para abrir el menú **Multiplayer**. Ahí eliges tu **Character**: Mario, Luigi, Toad azul, Toad amarillo, Waluigi o Wario (dos jugadores no pueden usar el mismo). Tu nombre es el apodo de la PSP.
+3. Un jugador elige **Host a Game**, ajusta las reglas de la sala (Nametags, Player Interaction, Knockback, On Star Collection, Bubble On Death, Skip Intro) y luego elige el archivo de guardado con el que jugar.
+4. El otro jugador elige **Join a Game** y escoge la sala de la lista (muestra el apodo del anfitrión y los jugadores).
+
+- Hasta **2 jugadores**. El multijugador va siempre a 30 FPS.
+- La sala usa el **archivo de guardado del anfitrión**: el progreso se guarda ahí. El cliente juega con una copia en memoria y sus propios archivos no cambian.
+- **Los dos jugadores necesitan la misma versión (US / JP / EU / SH) y el mismo release.** Una sala de otra versión o release aparece como *Other version* y no se puede entrar.
+- Durante la partida, **Start → R: Options → Multiplayer** muestra las reglas de la sala (solo lectura) y tiene **Leave Room**. Si se pierde la conexión o el anfitrión cierra la sala, el cliente vuelve a la selección de archivo con un aviso.
 
 ### Dónde se guarda todo
 
@@ -420,13 +438,13 @@ Los pull requests son bienvenidos. Para cambios grandes, abre antes un issue par
 - **El port de Ocarina of Time de z2442 (oot-PSP) y Daedalus** — el módulo auxiliar de salida a TV (`psp/dvemgr`) está adaptado del que lleva el port de OoT, que a su vez sigue el método de salida de video del emulador de N64 Daedalus para la PSP.
 - **ghurone / Sonic-R-PSP** — de su port de Sonic R para PSP salen las ideas de la arena de vértices con caché, de dejar que el GE haga el recorte lateral y la pista sobre las banderas del compilador.
 - **beckerd ([psp_mk64_portable](https://github.com/beckerd/psp_mk64_portable)) y JustKidding23 ([Ocarina-of-Time-PSP](https://github.com/JustKidding23/Ocarina-of-Time-PSP), basado en [z2442/oot-PSP](https://github.com/z2442/oot-PSP))** — la idea de no distribuir datos del juego y construirlos en la propia PSP, desde la ROM del jugador, la primera vez que se abre el juego viene de estos dos ports para PSP (Mario Kart 64 y Ocarina of Time). El instalador de este repositorio (`psp/installer/`) es una implementación aparte: reconstruye `SM64.PRX` a partir de una plantilla y un manifiesto.
-- **sm64coopdx / sm64ex-coop** — referencia para el diseño de sincronización del multijugador (desactivado en esta versión) y origen de los recursos de los personajes adaptados para este port (Luigi, Toad, Waluigi y Wario): modelos y texturas, cabezas del HUD, bancos de sonido y muestras de voz. Las voces se acreditan allí a Andrat (Luigi, también usada para Waluigi), Dark the Eagle (Wario) y Ninten_King_64 (Toad). sm64coopdx se basa en sm64ex-coop (djoslin0 y colaboradores) y DynOS (PeachyPeach). Estos recursos pertenecen a sus respectivos autores.
-- **Claude (Anthropic)** — asistente de IA que escribió o ayudó a escribir la mayor parte de los cambios de código posteriores de este port: la adaptación a 60 fps y el control del ritmo de cuadros, las optimizaciones de renderizado y del GE, el menú de opciones, el soporte de las versiones JP/EU/SH y la documentación.
+- **sm64coopdx / sm64ex-coop** — referencia para el diseño del multijugador (sincronización, menús, avisos, ajustes de sala) y origen de los recursos de los personajes adaptados para este port (Luigi, Toad, Waluigi y Wario): modelos y texturas, cabezas del HUD, bancos de sonido y muestras de voz. Las voces se acreditan allí a Andrat (Luigi, también usada para Waluigi), Dark the Eagle (Wario) y Ninten_King_64 (Toad). sm64coopdx se basa en sm64ex-coop (djoslin0 y colaboradores) y DynOS (PeachyPeach). Estos recursos pertenecen a sus respectivos autores y no están cubiertos por la licencia de este proyecto; se incluyen porque el multijugador los necesita. sm64coopdx no publica una licencia para ellos: si eres uno de sus autores y quieres que se quiten o se acrediten de otra forma, abre un issue.
+- **Claude (Anthropic)** — asistente de IA que escribió o ayudó a escribir la mayor parte de los cambios de código posteriores de este port: la adaptación a 60 fps y el control del ritmo de cuadros, las optimizaciones de renderizado y del GE, el menú de opciones, el soporte de las versiones JP/EU/SH, el multijugador por WLAN, el instalador sin PC y la documentación.
 - Todos los demás que han colaborado en el proyecto PSP y todos los que aparecen en el historial de Git de este repositorio (`git shortlog -sn`).
 
 **Herramientas usadas**
 
 - **pspdev** (PSPSDK y la cadena de herramientas de PSP) para compilar y **PPSSPP** para probar.
 
-Los datos propios del juego (modelos, texturas, música, sonidos) **no** se distribuyen aquí: se extraen de la ROM que tú aportas.
+Los datos propios del juego (modelos, texturas, música, sonidos) **no** se distribuyen aquí: se extraen de la ROM que tú aportas. Los únicos recursos de ese tipo que hay en el repositorio y en los releases son los personajes extra del multijugador tomados de sm64coopdx (ver arriba).
 El repositorio sí incluye unos pocos archivos derivados de Nintendo que la PSP necesita para mostrar el juego en su menú (`psp/EBOOT/`: icono, imagen de fondo y sonido). No están cubiertos por la licencia de este proyecto y pertenecen a sus dueños; si eres titular de los derechos y quieres que se retiren, abre un issue.

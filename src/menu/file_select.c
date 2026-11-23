@@ -1694,9 +1694,15 @@ void handle_controller_cursor_input(void) {
  * and loads it's controller inputs in handle_controller_cursor_input
  * to be usable on the file select.
  */
+#ifdef TARGET_PSP
+static int sPspCursorFrozen; /* the Multiplayer menu is open: the hand stays where it was, drawn under the menu, and ignores the stick and buttons */
+#endif
 void print_menu_cursor(void) {
     extern int hack_adjust;
 
+#ifdef TARGET_PSP
+    if (!sPspCursorFrozen)
+#endif
     handle_controller_cursor_input();
     create_dl_translation_matrix(MENU_MTX_PUSH, sCursorPos[0] + 160.0f - 5.0 + hack_adjust, sCursorPos[1] + 120.0f - 25.0, 0.0f);
     // Get the right graphic to use for the cursor.
@@ -2836,13 +2842,14 @@ Gfx *geo_file_select_strings_and_menu_cursor(s32 callContext, UNUSED struct Grap
     if (callContext == GEO_CONTEXT_RENDER) {
         print_file_select_strings();
 #ifdef TARGET_PSP
-        /* the Multiplayer menu (SELECT, see lvl_update_obj_and_load_file_selected): while it is open the hand neither moves nor clicks */
-        psp_options_fs_draw();
-        if (psp_options_fs_is_open()) {
-            return NULL;
-        }
-#endif
+        /* the Multiplayer menu (SELECT, see lvl_update_obj_and_load_file_selected): while it is open the hand is frozen in place (neither moves
+         * nor clicks) and is drawn first, so the menu's backdrop covers it like the rest of the screen */
+        sPspCursorFrozen = psp_options_fs_is_open();
         print_menu_cursor();
+        psp_options_fs_draw();
+#else
+        print_menu_cursor();
+#endif
     }
     return NULL;
 }

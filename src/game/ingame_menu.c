@@ -93,7 +93,11 @@ u8 gDialogCharWidths[256] = { // TODO: Is there a way to auto generate this?
 #endif
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+#ifdef TARGET_PSP
+    0,  0,  0,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, /* 0xD3: the slash drawn for the port (bin/segment2.c) */
+#else
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+#endif
 #ifdef VERSION_EU
     7,  5, 10,  5,  9,  8,  4,  0,  0,  0,  0,  5,  5,  6,  5,  0,
 #else

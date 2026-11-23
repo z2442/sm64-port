@@ -1,8 +1,13 @@
 /* Toad's cap (WLAN multiplayer), from sm64coopdx (see CREDITS), converted for the PSP like toad_player */
 /* CAP: Toad's default palette (sm64coopdx palettes/Toad.ini) */
+/* PSP: Blue Toad's spots here, Yellow Toad's in the *_yellow copy (see toad_player/model.inc.c, geo_psp_toad_palette) */
 static const Lights1 toad_cap_part_cap_lights = gdSPDefLights1(
-    0x7f, 0x00, 0x00,
-    0xff, 0x00, 0x00, 0x28, 0x28, 0x28
+    0x08, 0x1e, 0x7f,
+    0x10, 0x3c, 0xff, 0x28, 0x28, 0x28
+);
+static const Lights1 toad_cap_part_cap_lights_yellow = gdSPDefLights1(
+    0x7f, 0x66, 0x00,
+    0xff, 0xcd, 0x00, 0x28, 0x28, 0x28
 );
 
 /* GLOVES: Toad's default palette (sm64coopdx palettes/Toad.ini) */
@@ -419,6 +424,19 @@ const Gfx mat_toad_cap_spots[] = {
     gsSPEndDisplayList(),
 };
 
+const Gfx mat_toad_cap_spots_yellow[] = {
+    gsDPPipeSync(),
+    gsDPSetCombineLERP(TEXEL0, 0, SHADE, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, ENVIRONMENT, 0),
+    gsSPTexture(65535, 65535, 0, 0, 1),
+    gsSPLight(&toad_cap_part_cap_lights_yellow.l, 1), gsSPLight(&toad_cap_part_cap_lights_yellow.a, 2),
+    gsDPSetTextureImage(G_IM_FMT_IA, G_IM_SIZ_16b_LOAD_BLOCK, 1, toad_cap_texture_spots),
+    gsDPSetTile(G_IM_FMT_IA, G_IM_SIZ_16b_LOAD_BLOCK, 0, 0, 7, 0, G_TX_WRAP | G_TX_NOMIRROR, 0, 0, G_TX_WRAP | G_TX_NOMIRROR, 0, 0),
+    gsDPLoadBlock(7, 0, 0, 1023, 256),
+    gsDPSetTile(G_IM_FMT_IA, G_IM_SIZ_16b, 8, 0, 0, 0, G_TX_CLAMP | G_TX_NOMIRROR, 5, 0, G_TX_CLAMP | G_TX_NOMIRROR, 5, 0),
+    gsDPSetTileSize(0, 0, 0, 124, 124),
+    gsSPEndDisplayList(),
+};
+
 const Gfx mat_toad_cap_wing[] = {
     gsDPPipeSync(),
     gsDPSetCombineLERP(0, 0, 0, TEXEL0, TEXEL0, 0, ENVIRONMENT, 0, 0, 0, 0, TEXEL0, TEXEL0, 0, ENVIRONMENT, 0),
@@ -499,6 +517,14 @@ const Gfx toad_cap_mesh_layer_5[] = {
     gsSPDisplayList(mat_toad_cap_base),
     gsSPDisplayList(toad_cap_mesh_layer_1_tri_0),
     gsSPDisplayList(mat_toad_cap_spots),
+    gsSPDisplayList(toad_cap_mesh_layer_5_tri_0),
+    gsSPEndDisplayList(),
+};
+
+const Gfx toad_cap_mesh_layer_5_yellow[] = {
+    gsSPDisplayList(mat_toad_cap_base),
+    gsSPDisplayList(toad_cap_mesh_layer_1_tri_0),
+    gsSPDisplayList(mat_toad_cap_spots_yellow),
     gsSPDisplayList(toad_cap_mesh_layer_5_tri_0),
     gsSPEndDisplayList(),
 };

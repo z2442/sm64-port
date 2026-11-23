@@ -26,7 +26,7 @@ extern u8 gAudioSPTaskYieldBuffer[]; // ucode yield data ptr; only used in JP
 struct SPTask *create_next_audio_frame_task(void);
 void play_sound(s32 soundBits, f32 *pos);
 /* PSP WLAN multiplayer: the characters' voices and the other player's voice (see external.c). The characters, in sm64coopdx's order (CT_*) */
-enum { PSP_CHAR_MARIO, PSP_CHAR_LUIGI, PSP_CHAR_TOAD, PSP_CHAR_WALUIGI, PSP_CHAR_WARIO, PSP_CHAR_COUNT };
+enum { PSP_CHAR_MARIO, PSP_CHAR_LUIGI, PSP_CHAR_TOAD /* Blue Toad */, PSP_CHAR_TOAD_YELLOW, PSP_CHAR_WALUIGI, PSP_CHAR_WARIO, PSP_CHAR_COUNT };
 extern u8 gPspLocalChar;
 extern u8 gPspVoiceNoRemap;
 extern u32 gPspVoiceLast;

@@ -49,6 +49,9 @@ static const LevelScript script_L2[4];
 static const LevelScript script_L3[4];
 static const LevelScript script_L4[4];
 static const LevelScript script_L5[4];
+#ifdef TARGET_PSP
+static const LevelScript script_L6[4];
+#endif
 
 #define STUB_LEVEL(_0, _1, _2, _3, _4, _5, _6, _7, _8)
 #define DEFINE_LEVEL(_0, _1, _2, folder, _4, _5, _6, _7, _8, _9, _10) static const LevelScript script_exec_ ## folder [4 + 1];
@@ -147,6 +150,9 @@ const LevelScript level_main_scripts_entry[] = {
     JUMP_IF(/*op*/ OP_EQ, /*arg*/ -3, script_L4),
     JUMP_IF(/*op*/ OP_EQ, /*arg*/ -8, script_L1),
     JUMP_IF(/*op*/ OP_EQ, /*arg*/ -9, script_L5),
+#ifdef TARGET_PSP
+    JUMP_IF(/*op*/ OP_EQ, /*arg*/ -10, script_L6), /* multiplayer: the client's room ended, straight back to the file select */
+#endif
 };
 
 static const LevelScript script_L1[] = {
@@ -168,6 +174,12 @@ static const LevelScript script_L4[] = {
 static const LevelScript script_L5[] = {
     EXIT_AND_EXECUTE(/*seg*/ 0x14, _introSegmentRomStart, _introSegmentRomEnd, level_intro_entry_4),
 };
+
+#ifdef TARGET_PSP
+static const LevelScript script_L6[] = {
+    EXIT_AND_EXECUTE(/*seg*/ 0x14, _menuSegmentRomStart, _menuSegmentRomEnd, level_main_menu_entry_1),
+};
+#endif
 
 // Include the level jumptable.
 

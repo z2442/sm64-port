@@ -54,7 +54,7 @@ static void *sNetAnimBuf;
 static int sAnimReady;
 static int sLocalChar;  /* the character whose model the local Mario object has (PSP_CHAR_*) */
 /* each character's model (sm64coopdx's characters, PSP_CHAR_* order): they all use Mario's geo callbacks and animations */
-static const int sCharModel[PSP_CHAR_COUNT] = { MODEL_MARIO, MODEL_LUIGI, MODEL_TOAD_PLAYER, MODEL_WALUIGI, MODEL_WARIO };
+static const int sCharModel[PSP_CHAR_COUNT] = { MODEL_MARIO, MODEL_LUIGI, MODEL_TOAD_PLAYER, MODEL_TOAD_PLAYER, MODEL_WALUIGI, MODEL_WARIO }; /* (both Toads: one model, see geo_psp_toad_palette) */
 static int np_char_model(int character) {
     return sCharModel[(character >= 0 && character < PSP_CHAR_COUNT) ? character : PSP_CHAR_MARIO];
 }
@@ -771,6 +771,7 @@ static const int sCharCapModel[PSP_CHAR_COUNT][4] = { /* normal, metal, wing, wi
     { MODEL_MARIOS_CAP, MODEL_MARIOS_METAL_CAP, MODEL_MARIOS_WING_CAP, MODEL_MARIOS_WINGED_METAL_CAP },
     { MODEL_LUIGIS_CAP, MODEL_LUIGIS_METAL_CAP, MODEL_LUIGIS_WING_CAP, MODEL_LUIGIS_WINGED_METAL_CAP },
     { MODEL_TOADS_CAP, MODEL_TOADS_METAL_CAP, MODEL_TOADS_WING_CAP, MODEL_TOADS_WINGED_METAL_CAP },
+    { MODEL_TOADS_CAP, MODEL_TOADS_METAL_CAP, MODEL_TOADS_WING_CAP, MODEL_TOADS_WINGED_METAL_CAP },
     { MODEL_WALUIGIS_CAP, MODEL_WALUIGIS_METAL_CAP, MODEL_WALUIGIS_WING_CAP, MODEL_WALUIGIS_WINGED_METAL_CAP },
     { MODEL_WARIOS_CAP, MODEL_WARIOS_METAL_CAP, MODEL_WARIOS_WING_CAP, MODEL_WARIOS_WINGED_METAL_CAP },
 };
@@ -799,13 +800,77 @@ int psp_np_remote_char(void) {
  * written in the object's unused1 (character + 1) when it took it here; else, the local player's if it is the one without its cap (the other player's
  * otherwise). */
 extern const Gfx mario_cap_seg3_dl_03022F48[], luigi_cap_seg3_dl_03022F48[], waluigi_cap_seg3_dl_03022F48[], wario_cap_seg3_dl_03022F48[];
-extern const Gfx toad_cap_mesh_layer_1[], toad_cap_mesh_layer_5[], toad_cap_material_revert_render_settings[];
+extern const Gfx toad_cap_mesh_layer_1[], toad_cap_mesh_layer_5[], toad_cap_mesh_layer_5_yellow[], toad_cap_material_revert_render_settings[];
 static const Gfx sToadCapEnemyDl[] = {
     gsSPDisplayList(toad_cap_mesh_layer_1),
     gsSPDisplayList(toad_cap_mesh_layer_5),
     gsSPDisplayList(toad_cap_material_revert_render_settings),
     gsSPEndDisplayList(),
 };
+static const Gfx sToadYellowCapEnemyDl[] = {
+    gsSPDisplayList(toad_cap_mesh_layer_1),
+    gsSPDisplayList(toad_cap_mesh_layer_5_yellow),
+    gsSPDisplayList(toad_cap_material_revert_render_settings),
+    gsSPEndDisplayList(),
+};
+
+/* ---- Blue Toad and Yellow Toad (in place of sm64coopdx's red Toad): one model and one cap model, whose few display lists with the two colors (the
+ * vest, the spots) exist twice. This callback, the first node of those models, points them at the Blue (default) or the Yellow copy before the rest of
+ * the model is drawn: the graph nodes are shared by every object with the model, but each one is drawn right after its own call, so two Toads of
+ * different colors in the same frame each get theirs. ---- */
+extern const Gfx toad_player_Torso_mesh_layer_1[], toad_player_Torso_mesh_layer_1_yellow[], toad_player_cap_decal[], toad_player_cap_decal_yellow[],
+    toad_player_right_hand_cap_decal[], toad_player_right_hand_cap_decal_yellow[];
+static const Gfx *const sToadDl[4][2] = {
+    { toad_player_Torso_mesh_layer_1, toad_player_Torso_mesh_layer_1_yellow },
+    { toad_player_cap_decal, toad_player_cap_decal_yellow },
+    { toad_player_right_hand_cap_decal, toad_player_right_hand_cap_decal_yellow },
+    { toad_cap_mesh_layer_5, toad_cap_mesh_layer_5_yellow },
+};
+
+static void np_toad_swap(struct GraphNode *first, int yellow) {
+    struct GraphNode *n = first;
+    if (n == NULL) {
+        return;
+    }
+    do {
+        if (n->type == GRAPH_NODE_TYPE_DISPLAY_LIST || n->type == GRAPH_NODE_TYPE_ANIMATED_PART) {
+            void **dl = &((struct GraphNodeDisplayList *) n)->displayList; /* (an animated part starts the same way) */
+            int k;
+            for (k = 0; k < 4; k++) {
+                if (*dl == (void *) sToadDl[k][0] || *dl == (void *) sToadDl[k][1]) {
+                    *dl = (void *) sToadDl[k][yellow];
+                    break;
+                }
+            }
+        }
+        np_toad_swap(n->children, yellow);
+        n = n->next;
+    } while (n != first);
+}
+
+/* param 0: a player's model (the local one, or the other player's while psp_np_game_drawing_remote); param 1: a cap object (its owner's character is in
+ * unused1, as the enemies' caps) */
+Gfx *geo_psp_toad_palette(s32 callContext, struct GraphNode *node, UNUSED Mat4 *mtx) {
+    int c;
+    if (callContext != GEO_CONTEXT_RENDER || node->parent == NULL) {
+        return NULL;
+    }
+    if (((struct GraphNodeGenerated *) node)->parameter == 0) {
+        c = psp_np_game_drawing_remote() ? psp_np_remote_char() : gPspLocalChar;
+    } else {
+        const struct Object *o = (const struct Object *) gCurGraphNodeObject;
+        c = (o != NULL && o->unused1 > 0 && o->unused1 <= PSP_CHAR_COUNT) ? (int) o->unused1 - 1 : PSP_CHAR_TOAD;
+    }
+    np_toad_swap(node->parent->children, c == PSP_CHAR_TOAD_YELLOW);
+    return NULL;
+}
+
+/* A cap object was just made for this character (psp_np_cap_model): which Toad it belongs to is kept in it */
+void psp_np_cap_owner(struct Object *cap, int character) {
+    if (cap != NULL && character >= 0 && character < PSP_CHAR_COUNT) {
+        cap->unused1 = (u32) character + 1;
+    }
+}
 int psp_np_enemy_cap_char(struct Object *o) {
     int c;
     if (o != NULL && o->unused1 > 0 && o->unused1 <= PSP_CHAR_COUNT) {
@@ -819,15 +884,15 @@ int psp_np_enemy_cap_char(struct Object *o) {
 }
 
 Gfx *geo_psp_enemy_cap(s32 callContext, struct GraphNode *node, UNUSED Mat4 *mtx) {
-    static const Gfx *const sDl[PSP_CHAR_COUNT] = { mario_cap_seg3_dl_03022F48, luigi_cap_seg3_dl_03022F48, sToadCapEnemyDl, waluigi_cap_seg3_dl_03022F48,
-                                                    wario_cap_seg3_dl_03022F48 };
+    static const Gfx *const sDl[PSP_CHAR_COUNT] = { mario_cap_seg3_dl_03022F48, luigi_cap_seg3_dl_03022F48, sToadCapEnemyDl, sToadYellowCapEnemyDl,
+                                                    waluigi_cap_seg3_dl_03022F48, wario_cap_seg3_dl_03022F48 };
     struct GraphNodeGenerated *gen = (struct GraphNodeGenerated *) node;
     int c;
     if (callContext != GEO_CONTEXT_RENDER) {
         return NULL;
     }
     c = psp_np_enemy_cap_char((struct Object *) gCurGraphNodeObject);
-    gen->fnNode.node.flags = (gen->fnNode.node.flags & 0xFF) | ((c == PSP_CHAR_TOAD ? LAYER_ALPHA : LAYER_OPAQUE) << 8);
+    gen->fnNode.node.flags = (gen->fnNode.node.flags & 0xFF) | (((c == PSP_CHAR_TOAD || c == PSP_CHAR_TOAD_YELLOW) ? LAYER_ALPHA : LAYER_OPAQUE) << 8);
     return (Gfx *) sDl[c];
 }
 

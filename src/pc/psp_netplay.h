@@ -35,6 +35,28 @@ enum {
     PSP_NP_ROOM_OTHER,   /* another version of the game (region or multiplayer protocol): it cannot be joined */
     PSP_NP_ROOM_SILENT   /* it did not answer (it closed, or it is out of range) */
 };
+/* The room's rules, chosen by the host on the file select before opening it (sm64coopdx's host settings) and sent to the client when it joins: the
+ * two consoles always play by the host's. Packed 4 bits each (psp_options_np_host_settings), read with psp_np_room_setting. */
+enum {
+    PSP_NP_SET_NAMETAGS,  /* 0 off, 1 on */
+    PSP_NP_SET_INTERACT,  /* 0 non-solid, 1 solid (they push and knock each other back, no damage), 2 friendly fire (PvP) */
+    PSP_NP_SET_KNOCKBACK, /* 0 weak, 1 normal, 2 too much (sm64coopdx: 10, 25, 60) */
+    PSP_NP_SET_STAR,      /* 0 leave level, 1 stay in level, 2 non-stop */
+    PSP_NP_SET_BUBBLE,    /* 0 off, 1 on (bubble on death) */
+    PSP_NP_SET_SKIPINTRO, /* 0 off, 1 on (no Lakitu opening on a new file) */
+    PSP_NP_SET_COUNT
+};
+#define PSP_NP_SET_DEFAULTS ((1u << 0) | (2u << 4) | (1u << 8) | (0u << 12) | (1u << 16) | (0u << 20)) /* (as vanilla as it gets: the intro plays) */
+unsigned int psp_options_np_host_settings(void); /* game/psp_options.c: the host settings chosen on the file select */
+
+/* Why a room ended (psp_np_hud_room_ended shows it as sm64coopdx's "Disconnected: ..." notices). */
+enum {
+    PSP_NP_END_LEFT,   /* this player chose Leave: no notice */
+    PSP_NP_END_CLOSED, /* the host closed the room (sm64coopdx: "Server closed") */
+    PSP_NP_END_LOST,   /* the other console stopped answering / the radio link could not be rebuilt */
+    PSP_NP_END_WLAN,   /* the WLAN switch was turned off */
+    PSP_NP_END_ERROR   /* any other failure of the network */
+};
 typedef struct {
     char name[24];      /* the host's nickname (UTF-8), "" if unknown */
     unsigned char status, character, players, maxPlayers;
@@ -114,6 +136,7 @@ void psp_np_game_apply(const PspNpPlayer *in);
 void psp_np_game_remove_remote(void);
 void psp_np_game_keep_local_char(int character); /* PSP_CHAR_*: the local player's model and voice (Mario outside a room) */
 int psp_np_cap_model(int character, int model);  /* one of Mario's cap models as that character's cap (sm64coopdx capModelId...) */
+void psp_np_cap_owner(struct Object *cap, int character); /* (the cap object just made for that character: Blue / Yellow Toad's colors) */
 int psp_np_remote_char(void);                    /* the other player's character (PSP_CHAR_*) */
 struct Object;
 int psp_np_enemy_cap_char(struct Object *o);     /* whose cap (character) an enemy that took one holds */
@@ -130,6 +153,10 @@ void psp_np_hud_link(int up);                                 /* the other playe
 void psp_np_hud_peer_place(int known, int level, int area, int act); /* where the other player is (every frame while linked) */
 int psp_np_hud_peer_act(int course, int *peerChar);           /* the act the other player is in if it is in that course, else 0 */
 void psp_np_hud_draw(void);                                   /* once per drawn frame, at the end of the display list */
+void psp_np_hud_room_ended(int reason);                       /* the room this console was playing in is over (PSP_NP_END_*) */
+void psp_np_hud_notice(int kind);                             /* a notice of the game itself (PSP_NP_NOTE_*) */
+#define PSP_NP_NOTE_WLAN_OFF 1                                /* "Turn the WLAN switch on" (the file select's Multiplayer menu) */
+void psp_np_go_to_file_select(void);                          /* game/level_update.c: back to the file select as soon as a level is running */
 void psp_np_hud_patch(void);                                  /* between the two frames of a 60 fps tick (interpolation) */
 
 /* World events (stage 1 of the world sync, like PACKET_COLLECT_COIN / COLLECT_STAR / COLLECT_ITEM of sm64coopdx): what one player picks up
@@ -229,6 +256,12 @@ void psp_netplay_browse(void); /* starts looking at the rooms around (or looks a
 int psp_netplay_rooms(PspNpRoom *out, int max, int *busy); /* copies the list, returns how many; *busy = still searching / reading */
 void psp_netplay_join_room(int index); /* joins that room of the list (and, if the link is lost, only that one again) */
 int psp_netplay_state(void);
+int psp_netplay_in_room(void);        /* hosting, joining or playing in a room (also while the link is being rebuilt by itself) */
+int psp_np_room_setting(int which);   /* PSP_NP_SET_*: the value the room plays with (outside a room: the default) */
+int psp_netplay_is_host(void);        /* (only meaningful while in a room) */
+int psp_netplay_wlan_on(void);        /* the WLAN switch is on */
+const char *psp_netplay_peer_name(void); /* the other player's nickname (UTF-8), "" if unknown */
+const char *psp_netplay_my_name(void);   /* this console's nickname (UTF-8) */
 const char *psp_netplay_status(void); /* short text for the menu (English; it is a status line) */
 int psp_netplay_rtt_ms(void);         /* last round trip time, -1 if unknown */
 
@@ -260,6 +293,13 @@ static inline void psp_netplay_browse(void) {}
 static inline int psp_netplay_rooms(PspNpRoom *out, int max, int *busy) { (void) out; (void) max; if (busy) *busy = 0; return 0; }
 static inline void psp_netplay_join_room(int index) { (void) index; }
 static inline int psp_netplay_state(void) { return PSP_NP_OFF; }
+static inline int psp_netplay_in_room(void) { return 0; }
+static inline int psp_np_room_setting(int which) { return (int) ((PSP_NP_SET_DEFAULTS >> (4 * which)) & 15u); }
+static inline int psp_netplay_is_host(void) { return 0; }
+static inline int psp_netplay_wlan_on(void) { return 0; }
+static inline const char *psp_netplay_peer_name(void) { return ""; }
+static inline const char *psp_netplay_my_name(void) { return ""; }
+static inline void psp_np_go_to_file_select(void) {}
 static inline const char *psp_netplay_status(void) { return ""; }
 static inline int psp_netplay_rtt_ms(void) { return -1; }
 static inline void psp_netplay_frame(void) {}
@@ -272,6 +312,8 @@ static inline void psp_netplay_shutdown(void) {}
 static inline unsigned int psp_netplay_suspend(void) { return 0x80000000u; }
 static inline void psp_np_hud_draw(void) {}
 static inline int psp_np_cap_model(int character, int model) { (void) character; return model; }
+struct Object;
+static inline void psp_np_cap_owner(struct Object *cap, int character) { (void) cap; (void) character; }
 static inline int psp_np_remote_char(void) { return 0; }
 static inline int psp_np_enemy_cap_char(struct Object *o) { (void) o; return 0; }
 static inline int psp_np_hud_peer_act(int course, int *peerChar) { (void) course; (void) peerChar; return 0; }

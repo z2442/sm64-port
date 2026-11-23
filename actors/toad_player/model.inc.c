@@ -5,9 +5,16 @@ static const Lights1 toad_player_part_pants_lights = gdSPDefLights1(
     0xff, 0xff, 0xff, 0x28, 0x28, 0x28
 );
 
+/* PSP: two Toads instead of sm64coopdx's red one, as Nintendo draws them: Blue Toad (these lights: blue spots, blue vest) and Yellow Toad (the *_yellow
+ * copies below: yellow spots, yellow vest). One model: geo_psp_toad_palette (psp_netplay_game.c) points the few display lists that use these two colors at
+ * the right copy before each Toad is drawn. */
 static const Lights1 toad_player_part_shirt_lights = gdSPDefLights1(
-    0x25, 0x15, 0x69,
-    0x4c, 0x2c, 0xd3, 0x28, 0x28, 0x28
+    0x0a, 0x1c, 0x7a,
+    0x14, 0x38, 0xf5, 0x28, 0x28, 0x28
+);
+static const Lights1 toad_player_part_shirt_lights_yellow = gdSPDefLights1(
+    0x7d, 0x64, 0x0a,
+    0xfa, 0xc8, 0x14, 0x28, 0x28, 0x28
 );
 
 static const Lights1 toad_player_part_gloves_lights = gdSPDefLights1(
@@ -31,8 +38,12 @@ static const Lights1 toad_player_part_skin_lights = gdSPDefLights1(
 );
 
 static const Lights1 toad_player_part_cap_lights = gdSPDefLights1(
-    0x7f, 0x00, 0x00,
-    0xff, 0x00, 0x00, 0x28, 0x28, 0x28
+    0x08, 0x1e, 0x7f,
+    0x10, 0x3c, 0xff, 0x28, 0x28, 0x28
+);
+static const Lights1 toad_player_part_cap_lights_yellow = gdSPDefLights1(
+    0x7f, 0x66, 0x00,
+    0xff, 0xcd, 0x00, 0x28, 0x28, 0x28
 );
 
 static const Lights1 toad_player_part_emblem_lights = gdSPDefLights1(
@@ -1945,6 +1956,15 @@ const Gfx mat_toad_player_vest[] = {
     gsSPEndDisplayList(),
 };
 
+const Gfx mat_toad_player_vest_yellow[] = {
+    gsDPPipeSync(),
+    gsDPSetCombineLERP(0, 0, 0, SHADE, 0, 0, 0, ENVIRONMENT, 0, 0, 0, SHADE, 0, 0, 0, ENVIRONMENT),
+    gsSPGeometryMode(G_CULL_BACK, 0),
+    gsSPTexture(65535, 65535, 0, 0, 1),
+    gsSPLight(&toad_player_part_shirt_lights_yellow.l, 1), gsSPLight(&toad_player_part_shirt_lights_yellow.a, 2),
+    gsSPEndDisplayList(),
+};
+
 const Gfx mat_revert_toad_player_vest[] = {
     gsDPPipeSync(),
     gsSPGeometryMode(0, G_CULL_BACK),
@@ -2004,6 +2024,19 @@ const Gfx mat_toad_player_cap_spots[] = {
     gsDPSetCombineLERP(TEXEL0, 0, SHADE, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, ENVIRONMENT, 0),
     gsSPTexture(65535, 65535, 0, 0, 1),
     gsSPLight(&toad_player_part_cap_lights.l, 1), gsSPLight(&toad_player_part_cap_lights.a, 2),
+    gsDPSetTextureImage(G_IM_FMT_IA, G_IM_SIZ_16b_LOAD_BLOCK, 1, toad_player_texture_spots),
+    gsDPSetTile(G_IM_FMT_IA, G_IM_SIZ_16b_LOAD_BLOCK, 0, 0, 7, 0, G_TX_WRAP | G_TX_NOMIRROR, 0, 0, G_TX_WRAP | G_TX_NOMIRROR, 0, 0),
+    gsDPLoadBlock(7, 0, 0, 1023, 256),
+    gsDPSetTile(G_IM_FMT_IA, G_IM_SIZ_16b, 8, 0, 0, 0, G_TX_CLAMP | G_TX_NOMIRROR, 5, 0, G_TX_CLAMP | G_TX_NOMIRROR, 5, 0),
+    gsDPSetTileSize(0, 0, 0, 124, 124),
+    gsSPEndDisplayList(),
+};
+
+const Gfx mat_toad_player_cap_spots_yellow[] = {
+    gsDPPipeSync(),
+    gsDPSetCombineLERP(TEXEL0, 0, SHADE, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, ENVIRONMENT, 0),
+    gsSPTexture(65535, 65535, 0, 0, 1),
+    gsSPLight(&toad_player_part_cap_lights_yellow.l, 1), gsSPLight(&toad_player_part_cap_lights_yellow.a, 2),
     gsDPSetTextureImage(G_IM_FMT_IA, G_IM_SIZ_16b_LOAD_BLOCK, 1, toad_player_texture_spots),
     gsDPSetTile(G_IM_FMT_IA, G_IM_SIZ_16b_LOAD_BLOCK, 0, 0, 7, 0, G_TX_WRAP | G_TX_NOMIRROR, 0, 0, G_TX_WRAP | G_TX_NOMIRROR, 0, 0),
     gsDPLoadBlock(7, 0, 0, 1023, 256),
@@ -2244,6 +2277,17 @@ const Gfx toad_player_Torso_mesh_layer_1[] = {
     gsSPEndDisplayList(),
 };
 
+const Gfx toad_player_Torso_mesh_layer_1_yellow[] = {
+    gsSPDisplayList(mat_toad_player_white),
+    gsSPDisplayList(toad_player_Torso_mesh_layer_1_tri_0),
+    gsSPDisplayList(mat_toad_player_beige),
+    gsSPDisplayList(toad_player_Torso_mesh_layer_1_tri_1),
+    gsSPDisplayList(mat_toad_player_vest_yellow),
+    gsSPDisplayList(toad_player_Torso_mesh_layer_1_tri_2),
+    gsSPDisplayList(mat_revert_toad_player_vest),
+    gsSPEndDisplayList(),
+};
+
 const Gfx toad_player_Torso_mesh_layer_1_mat_override_metal_0[] = {
     gsSPDisplayList(mat_toad_player_metal),
     gsSPDisplayList(toad_player_Torso_mesh_layer_1_tri_0),
@@ -2263,6 +2307,12 @@ const Gfx toad_player_cap_base[] = {
 
 const Gfx toad_player_cap_decal[] = {
     gsSPDisplayList(mat_toad_player_cap_spots),
+    gsSPDisplayList(toad_player_Cap_DL_mesh_layer_4_tri_0),
+    gsSPEndDisplayList(),
+};
+
+const Gfx toad_player_cap_decal_yellow[] = {
+    gsSPDisplayList(mat_toad_player_cap_spots_yellow),
     gsSPDisplayList(toad_player_Cap_DL_mesh_layer_4_tri_0),
     gsSPEndDisplayList(),
 };
@@ -2502,6 +2552,14 @@ const Gfx toad_player_right_hand_cap_decal[] = {
     gsSPDisplayList(mat_toad_player_cap_base),
     gsSPDisplayList(toad_player_Right_Hand_Switch_Option_Right_Hand_Cap_mesh_layer_4_tri_0),
     gsSPDisplayList(mat_toad_player_cap_spots),
+    gsSPDisplayList(toad_player_Right_Hand_Switch_Option_Right_Hand_Cap_mesh_layer_4_tri_0),
+    gsSPEndDisplayList(),
+};
+
+const Gfx toad_player_right_hand_cap_decal_yellow[] = {
+    gsSPDisplayList(mat_toad_player_cap_base),
+    gsSPDisplayList(toad_player_Right_Hand_Switch_Option_Right_Hand_Cap_mesh_layer_4_tri_0),
+    gsSPDisplayList(mat_toad_player_cap_spots_yellow),
     gsSPDisplayList(toad_player_Right_Hand_Switch_Option_Right_Hand_Cap_mesh_layer_4_tri_0),
     gsSPEndDisplayList(),
 };

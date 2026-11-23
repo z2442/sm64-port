@@ -24,12 +24,12 @@ TARGET_WEB ?= 0
 # Build for PSP
 TARGET_PSP ?= 0
 # WLAN multiplayer (src/pc/psp_netplay.c), experimental. PSP_NETPLAY=0 removes the whole feature: nothing is built, linked or shown in
-# the menu. It is ON by default; build with PSP_NETPLAY=0 to leave it out. 'make release' defaults to OFF because the release packer
-# (tools/psp/make_release.py) can only rebuild a sound bank that derives from the ROM, and the Luigi banks do not.
-ifneq ($(filter release,$(MAKECMDGOALS)),)
-PSP_NETPLAY ?= 0
-endif
+# the menu. It is ON by default (also for 'make release': the release packer maps the ROM's sound banks one by one and leaves the
+# characters' own voice banks in the template); build with PSP_NETPLAY=0 to leave it out.
 PSP_NETPLAY ?= 1
+# Multiplayer diagnostic log (src/pc/psp_netplay.c): with PSP_NETLOG=1 every connection status change is written to ms0:/sm64_net.txt.
+# OFF by default: normal builds and releases write no log.
+PSP_NETLOG ?= 0
 # Sleep measurement (src/pc/psp_powerlog.c): with PSP_POWERLOG=1 every console sleep / wake-up is written to ms0:/sm64_power.txt (power notices, video, ME,
 # audio). OFF by default: it is a diagnostic build, not for releases.
 PSP_POWERLOG ?= 0
@@ -544,7 +544,7 @@ ifeq ($(TARGET_PSP),1)
   PSP_PREFIX    = $(shell psp-config -P)
   # Notes from neo
   #-gdwarf-2 -gstrict-dwarf -g3 --ffunction-sections -fdata-sections -Wl,-gc-sections
-  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_NETPLAY=$(PSP_NETPLAY) -DPSP_POWERLOG=$(PSP_POWERLOG) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_NETPLAY=$(PSP_NETPLAY) -DPSP_POWERLOG=$(PSP_POWERLOG) -DPSP_NETLOG=$(PSP_NETLOG) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
   PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -Wl,-u,sm64PspDveImport -Wl,-u,sm64PspCrashImport -lme-core
   
   ifeq ($(PROFILE_PSP),1)
@@ -723,7 +723,8 @@ LUIGI_TEXTURES := $(patsubst actors/luigi/%.png,$(BUILD_DIR)/actors/luigi/%.inc.
 # (and the other sm64coopdx characters)
 LUIGI_TEXTURES += $(foreach c,wario waluigi toad_player,$(patsubst actors/$(c)/%.png,$(BUILD_DIR)/actors/$(c)/%.inc.c,$(wildcard actors/$(c)/*.png)))
 $(BUILD_DIR)/actors/group0.o: $(LUIGI_TEXTURES)
-$(BUILD_DIR)/bin/segment2.o: $(foreach c,luigi toad waluigi wario,$(BUILD_DIR)/textures/segment2/custom_$(c)_head.rgba16.inc.c)
+# (every custom_* texture of segment2: the character heads, the HUD letters and the slash of the dialog font from sm64coopdx / the port)
+$(BUILD_DIR)/bin/segment2.o: $(patsubst textures/segment2/%.png,$(BUILD_DIR)/textures/segment2/%.inc.c,$(wildcard textures/segment2/custom_*.png))
 
 ################################################################
 # TEXTURE GENERATION                                           #
@@ -810,6 +811,11 @@ $(O_FILES): $(BUILD_DIR)/powerlog.mode
 $(BUILD_DIR)/powerlog.mode: FORCE
 	@mkdir -p $(dir $@)
 	@echo $(PSP_POWERLOG) | cmp -s - $@ || echo $(PSP_POWERLOG) > $@
+# (and for PSP_NETLOG, which only changes src/pc/psp_netplay.c)
+$(BUILD_DIR)/src/pc/psp_netplay.o: $(BUILD_DIR)/netlog.mode
+$(BUILD_DIR)/netlog.mode: FORCE
+	@mkdir -p $(dir $@)
+	@echo $(PSP_NETLOG) | cmp -s - $@ || echo $(PSP_NETLOG) > $@
 endif
 $(SOUND_BIN_DIR)/netplay.mode: FORCE
 	@mkdir -p $(dir $@)
@@ -980,7 +986,7 @@ ifeq ($(TARGET_PSP),1)
 # The port's version, shown by the XMB (Triangle > Information) for the EBOOT: change it here for each release (`make ... PORT_VERSION=x.y.z`
 # overrides it). It goes into PARAM.SFO as APP_VER "0X.YZ" and DISC_VERSION "X.YZ": the XMB has two digits after the point (minor and patch,
 # 9 at most each), so 1.2.0 shows as 01.20. (Not VERSION: that one is the game's region, us/jp/eu/sh.)
-PORT_VERSION ?= 1.2.0
+PORT_VERSION ?= 1.3.0
 PORT_VERSION_XYZ := $(shell echo '$(PORT_VERSION)' | sed 's/[-+].*//')
 SFO_VERSION = $(shell echo '$(PORT_VERSION_XYZ)' | awk -F. '{m=$$2>9?9:$$2;p=$$3>9?9:$$3;printf "$(1)",$$1,m,p}')
 SFOFLAGS := -s APP_VER=$(call SFO_VERSION,%02d.%d%d) -s DISC_VERSION=$(call SFO_VERSION,%d.%d%d)

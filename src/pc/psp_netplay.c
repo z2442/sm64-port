@@ -41,6 +41,7 @@ extern void save_file_load_all(void);
 extern void psp_netplay_adopt_host_save(int hostFile); /* game/save_file.c */
 extern int psp_netplay_merge_progress(const void *data, int size); /* game/save_file.c */
 extern void psp_netplay_refresh_hud(void);                         /* game/save_file.c */
+extern void psp_netplay_share_progress(void);                      /* game/save_file.c: sends the current file's progress to the other console */
 extern int psp_options_np_character(void);                         /* game/psp_options.c: the character chosen on the Multiplayer page */
 extern void psp_options_np_character_bump(int taken);              /* game/psp_options.c: the client moves off the host's character */
 
@@ -74,7 +75,7 @@ typedef struct {
 
 /* The payload of ADV. NP_PROTO changes whenever the packets change in a way the other side would misread: rooms of another protocol (or another region of
  * the game) are listed but cannot be joined. */
-#define NP_PROTO 1
+#define NP_PROTO 2 /* 2: WELCOME carries the host settings */
 typedef struct {
     uint8_t proto, region, players, maxPlayers, character, pad[3];
     char name[PSP_NP_NAME_BYTES];
@@ -167,6 +168,15 @@ static int sProgInSeq = -1;
 static uint32_t sTRecovered; /* when the last automatic restart was issued (late error events of the teardown are not new errors) */
 static int sIgnoredErr; /* radio error events ignored in a row while the link kept working (cleared when the link is stable, see sRetries) */
 static int sRetries; /* automatic restarts in a row (radio error, lost link); cleared once the link has been stable for a while */
+/* The link is being rebuilt by itself (np_recover): the room is not over, so the client keeps playing with the host's save meanwhile instead of
+ * going back to its own. Cleared when the link is up again, when the player leaves and when a failure ends the room for good. */
+static volatile int sRecovering;
+static int sInRecoverLoop; /* (np_fail inside np_recover's own restarts does not end the room yet) */
+static uint32_t sTRecoverStart; /* when the link started rebuilding itself: a client gives up after NP_CLIENT_RECOVER_US */
+#define NP_CLIENT_RECOVER_US 20000000U /* (sm64coopdx's client drops the room after ~22 s of silence) */
+static volatile int sEndReason = PSP_NP_END_ERROR; /* why the last room ended (PSP_NP_END_*) */
+static volatile uint32_t sRoomSet = PSP_NP_SET_DEFAULTS; /* the room's rules (psp_np_room_setting): the host's own, or the ones its WELCOME brought */
+static int sWasInRoom;     /* (game thread) the previous frame was in a room */
 static uint32_t sTConnected; /* when the link last became CONNECTED */
 static uint32_t sTSwitch;
 static int sWlanOffCount;
@@ -245,8 +255,12 @@ static uint8_t sTx[PSP_NP_FLD_BYTES + 64];
 
 /* ------------------------------------------------------------------ helpers */
 
-/* Short diagnostic log (sm64_net.txt in the save folder): every status change with its time, so a failure can be understood afterwards. */
+/* Short diagnostic log (ms0:/sm64_net.txt): every status change with its time, so a failure can be understood afterwards. Only in a diagnostic build
+ * (make ... PSP_NETLOG=1): normal builds and releases write nothing. */
 static void np_log(const char *text) {
+#if !PSP_NETLOG
+    (void) text;
+#else
     char line[112];
     SceUID fd;
     const int n = snprintf(line, sizeof(line), "%8u ms  %s\n", (unsigned int) (sceKernelGetSystemTimeLow() / 1000U), text);
@@ -261,12 +275,14 @@ static void np_log(const char *text) {
         sceIoWrite(fd, line, (n < (int) sizeof(line)) ? n : (int) sizeof(line) - 1);
         sceIoClose(fd);
     }
+#endif
 }
 
 static void np_status(int state, const char *text) {
     sState = state;
     if (state == PSP_NP_CONNECTED) {
         sTConnected = sceKernelGetSystemTimeLow();
+        sRecovering = 0;
     }
     snprintf(sStatus, sizeof(sStatus), "%s", text);
     if (text[0]) {
@@ -381,8 +397,12 @@ static void np_cleanup(void) {
     np_events_reset();
 }
 
-static void np_fail(const char *what, int code) {
+static void np_fail_why(const char *what, int code, int why) {
     char text[64];
+    sEndReason = why;
+    if (!sInRecoverLoop) {
+        sRecovering = 0;
+    }
     if (code != 0) {
         snprintf(text, sizeof(text), "%s (0x%08X)", what, (unsigned int) code);
     } else {
@@ -390,6 +410,10 @@ static void np_fail(const char *what, int code) {
     }
     np_cleanup();
     np_status(PSP_NP_ERROR, text);
+}
+
+static void np_fail(const char *what, int code) {
+    np_fail_why(what, code, PSP_NP_END_ERROR);
 }
 
 /* 0x80110802 / 0x80111102: the module is already loaded (by the system or by someone else): it is used but not unloaded. */
@@ -415,7 +439,7 @@ static int np_open(void) {
         sceKernelDelayThread(150000);
     }
     if (r >= 6) {
-        np_fail("Turn the WLAN switch on", 0);
+        np_fail_why("Turn the WLAN switch on", 0, PSP_NP_END_WLAN);
         return 0;
     }
     np_status(PSP_NP_STARTING, "Loading network modules...");
@@ -564,12 +588,20 @@ static void np_handle_packet(const uint8_t *mac, const uint8_t *data, int len, u
                     np_status(PSP_NP_JOINING, "Player joining, sending the save...");
                 }
                 sTRx = now;
-                np_send(sPeerMac, PK_WELCOME, sHostFile, 0, NULL, 0);
+                {
+                    const uint32_t set = sRoomSet; /* (the room's rules travel with the welcome: the client plays by them) */
+                    np_send(sPeerMac, PK_WELCOME, sHostFile, 0, &set, (int) sizeof(set));
+                }
             }
             break;
         case PK_WELCOME: /* client only */
             if (!sHost && sPeerKnown && !sWelcomed) {
                 sWelcomed = 1;
+                if (plen >= 4) {
+                    uint32_t set;
+                    memcpy(&set, payload, sizeof(set));
+                    sRoomSet = set;
+                }
                 np_events_reset();
                 sClientHostFile = h->a;
                 sChunkMask = 0;
@@ -710,7 +742,7 @@ static void np_handle_packet(const uint8_t *mac, const uint8_t *data, int len, u
                     sAcked = 0;
                     np_status(PSP_NP_HOSTING, "The player left. Waiting for a player...");
                 } else {
-                    np_fail("The host closed the room", 0);
+                    np_fail_why("The host closed the room", 0, PSP_NP_END_CLOSED);
                 }
             }
             break;
@@ -730,6 +762,11 @@ static int np_recover(const char *why) {
     if (sRetries >= NP_RETRIES_MAX) {
         return 0;
     }
+    if (!sRecovering) {
+        sTRecoverStart = sceKernelGetSystemTimeLow();
+    }
+    sRecovering = 1;
+    sInRecoverLoop = 1;
     sRetries++;
     snprintf(msg, sizeof(msg), "%s: reconnecting (%d/%d)", why, sRetries, NP_RETRIES_MAX);
     np_status(PSP_NP_STARTING, msg);
@@ -737,6 +774,7 @@ static int np_recover(const char *why) {
     for (;;) {
         sceKernelDelayThread(800000U + 700000U * (unsigned) sRetries);
         if (sQuit || sReq != REQ_NONE || sState == PSP_NP_OFF) {
+            sInRecoverLoop = 0;
             return 1; /* the player left meanwhile */
         }
         np_take_events(); /* what the teardown itself reported is not a new error */
@@ -749,6 +787,13 @@ static int np_recover(const char *why) {
             break;
         }
         sRetries++; /* even starting again failed (the radio is still busy): wait longer and retry */
+    }
+    sInRecoverLoop = 0;
+    if (sState == PSP_NP_ERROR) {
+        sRecovering = 0; /* it could not even start again: the room is over (np_start_* gave the reason) */
+        if (sEndReason == PSP_NP_END_ERROR) {
+            sEndReason = PSP_NP_END_LOST;
+        }
     }
     sTRecovered = sceKernelGetSystemTimeLow() | 1U; /* (from the moment the restart has been issued) */
     return 1;
@@ -1055,7 +1100,7 @@ static void np_step(void) {
         sTSwitch = now;
         if (sceWlanGetSwitchState() == 0) {
             if (++sWlanOffCount >= 4) { /* ~1 s in a row */
-                np_fail("WLAN switch turned off", 0);
+                np_fail_why("WLAN switch turned off", 0, PSP_NP_END_WLAN);
                 return;
             }
         } else {
@@ -1087,7 +1132,7 @@ static void np_step(void) {
         if (np_recover("radio error")) {
             return;
         }
-        np_fail("Radio error", sEventError);
+        np_fail_why("Radio error", sEventError, PSP_NP_END_LOST);
         return;
     }
     r = sceNetAdhocctlGetState(&group);
@@ -1168,7 +1213,7 @@ static void np_step(void) {
         return;
     } else if (group != 1) {
         if (!np_recover("link lost")) {
-            np_fail("Connection lost", 0);
+            np_fail_why("Connection lost", 0, PSP_NP_END_LOST);
         }
         return;
     }
@@ -1296,8 +1341,9 @@ static void np_step(void) {
             sPeerName[0] = '\0'; /* the next player is somebody else */
             sAcked = 0;
             np_status(PSP_NP_HOSTING, "Player lost. Waiting for a player...");
-        } else if (!np_recover("host silent")) {
-            np_fail("Connection to the host lost", 0);
+        } else {
+            /* like sm64coopdx's client (it drops the room after its timeout, no rejoin): 15 s without a word from the host is the end of the room */
+            np_fail_why("Connection to the host lost", 0, PSP_NP_END_LOST);
         }
     }
 }
@@ -1396,6 +1442,9 @@ static void np_read_names(void) {
 
 void psp_netplay_host(void) {
     if (sState == PSP_NP_OFF || sState == PSP_NP_ERROR) {
+        sRoomSet = psp_options_np_host_settings();
+        sEndReason = PSP_NP_END_ERROR;
+        sRecovering = 0;
         np_read_names();
         sRetries = 0;
         np_status(PSP_NP_STARTING, "Starting...");
@@ -1405,6 +1454,9 @@ void psp_netplay_host(void) {
 
 void psp_netplay_join(void) {
     if (sState == PSP_NP_OFF || sState == PSP_NP_ERROR) {
+        sEndReason = PSP_NP_END_ERROR;
+        sRoomSet = PSP_NP_SET_DEFAULTS; /* (until the host's WELCOME says otherwise) */
+        sRecovering = 0;
         np_read_names();
         sRetries = 0;
         np_status(PSP_NP_STARTING, "Starting...");
@@ -1418,6 +1470,7 @@ void psp_netplay_browse(void) {
         if (sState == PSP_NP_OFF || sState == PSP_NP_ERROR) {
             np_read_names();
             sRetries = 0;
+            sRoomSet = PSP_NP_SET_DEFAULTS; /* (until the host's WELCOME says otherwise) */
             np_status(PSP_NP_STARTING, "Starting...");
         }
         np_request(REQ_BROWSE);
@@ -1449,7 +1502,9 @@ void psp_netplay_join_room(int index) {
 }
 
 void psp_netplay_leave(void) {
+    sRecovering = 0;
     if (sState != PSP_NP_OFF) {
+        sEndReason = PSP_NP_END_LEFT;
         np_status(PSP_NP_OFF, "");
         np_request(REQ_LEAVE);
     }
@@ -1457,6 +1512,35 @@ void psp_netplay_leave(void) {
 
 int psp_netplay_state(void) {
     return sState;
+}
+
+int psp_netplay_in_room(void) {
+    const int st = sState;
+    return st == PSP_NP_HOSTING || st == PSP_NP_JOINING || st == PSP_NP_CONNECTED || (sRecovering && st != PSP_NP_OFF);
+}
+
+int psp_np_room_setting(int which) {
+    const uint32_t set = psp_netplay_in_room() ? sRoomSet : PSP_NP_SET_DEFAULTS;
+    return (which >= 0 && which < PSP_NP_SET_COUNT) ? (int) ((set >> (4 * which)) & 15u) : 0;
+}
+
+int psp_netplay_is_host(void) {
+    return sHost;
+}
+
+int psp_netplay_wlan_on(void) {
+    return sceWlanGetSwitchState() != 0; /* (a negative value is an error of the query, not "off") */
+}
+
+const char *psp_netplay_peer_name(void) {
+    return sPeerName;
+}
+
+const char *psp_netplay_my_name(void) {
+    if (sMyName[0] == '\0') {
+        np_read_names();
+    }
+    return sMyName;
 }
 
 const char *psp_netplay_status(void) {
@@ -1545,20 +1629,47 @@ void psp_netplay_frame(void) {
         sGameActive = 1;
     } else if (sGameActive) {
         psp_np_game_remove_remote();
-        psp_np_game_keep_local_char(0); /* (Mario) */
+        if (!psp_netplay_in_room()) {
+            psp_np_game_keep_local_char(0); /* (Mario) */
+        }
         sPeerChar = 0;
-        psp_np_hud_link(0);
+        psp_np_hud_link(psp_netplay_in_room() ? 0 : -1); /* (the room is over: its own notice replaces "<name> disconnected", as sm64coopdx) */
 #if PSP_NETPLAY_WORLD
         psp_np_world_reset();
 #endif
         sGameActive = 0;
     }
-    if (sOverride && sState != PSP_NP_CONNECTED) {
-        /* the room is over: back to this console's own save file (the one on the Memory Stick was never touched) */
-        sOverride = 0;
+    if (sSaveReady && sOverride && sState == PSP_NP_CONNECTED) {
+        /* the link came back after rebuilding itself: the host sent its save again, but this client kept playing with the first copy (it is not
+         * swapped in twice: that would undo what was done meanwhile). Both sides exchange their progress instead, so they agree again. */
         sSaveReady = 0;
-        save_file_load_all();
-        psp_netplay_refresh_hud();
+        psp_netplay_share_progress();
+    }
+    if (!sHost && sRecovering && sState != PSP_NP_CONNECTED && sceKernelGetSystemTimeLow() - sTRecoverStart >= NP_CLIENT_RECOVER_US) {
+        /* the client could not get the link back in time: the room is over for it (back to the file select, "Connection lost") */
+        sRecovering = 0;
+        sEndReason = PSP_NP_END_LOST;
+        np_status(PSP_NP_OFF, "");
+        np_request(REQ_LEAVE);
+    }
+    {
+        const int inRoom = psp_netplay_in_room();
+        if (sWasInRoom && !inRoom) {
+            /* the room is over (left, closed by the host, lost): a notice like sm64coopdx's, and the client, whose game was the host's save, goes back
+             * to the file select as in sm64coopdx (there, to its main menu) */
+            psp_np_hud_room_ended(sEndReason);
+            if (sOverride) {
+                psp_np_go_to_file_select();
+            }
+        }
+        sWasInRoom = inRoom;
+        if (sOverride && !inRoom) {
+            /* back to this console's own save file (the one on the Memory Stick was never touched) */
+            sOverride = 0;
+            sSaveReady = 0;
+            save_file_load_all();
+            psp_netplay_refresh_hud();
+        }
     }
 }
 

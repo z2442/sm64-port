@@ -932,6 +932,7 @@ static u32 psp_voice_offset(u8 character) {
         case PSP_CHAR_WALUIGI:
             return PSP_LUIGI_VOICE_OFFSET;
         case PSP_CHAR_TOAD:
+        case PSP_CHAR_TOAD_YELLOW:
             return PSP_TOAD_VOICE_OFFSET;
         case PSP_CHAR_WARIO:
             return PSP_WARIO_VOICE_OFFSET;

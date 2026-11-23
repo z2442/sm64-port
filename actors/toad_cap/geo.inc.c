@@ -5,6 +5,7 @@ const GeoLayout toads_cap_geo[] = {
         GEO_OPEN_NODE(),
             GEO_SCALE(LAYER_FORCE, 16384),
             GEO_OPEN_NODE(),
+                GEO_ASM(1, geo_psp_toad_palette), /* (Blue / Yellow Toad's spots) */
                 GEO_ASM(10, geo_update_layer_transparency),
                 GEO_SWITCH_CASE(2, geo_switch_anim_state),
                 GEO_OPEN_NODE(),
@@ -35,6 +36,7 @@ const GeoLayout toads_metal_cap_geo[] = {
         GEO_OPEN_NODE(),
             GEO_SCALE(LAYER_FORCE, 16384),
             GEO_OPEN_NODE(),
+                GEO_ASM(1, geo_psp_toad_palette), /* (Blue / Yellow Toad's spots) */
                 GEO_ASM(10, geo_update_layer_transparency),
                 GEO_SWITCH_CASE(2, geo_switch_anim_state),
                 GEO_OPEN_NODE(),
@@ -63,6 +65,7 @@ const GeoLayout toads_wing_cap_geo[] = {
         GEO_OPEN_NODE(),
             GEO_SCALE(LAYER_FORCE, 16384),
             GEO_OPEN_NODE(),
+                GEO_ASM(1, geo_psp_toad_palette), /* (Blue / Yellow Toad's spots) */
                 GEO_ASM(10, geo_update_layer_transparency),
                 GEO_SWITCH_CASE(2, geo_switch_anim_state),
                 GEO_OPEN_NODE(),
@@ -101,6 +104,7 @@ const GeoLayout toads_winged_metal_cap_geo[] = {
         GEO_OPEN_NODE(),
             GEO_SCALE(LAYER_FORCE, 16384),
             GEO_OPEN_NODE(),
+                GEO_ASM(1, geo_psp_toad_palette), /* (Blue / Yellow Toad's spots) */
                 GEO_ASM(10, geo_update_layer_transparency),
                 GEO_SWITCH_CASE(2, geo_switch_anim_state),
                 GEO_OPEN_NODE(),
