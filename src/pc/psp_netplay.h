@@ -24,6 +24,23 @@ enum {
     PSP_NP_ERROR       /* failed: psp_netplay_status() says why; Leave resets it */
 };
 
+/* The rooms around, as the "Join a Game" list of the file select's Multiplayer menu shows them (psp_netplay_browse / psp_netplay_rooms). A PSP ad-hoc scan only gives
+ * each room's 8 character group name, so the details come from the room itself: the browser joins each one for a moment and reads its host's announcement (ADV). */
+#define PSP_NP_MAX_ROOMS 8
+#define PSP_NP_MAX_PLAYERS 2
+enum {
+    PSP_NP_ROOM_READING, /* not asked yet / being asked */
+    PSP_NP_ROOM_OPEN,    /* it can be joined */
+    PSP_NP_ROOM_FULL,
+    PSP_NP_ROOM_OTHER,   /* another version of the game (region or multiplayer protocol): it cannot be joined */
+    PSP_NP_ROOM_SILENT   /* it did not answer (it closed, or it is out of range) */
+};
+typedef struct {
+    char name[24];      /* the host's nickname (UTF-8), "" if unknown */
+    unsigned char status, character, players, maxPlayers;
+    char region;        /* 'U', 'J', 'E' or 'S' */
+} PspNpRoom;
+
 #if defined(TARGET_PSP) && PSP_NETPLAY
 
 #include <stdint.h>
@@ -207,7 +224,10 @@ void psp_np_world_frame(int peerKnown, int peerLevel, int peerAreaKey, int isHos
 void psp_np_world_reset(void);                                                 /* the link went down */
 void psp_netplay_host(void);
 void psp_netplay_join(void);   /* searches for a room and joins the first one found */
-void psp_netplay_leave(void);  /* leaves the room and goes back to the console's own save file */
+void psp_netplay_leave(void);  /* leaves the room and goes back to the console's own save file (also stops browsing) */
+void psp_netplay_browse(void); /* starts looking at the rooms around (or looks again); the list is read with psp_netplay_rooms */
+int psp_netplay_rooms(PspNpRoom *out, int max, int *busy); /* copies the list, returns how many; *busy = still searching / reading */
+void psp_netplay_join_room(int index); /* joins that room of the list (and, if the link is lost, only that one again) */
 int psp_netplay_state(void);
 const char *psp_netplay_status(void); /* short text for the menu (English; it is a status line) */
 int psp_netplay_rtt_ms(void);         /* last round trip time, -1 if unknown */
@@ -236,6 +256,9 @@ unsigned int psp_netplay_suspend(void);
 static inline void psp_netplay_host(void) {}
 static inline void psp_netplay_join(void) {}
 static inline void psp_netplay_leave(void) {}
+static inline void psp_netplay_browse(void) {}
+static inline int psp_netplay_rooms(PspNpRoom *out, int max, int *busy) { (void) out; (void) max; if (busy) *busy = 0; return 0; }
+static inline void psp_netplay_join_room(int index) { (void) index; }
 static inline int psp_netplay_state(void) { return PSP_NP_OFF; }
 static inline const char *psp_netplay_status(void) { return ""; }
 static inline int psp_netplay_rtt_ms(void) { return -1; }

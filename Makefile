@@ -30,6 +30,9 @@ ifneq ($(filter release,$(MAKECMDGOALS)),)
 PSP_NETPLAY ?= 0
 endif
 PSP_NETPLAY ?= 1
+# Sleep measurement (src/pc/psp_powerlog.c): with PSP_POWERLOG=1 every console sleep / wake-up is written to ms0:/sm64_power.txt (power notices, video, ME,
+# audio). OFF by default: it is a diagnostic build, not for releases.
+PSP_POWERLOG ?= 0
 # Enable gprof profiling for PSP builds (only works with TARGET_PSP=1)
 PROFILE_PSP ?= 0
 # Compiler to use (ido or gcc)
@@ -541,7 +544,7 @@ ifeq ($(TARGET_PSP),1)
   PSP_PREFIX    = $(shell psp-config -P)
   # Notes from neo
   #-gdwarf-2 -gstrict-dwarf -g3 --ffunction-sections -fdata-sections -Wl,-gc-sections
-  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_NETPLAY=$(PSP_NETPLAY) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_NETPLAY=$(PSP_NETPLAY) -DPSP_POWERLOG=$(PSP_POWERLOG) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
   PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -Wl,-u,sm64PspDveImport -Wl,-u,sm64PspCrashImport -lme-core
   
   ifeq ($(PROFILE_PSP),1)
@@ -802,6 +805,11 @@ ifeq ($(TARGET_PSP),1)
 # The code is built differently with and without the WLAN multiplayer too (for example levels/scripts.c loads the other characters' models only
 # with it): when PSP_NETPLAY changes (pbp after release, or the other way round), every object is built again instead of keeping ones of the other mode.
 $(O_FILES) $(GODDARD_O_FILES): $(SOUND_BIN_DIR)/netplay.mode
+# (the same for PSP_POWERLOG: switching it rebuilds the objects, so no file is left built the other way)
+$(O_FILES): $(BUILD_DIR)/powerlog.mode
+$(BUILD_DIR)/powerlog.mode: FORCE
+	@mkdir -p $(dir $@)
+	@echo $(PSP_POWERLOG) | cmp -s - $@ || echo $(PSP_POWERLOG) > $@
 endif
 $(SOUND_BIN_DIR)/netplay.mode: FORCE
 	@mkdir -p $(dir $@)

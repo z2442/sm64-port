@@ -12,6 +12,8 @@
 #include <string.h>
 
 #include "audio_api.h"
+#include "../psp_powerlog.h"
+#include <stdio.h>
 #include "../psp_me.h"
 #include "../psp_watchdog.h"
 
@@ -158,6 +160,7 @@ static int audio_psp_output_thread(SceSize args, void *argp) {
 
         if (!sAudioStarted && (audio_psp_buffered_frames() >= PSP_AUDIO_STARTUP_FRAMES)) {
             sAudioStarted = true;
+            psp_plog("audio output: sound again (ring %u)", (unsigned) audio_psp_buffered_frames());
         }
 
         if (sAudioStarted && (audio_psp_buffered_frames() >= PSP_AUDIO_OUTPUT_FRAMES)) {
@@ -166,14 +169,41 @@ static int audio_psp_output_thread(SceSize args, void *argp) {
             if (sAudioStarted) {
                 sAudioStarted = false;
                 gPspAudUnder++;
+                psp_plog("audio output: ring empty (silence starts)");
             }
             memset(output, 0, sizeof(sAudioOutput[0]));
         }
 
         sceKernelDcacheWritebackRange(output, sizeof(sAudioOutput[0]));
+#if PSP_POWERLOG
+        {
+            static uint32_t sTOut;
+            static int sErrRun;
+            const uint32_t t1 = sceKernelGetSystemTimeLow();
+            const int r = sceAudioSRCOutputBlocking(PSP_AUDIO_VOLUME_MAX, output);
+            const uint32_t t2 = sceKernelGetSystemTimeLow();
+            if (sTOut != 0 && t1 - sTOut > 300000U) {
+                psp_plog("audio output: %u ms since the last block", (unsigned) ((t1 - sTOut) / 1000U));
+            }
+            if (t2 - t1 > 300000U) {
+                psp_plog("audio output: the system held a block %u ms", (unsigned) ((t2 - t1) / 1000U));
+            }
+            sTOut = t2;
+            if (r < 0) {
+                if (sErrRun++ == 0) {
+                    psp_plog("audio output: error 0x%08X", (unsigned) r);
+                }
+                sceKernelDelayThread(PSP_AUDIO_OUTPUT_FRAMES * 1000000U / PSP_AUDIO_FREQUENCY);
+            } else if (sErrRun) {
+                psp_plog("audio output: OK again after %d errors", sErrRun);
+                sErrRun = 0;
+            }
+        }
+#else
         if (sceAudioSRCOutputBlocking(PSP_AUDIO_VOLUME_MAX, output) < 0) {
             sceKernelDelayThread(PSP_AUDIO_OUTPUT_FRAMES * 1000000U / PSP_AUDIO_FREQUENCY);
         }
+#endif
         output_index ^= 1;
     }
 
@@ -210,6 +240,9 @@ void audio_psp_tick_begin(void) {
         const unsigned int now = sceKernelGetSystemTimeLow();
         const unsigned int dt = sTickBeginT ? (now - sTickBeginT) : 0;
         sTickBeginT = now;
+        if (dt > 300000U) {
+            psp_plog("game tick: %u ms since the previous one (ME driven %d, job blocks %d)", dt / 1000U, (int) sAudioMeDriven, sMeJobBlocks);
+        }
         if (dt > PSP_AUDIO_ME_DRAIN_MAX_US) {
             /* pause / load: not learned from */
         } else if (dt > sTickIntervalEst) {
@@ -224,14 +257,17 @@ void audio_psp_tick_begin(void) {
     {
         const int r = psp_me_job_wait();
         if (r == PSP_ME_WAIT_BUSY) {
+            psp_plog("audio: ME job still busy (ring %u)", (unsigned) audio_psp_buffered_frames());
             return; /* slow ME: the audio is not touched and no other job is sent; it is looked at again on the next tick */
         }
         if (r == PSP_ME_WAIT_STALE) {
+            psp_plog("audio: ME job finished late, dropped");
             sMeJobBlocks = 0; /* finished late: that audio is no longer useful, but the ME is free again */
             return;
         }
         if (r != PSP_ME_WAIT_DONE) {
             /* the ME failed: the producer thread takes synthesis back on the CPU */
+            psp_plog("audio: ME -> CPU (job wait %d, ring %u)", r, (unsigned) audio_psp_buffered_frames());
             sMeJobBlocks = 0;
             sAudioMeDriven = false;
             return;
@@ -284,6 +320,7 @@ void audio_psp_tick_end(void) {
     if (psp_me_job_start(sAudioGenerate, sMeJobFrames, blocks)) {
         sMeJobBlocks = blocks;
     } else {
+        psp_plog("audio: ME -> CPU (the ME refused a job, ring %u)", (unsigned) audio_psp_buffered_frames());
         sAudioMeDriven = false; /* the ME is not ready: synthesis on the CPU */
     }
 }
@@ -300,6 +337,7 @@ static int audio_psp_producer_thread(SceSize args, void *argp) {
         /* after the console resumes the ME is ready again: the audio is given back to it here, between two syntheses of this thread, so that the CPU and the ME never
          * work at the same time on the audio state (the next job is sent by the main thread in audio_psp_tick_end) */
         if (!sAudioMeDriven && sMeJobBlocks <= 0 && psp_me_take_resumed()) {
+            psp_plog("audio: CPU -> ME (ring %u)", (unsigned) audio_psp_buffered_frames());
             sAudioMeDriven = true;
         }
         if (sAudioMeDriven) {
@@ -323,6 +361,15 @@ static int audio_psp_producer_thread(SceSize args, void *argp) {
     sceKernelExitDeleteThread(0);
     return 0;
 }
+
+#if PSP_POWERLOG
+/* the audio state, for the samples of the sleep measurement (psp_powerlog.c) */
+int audio_psp_plog_state(char *buf, int n) {
+    extern unsigned int gGlobalTimer;
+    return snprintf(buf, (size_t) n, "ring %4u playing %d ME %d job %d cpu blocks %u dropouts %u game frame %u processAudio %d", (unsigned) audio_psp_buffered_frames(),
+                    (int) sAudioStarted, (int) sAudioMeDriven, sMeJobBlocks, gPspAudCpuN, gPspAudUnder, (unsigned) gGlobalTimer, (int) gProcessAudio);
+}
+#endif
 
 static bool audio_psp_init(void) {
     if (sAudioChannelReady) {

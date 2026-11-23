@@ -105,7 +105,8 @@ static const u8 sPgMain[] = { ROW_VIDEO, ROW_AUDIO, ROW_CONTROLS
     , ROW_NETPAGE
 #endif
 };
-static const u8 sPgNet[] = { ROW_NETHOST, ROW_NETJOIN, OPT_NETCHAR, ROW_NETLEAVE };
+/* (rooms are hosted and joined from the file select's Multiplayer menu, SELECT: here only the character and leaving the room are left) */
+static const u8 sPgNet[] = { OPT_NETCHAR, ROW_NETLEAVE };
 static const u8 sPgAudio[] = { ROW_MUSIC, ROW_SFX, ROW_SOUNDMODE, ROW_AUDRESET };
 static const u8 sPgVideo[] = { OPT_FPSCAP, OPT_PACING, OPT_OBJDIST, OPT_FARDIST, OPT_CULLOBJ, OPT_SHOWFPS, OPT_SOUNDCPU, ROW_TVPAGE, OPT_RESET };
 static const u8 sPgTv[] = { OPT_TVOUT, OPT_TVASPECT, OPT_TVAREA, OPT_TVAREAY, OPT_TVSHIFT, ROW_TVRESET };
@@ -407,7 +408,7 @@ static const char *const sTrCull[2][LANG_COUNT] = {
 };
 static const char *const sTrUp[LANG_COUNT] = TR("Up", "Haut", "Hoch", "ウエ");
 static const char *const sTrDown[LANG_COUNT] = TR("Down", "Bas", "Runter", "シタ");
-static const char *const sTrTvReset[LANG_COUNT] = TR("Reset TV Settings", "Réinit. réglages TV", "TV zurücksetzen", "TVセッテイヲショキカ");
+static const char *const sTrTvReset[LANG_COUNT] = TR("Reset TV Settings", "Réinit. réglages TV", "TV zurücksetzen", "TVセッテイをショキカ");
 static const char *const sTrTvSafe[LANG_COUNT] = TR("Safe mode", "Mode sûr", "Sicherer Modus", "アンゼン");
 static const char *const sTrTvNoSupport[LANG_COUNT] = TR("Not supported", "Non compatible", "Nicht unterstützt", "ヒタイオウ");
 static const char *const sTrTvHelp[LANG_COUNT] = TR("L: Reconnect TV", "L: Reconnecter la TV", "L: TV neu verbinden", "L: TVサイセツゾク");
@@ -1154,6 +1155,8 @@ static void psp_opt_mask_disp(unsigned int mask, char *out, int max) {
 
 #if defined(VERSION_JP) || defined(VERSION_SH)
 /* game font codes for the kana U+3041..U+30FF (0 = does not exist); they come from charmap.txt */
+/* (careful: some codes exist in charmap.txt but have no glyph in the font, and drawing one closes the game. The katakana wo is one of them: Japanese
+ * texts use the hiragana wo instead, as the game's own dialogs do) */
 static const u8 sKana[191] = {
     0xA5, 0x40, 0xA6, 0x41, 0xA7, 0x42, 0xA0, 0x43, 0xA8, 0x44, 0x45, 0x00,
     0x46, 0x00, 0x47, 0x00, 0x48, 0x00, 0x49, 0x00, 0x4A, 0x00, 0x4B, 0x00,
@@ -1614,7 +1617,7 @@ void psp_options_pause_prompt(void) {
 /* HOME with the TV active: the system HOME is blocked (the firmware dialog comes out deformed on the TV and leaving through it closes the console badly). So that it does not look
  * like the button is not responding: Lakitu's "the camera cannot move any further" buzz plays and for a few seconds a notice at the bottom center says the TV must be turned off to exit. */
 extern int gfx_scegu_tv_is_on(void);
-static const char *const sTrTvHome[LANG_COUNT] = TR("Turn TV Output Off to exit", "Désactivez la sortie TV pour quitter", "TV-Ausgabe ausschalten zum Beenden", "TVヲ オフニ シテクダサイ");
+static const char *const sTrTvHome[LANG_COUNT] = TR("Turn TV Output Off to exit", "Désactivez la sortie TV pour quitter", "TV-Ausgabe ausschalten zum Beenden", "TVを オフニ シテクダサイ");
 static unsigned int sHomePrev;
 static unsigned long long sHomeUntil;
 
@@ -1669,7 +1672,7 @@ static const char *const sTrNpNotice[NPN_COUNT][LANG_COUNT] = {
     TR("%s connected", "%s s'est connecté", "%s ist beigetreten", "%s ガ サンカシマシタ"),
     TR("%s disconnected", "%s s'est déconnecté", "%s hat das Spiel verlassen", "%s ガ タイシュツシマシタ"),
     TR("%s entered this level", "%s a rejoint ce niveau", "%s hat dieses Level betreten", "%s ガ コノコースニ キマシタ"),
-    TR("%s left this level", "%s a quitté ce niveau", "%s hat dieses Level verlassen", "%s ガ コノコースヲ デマシタ"),
+    TR("%s left this level", "%s a quitté ce niveau", "%s hat dieses Level verlassen", "%s ガ コノコースを デマシタ"),
     TR("%s entered", "%s est entré dans", "%s betritt", "%s ガ イドウシマシタ"),
 };
 /* the castle has no course name: inside, grounds, courtyard */
@@ -2274,6 +2277,375 @@ int psp_options_pause_frame(int can_open) {
     psp_opt_draw();
     return 1;
 }
+
+/* ------------------------------------------------------------------ the file select's Multiplayer menu (SELECT)
+ *
+ * Rooms are hosted and joined here, before a game is loaded (in the pause menu's Multiplayer page only the character and "Leave" are left):
+ *  - Host a Game: back to the file select; the room opens when a file is picked, and that file is the room's (the one the other player gets).
+ *  - Join a Game: the rooms around are listed with their host's nickname and character, the players and the version (see psp_netplay_browse); picking one
+ *    joins it and, once the host's save file has arrived, the game starts with it.
+ *  - Character: the one this player plays as. */
+#if PSP_NETPLAY
+enum { FS_MAIN, FS_ROOMS, FS_JOINING };
+static int sFsOpen, sFsScreen, sFsSel, sFsScroll, sFsHostPending, sFsStart, sFsWaitRelease;
+static unsigned int sFsPrevRaw;
+static int sFsPrevY, sFsTimeY, sFsPrevX, sFsTimeX;
+static PspNpRoom sFsRooms[PSP_NP_MAX_ROOMS];
+static int sFsRoomCount, sFsBusy;
+
+static const char *const sTrFs[13][LANG_COUNT] = {
+    TR("SELECT: Multiplayer", "SELECT : En ligne", "SELECT: Mehrspieler", "セレクト: オンライン"),
+    TR("Host: pick a file to open the room", "Hôte : choisis un fichier", "Host: Datei wählen", "ホスト: ファイルを エラブ"),
+    TR("Cancel Hosting", "Annuler", "Hosten abbrechen", "ホストを ヤメル"),
+    TR("Reading...", "Lecture...", "Wird gelesen...", "ヨミコミチュウ"),
+    TR("Full", "Complet", "Voll", "マンイン"),
+    TR("Other version", "Autre version", "Andere Version", "チガウ バージョン"),
+    TR("No answer", "Pas de réponse", "Keine Antwort", "ヘンジナシ"),
+    TR("No rooms found", "Aucune partie", "Keine Spiele", "ヘヤガ ミツカリマセン"),
+    TR("Triangle: Search again", "Triangle : Chercher", "Dreieck: Neu suchen", "サンカク: サガシナオス"),
+    TR("Room", "Partie", "Raum", "ヘヤ"),
+    TR("Looking for rooms...", "Recherche...", "Suche...", "サガシテイマス"),
+    TR("In a room", "Dans une partie", "Im Raum", "ヘヤニ イマス"),
+    TR("%d of %d", "%d sur %d", "%d von %d", "%d/%d"), /* players (the slash of the dialog font only exists in Japanese) */
+};
+static const char *const sFsRegion[4][2] = { { "U", "US" }, { "J", "JP" }, { "E", "EU" }, { "S", "SH" } };
+
+/* left-aligned text (psp_opt_text centers it) */
+static void psp_fs_text_left(s16 x, s16 y, const char *txt) {
+    u8 buf[96];
+    psp_opt_str(buf, txt, sizeof(buf));
+    gDPSetEnvColor(gDisplayListHead++, 0, 0, 0, 255);
+    print_generic_string(x + 1, y - 1, buf);
+    gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
+    print_generic_string(x, y, buf);
+}
+
+static int psp_fs_in_room(void) {
+    const int st = psp_netplay_state();
+    return st == PSP_NP_HOSTING || st == PSP_NP_JOINING || st == PSP_NP_CONNECTED;
+}
+
+/* the main screen's rows: 0 = Host a Game / Cancel Hosting / Leave, 1 = Join a Game, 2 = Character */
+static const char *psp_fs_main_label(int row) {
+    if (row == 0) {
+        return psp_fs_in_room() ? LT(sTrNet[3]) : (sFsHostPending ? LT(sTrFs[2]) : LT(sTrNet[1]));
+    }
+    return (row == 1) ? LT(sTrNet[2]) : psp_opt_label(OPT_NETCHAR);
+}
+
+static void psp_fs_title(const char *t) {
+    u8 title[48];
+    psp_opt_str(title, t, sizeof(title));
+    if (psp_opt_lang() == LANG_JP) {
+        const f32 sc = 1.8f;
+        const s16 tx = 160 - (s16) ((f32) psp_opt_width(title) * sc * 0.5f);
+        int k;
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+        for (k = 0; k < 2; k++) {
+            gDPSetEnvColor(gDisplayListHead++, k ? 255 : 0, k ? 255 : 0, k ? 255 : 0, 255);
+            create_dl_translation_matrix(MENU_MTX_PUSH, tx + (k ? 0 : 1), 174 + (k ? 0 : -1), 0.0f);
+            create_dl_scale_matrix(MENU_MTX_NOPUSH, sc, sc, 1.0f);
+            print_generic_string(0, 0, title);
+            gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
+        }
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+    } else {
+        gSPDisplayList(gDisplayListHead++, dl_rgba16_text_begin);
+        gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
+        print_hud_lut_string(HUD_LUT_GLOBAL, 160 - (int) strlen(t) * 6, 40, title);
+        gSPDisplayList(gDisplayListHead++, dl_rgba16_text_end);
+    }
+}
+
+/* a room of the list: its host's nickname, then its character, players and version (or why it cannot be joined) */
+static void psp_fs_room_lines(const PspNpRoom *r, char *l1, int n1, char *l2, int n2) {
+    const char *reg = "?";
+    int k;
+    for (k = 0; k < 4; k++) {
+        if (r->region == sFsRegion[k][0][0]) {
+            reg = sFsRegion[k][1];
+        }
+    }
+    snprintf(l1, (size_t) n1, "%s", r->name[0] ? r->name : LT(sTrFs[9]));
+    switch (r->status) {
+        case PSP_NP_ROOM_READING: snprintf(l2, (size_t) n2, "%s", LT(sTrFs[3])); break;
+        case PSP_NP_ROOM_SILENT: snprintf(l2, (size_t) n2, "%s", LT(sTrFs[6])); break;
+        case PSP_NP_ROOM_OTHER: snprintf(l2, (size_t) n2, "%s", LT(sTrFs[5])); break;
+        default: {
+            char pl[24];
+            snprintf(pl, sizeof(pl), LT(sTrFs[12]), r->players, r->maxPlayers);
+            snprintf(l2, (size_t) n2, "%s - %s - %s%s%s", (r->character < PSP_CHAR_COUNT) ? sCharTxt[r->character] : "?", pl, reg,
+                     (r->status == PSP_NP_ROOM_FULL) ? " - " : "", (r->status == PSP_NP_ROOM_FULL) ? LT(sTrFs[4]) : "");
+            break;
+        }
+    }
+}
+
+static void psp_fs_draw_menu(void);
+static void psp_fs_draw(void) {
+    /* the file select draws with the depth test on (its background is a 3D plane): without turning it off the dark box ends up behind it */
+    gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER);
+    psp_opt_box(GFX_DIMENSIONS_FROM_LEFT_EDGE(0), SCREEN_HEIGHT, GFX_DIMENSIONS_FROM_RIGHT_EDGE(0) - GFX_DIMENSIONS_FROM_LEFT_EDGE(0), SCREEN_HEIGHT, 0, 0, 0, 200);
+    psp_fs_draw_menu();
+    gSPSetGeometryMode(gDisplayListHead++, G_ZBUFFER);
+}
+static void psp_fs_draw_menu(void) {
+    int i;
+    if (sFsScreen == FS_MAIN) {
+        psp_fs_title(LT(sTrTitle[PG_NET]));
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+        for (i = 0; i < 3; i++) {
+            const int y = 140 - 32 * i;
+            const int grey = (i == 1 && psp_fs_in_room());
+            const int col = grey ? 2 : ((i == sFsSel) ? 1 : 0);
+            if (i < 2) {
+                psp_opt_text(160, y - 6, psp_fs_main_label(i), col);
+            } else {
+                psp_opt_text(160, y, psp_fs_main_label(i), col);
+                psp_opt_text(160, y - 13, psp_opt_value_text(OPT_NETCHAR), col);
+            }
+        }
+        if (sFsSel == 2) {
+            const int ay = 140 - 32 * 2 - 13;
+#if !defined(VERSION_JP) && !defined(VERSION_SH)
+            u8 l[8], r[8];
+            psp_opt_str(l, "<", sizeof(l));
+            psp_opt_str(r, ">", sizeof(r));
+            gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
+            if (psp_opt_can_dec(OPT_NETCHAR)) print_generic_string(88, ay, l);
+            if (psp_opt_can_inc(OPT_NETCHAR)) print_generic_string(222, ay, r);
+#else
+            (void) ay;
+#endif
+        }
+        psp_opt_text(48, 14, LT(sTrBack), 0);
+        if (psp_fs_in_room() || psp_netplay_state() == PSP_NP_ERROR) {
+            char nb[72];
+            snprintf(nb, sizeof(nb), "%.60s", psp_netplay_status());
+            psp_opt_text(170, 14, nb, 0);
+        }
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+#if defined(VERSION_JP) || defined(VERSION_SH)
+        if (sFsSel == 2) {
+            const int ay = 140 - 32 * 2 - 13 + 12;
+            if (psp_opt_can_dec(OPT_NETCHAR)) psp_opt_tri(0, 88, ay);
+            if (psp_opt_can_inc(OPT_NETCHAR)) psp_opt_tri(1, 222, ay);
+        }
+#endif
+        return;
+    }
+
+    psp_fs_title(LT(sTrTitle[PG_NET])); /* (not "Join a Game": the color font has no J, and a missing letter is a missing texture) */
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+    psp_opt_text(160, 166, LT(sTrNet[2]), 0);
+    if (sFsScreen == FS_JOINING) {
+        char nb[72];
+        snprintf(nb, sizeof(nb), "%.60s", psp_netplay_status());
+        psp_opt_text(160, 110, nb, (psp_netplay_state() == PSP_NP_ERROR) ? 1 : 0);
+        psp_opt_text(48, 14, LT(sTrBack), 0);
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+        return;
+    }
+    if (sFsRoomCount == 0) {
+        psp_opt_text(160, 110, sFsBusy ? LT(sTrFs[10]) : ((psp_netplay_state() == PSP_NP_ERROR) ? psp_netplay_status() : LT(sTrFs[7])),
+                     (psp_netplay_state() == PSP_NP_ERROR) ? 1 : 0);
+    }
+    for (i = sFsScroll; i < sFsScroll + 4 && i < sFsRoomCount; i++) {
+        char l1[40], l2[64];
+        const int y = 140 - 32 * (i - sFsScroll);
+        const int col = (sFsRooms[i].status != PSP_NP_ROOM_OPEN) ? 2 : ((i == sFsSel) ? 1 : 0);
+        psp_fs_room_lines(&sFsRooms[i], l1, (int) sizeof(l1), l2, (int) sizeof(l2));
+        psp_opt_text(160, y, l1, (i == sFsSel) ? 1 : col);
+        psp_opt_text(160, y - 13, l2, (i == sFsSel) ? 1 : col);
+    }
+    psp_opt_text(48, 14, LT(sTrBack), 0);
+    psp_opt_text(200, 14, sFsBusy ? LT(sTrFs[10]) : LT(sTrFs[8]), 0);
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+}
+
+static void psp_fs_close(void) {
+    sFsOpen = 0;
+    sFsWaitRelease = 1; /* the button that closed it must not also click on the file under the hand */
+    play_sound(SOUND_MENU_CAMERA_ZOOM_OUT, gDefaultSoundArgs);
+}
+
+/* 1 while the menu is open (or its closing button is still held): the file select then neither moves its hand nor takes its buttons */
+int psp_options_fs_is_open(void) {
+    return sFsOpen || sFsWaitRelease;
+}
+
+/* Once per game tick of the file select (lvl_update_obj_and_load_file_selected; the buttons are read here and not when drawing: a frame that is not drawn
+ * would lose a press). can_open: the file select is on its main screen with nothing selected. */
+void psp_options_fs_update(int can_open) {
+    const unsigned int raw = gPspRawButtons;
+    const unsigned int pressed = raw & ~sFsPrevRaw;
+    int dy, dx;
+
+    psp_options_poll();
+    sFsPrevRaw = raw;
+    sFsRoomCount = psp_netplay_rooms(sFsRooms, PSP_NP_MAX_ROOMS, &sFsBusy);
+    if (sFsWaitRelease && !(raw & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE | PSP_CTRL_SQUARE | PSP_CTRL_START | PSP_CTRL_SELECT))) {
+        sFsWaitRelease = 0;
+    }
+
+    if (!sFsOpen) {
+        if (can_open && !sFsWaitRelease && (pressed & PSP_CTRL_SELECT)) {
+            sFsOpen = 1;
+            sFsScreen = FS_MAIN;
+            sFsSel = 0;
+            sFsScroll = 0;
+            sFsPrevX = sFsPrevY = sFsTimeX = sFsTimeY = 0;
+            play_sound(SOUND_MENU_CAMERA_ZOOM_IN, gDefaultSoundArgs);
+        }
+        return;
+    }
+
+    dy = dx = 0;
+    if (gPspRawStickY > 50 || (raw & PSP_CTRL_UP)) dy = -1;
+    if (gPspRawStickY < -50 || (raw & PSP_CTRL_DOWN)) dy = 1;
+    if (gPspRawStickX > 50 || (raw & PSP_CTRL_RIGHT)) dx = 1;
+    if (gPspRawStickX < -50 || (raw & PSP_CTRL_LEFT)) dx = -1;
+    dy = psp_opt_repeat(dy, &sFsPrevY, &sFsTimeY);
+    dx = psp_opt_repeat(dx, &sFsPrevX, &sFsTimeX);
+
+    if (sFsScreen == FS_MAIN) {
+        if (pressed & (PSP_CTRL_SQUARE | PSP_CTRL_CIRCLE | PSP_CTRL_SELECT | PSP_CTRL_START)) {
+            psp_fs_close();
+            return;
+        }
+        if (dy != 0) {
+            int ns = sFsSel + dy;
+            if (ns == 1 && psp_fs_in_room()) {
+                ns += dy; /* (Join is greyed out while in a room) */
+            }
+            if (ns >= 0 && ns <= 2) {
+                sFsSel = ns;
+                play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+            }
+        }
+        if (dx != 0 && sFsSel == 2) {
+            psp_opt_change(OPT_NETCHAR, dx, 0);
+        }
+        if (pressed & PSP_CTRL_CROSS) {
+            if (sFsSel == 0) {
+                if (psp_fs_in_room()) {
+                    psp_netplay_leave();
+                } else {
+                    sFsHostPending = !sFsHostPending; /* the room opens when a file is picked (psp_options_fs_file_chosen) */
+                }
+                play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
+                if (sFsHostPending) {
+                    psp_fs_close();
+                    return;
+                }
+            } else if (sFsSel == 1 && !psp_fs_in_room()) {
+                sFsHostPending = 0;
+                sFsScreen = FS_ROOMS;
+                sFsSel = 0;
+                sFsScroll = 0;
+                psp_netplay_browse();
+                play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
+            } else if (sFsSel == 2) {
+                psp_opt_change(OPT_NETCHAR, 1, 0);
+            } else {
+                play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+            }
+        }
+    } else if (sFsScreen == FS_ROOMS) {
+        if (pressed & (PSP_CTRL_SQUARE | PSP_CTRL_CIRCLE | PSP_CTRL_SELECT)) {
+            psp_netplay_leave(); /* (stops browsing) */
+            sFsScreen = FS_MAIN;
+            sFsSel = 1;
+            play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+        } else {
+            if (sFsSel >= sFsRoomCount) {
+                sFsSel = (sFsRoomCount > 0) ? sFsRoomCount - 1 : 0;
+            }
+            if (dy != 0 && sFsSel + dy >= 0 && sFsSel + dy < sFsRoomCount) {
+                sFsSel += dy;
+                if (sFsSel < sFsScroll) {
+                    sFsScroll = sFsSel;
+                } else if (sFsSel > sFsScroll + 3) {
+                    sFsScroll = sFsSel - 3;
+                }
+                play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+            }
+            if (pressed & PSP_CTRL_TRIANGLE) {
+                if (!sFsBusy) {
+                    sFsSel = sFsScroll = 0;
+                    psp_netplay_browse();
+                    play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
+                } else {
+                    play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+                }
+            }
+            if (pressed & PSP_CTRL_CROSS) {
+                if (sFsSel < sFsRoomCount && sFsRooms[sFsSel].status == PSP_NP_ROOM_OPEN) {
+                    psp_netplay_join_room(sFsSel);
+                    sFsScreen = FS_JOINING;
+                    play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
+                } else {
+                    play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+                }
+            }
+        }
+    } else { /* FS_JOINING */
+        if (psp_netplay_state() == PSP_NP_CONNECTED && psp_netplay_save_override()) {
+            /* the host's save file is in: the game starts with it (psp_netplay_adopt_host_save put it in the current file) */
+            sFsOpen = 0;
+            sFsStart = (gCurrSaveFileNum >= 1 && gCurrSaveFileNum <= NUM_SAVE_FILES) ? gCurrSaveFileNum : 1;
+            play_sound(SOUND_MENU_STAR_SOUND, gDefaultSoundArgs);
+            return;
+        }
+        if (pressed & (PSP_CTRL_SQUARE | PSP_CTRL_CIRCLE)) {
+            psp_netplay_leave();
+            sFsScreen = FS_ROOMS;
+            sFsSel = sFsScroll = 0;
+            psp_netplay_browse();
+            play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
+        }
+    }
+}
+
+/* Once per drawn frame of the file select (geo_file_select_strings_and_menu_cursor): the menu while it is open, otherwise the SELECT hint (inside the
+ * frame, under the buttons, like Star Road's) and what is going on when a room is being hosted or is up. */
+void psp_options_fs_draw(void) {
+    if (sFsOpen) {
+        psp_fs_draw();
+        return;
+    }
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+    psp_fs_text_left(21, 25, LT(sTrFs[0])); /* (where Star Road puts its Hard Mode lines: bottom left, over the frame's edge) */
+    if (sFsHostPending) {
+        psp_fs_text_left(21, 10, LT(sTrFs[1]));
+    } else if (psp_fs_in_room()) {
+        psp_fs_text_left(21, 10, LT(sTrFs[11]));
+    }
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+}
+
+/* A file was picked on the file select: if "Host a Game" was chosen, the room opens now (with this file). */
+void psp_options_fs_file_chosen(int fileNum) {
+    (void) fileNum;
+    if (sFsHostPending) {
+        sFsHostPending = 0;
+        psp_netplay_host();
+    }
+}
+
+/* The file the game must start with now (a room was joined from the file select), 0 = none. */
+int psp_options_fs_start(void) {
+    const int f = sFsStart;
+    sFsStart = 0;
+    return f;
+}
+#else
+int psp_options_fs_is_open(void) { return 0; }
+void psp_options_fs_update(int can_open) { (void) can_open; }
+void psp_options_fs_draw(void) {}
+void psp_options_fs_file_chosen(int fileNum) { (void) fileNum; }
+int psp_options_fs_start(void) { return 0; }
+#endif
 
 /* The character chosen on the Multiplayer page (PSP_CHAR_*): the one this player plays as in a room */
 int psp_options_np_character(void) {

@@ -1,6 +1,7 @@
 #if defined(TARGET_PSP)
 
 #include "psp_me.h"
+#include "psp_powerlog.h"
 
 #include <me-core-mapper/me-core.h>
 #include <me-core-mapper/kernel/kcall.h>
@@ -15,7 +16,10 @@
 #define PSP_ME_READY_TIMEOUT_US 250000
 #define PSP_ME_POLL_US 100
 #define PSP_ME_JOB_TIMEOUT_US 100000   /* maximum blocking wait for a job; after that the ME is considered "busy" and it carries on without waiting */
-#define PSP_ME_STUCK_DEAD_US 3000000   /* if it does not finish within 3 s, it is considered dead and the audio moves to the CPU for good */
+#define PSP_ME_STUCK_DEAD_US 3000000   /* if it does not finish within 3 s, it is restarted and the audio moves to the CPU until the ME passes the trial again */
+#define PSP_ME_PROBE_ITERS 100000      /* trial job: ~1 ms of plain integer work on a healthy ME */
+#define PSP_ME_PROBE_OK_US 30000       /* a trial counts as passed if it is seen finished within this (includes the polling delay) */
+#define PSP_ME_PROBE_PASSES 3          /* consecutive passed trials before the audio is given to the ME */
 #define PSP_ME_PROGRESS_ENTERED 0x10
 #define PSP_ME_PROGRESS_BOOT_RELEASED 0x20
 #define PSP_ME_PROGRESS_READY 0x100
@@ -67,6 +71,15 @@ static bool sPspMeStuck;           /* a job exceeded PSP_ME_JOB_TIMEOUT_US and i
 static uint32_t sPspMeStuckT0;
 unsigned int gPspMeTimeouts, gPspMeRecovered; /* log diagnostic: jobs that passed the timeout / finished late and recovered */
 static int sPspMeBootTries; /* diagnostic: bit0 = first attempt, bit1 = retry from the savedata folder */
+/* Trial before the audio goes back to the ME (after a wake-up or a restart). Measured on a PSP-3000: right after the reset on wake-up the ME
+ * answers at once, but its first audio job took ~1.75 s every time (the CPU must not touch the audio state meanwhile, so the ring ran dry:
+ * the 1-2 s of silence after waking). And a job past 3 s used to leave the audio on the CPU for the rest of the session. Now the CPU keeps
+ * making the audio while the ME runs trial jobs that touch nothing shared; the audio is handed over only after a few fast ones in a row. */
+static bool sPspMeProbing;
+static uint32_t sPspMeProbeT0, sPspMeTrialT0;
+static int sPspMeProbePass, sPspMeProbeN;
+unsigned int gPspMeRestarts; /* diagnostic: ME restarts after a job stuck past PSP_ME_STUCK_DEAD_US */
+static bool psp_me_restart(void);
 
 __attribute__((noinline, aligned(4))) void meLibOnException(void) {
     sPspMeState = PSP_ME_STATE_FAULT;
@@ -202,6 +215,15 @@ __attribute__((noinline, aligned(4))) void meLibOnProcess(void) {
              * is the same operation done directly (the standard Allegrex loop: two index writeback-invalidates per line, one per way), with no
              * firmware involved. */
             meLibDcacheWritebackInvalidateAll();
+            if (count == 0) {
+                /* trial job (psp_me_take_resumed): fixed work that touches no game or audio memory, only registers and the shared word,
+                 * so the main CPU can keep synthesizing meanwhile. It measures whether the ME is really running at full speed. */
+                uint32_t x = 1;
+                for (i = 0; i < PSP_ME_PROBE_ITERS; i++) {
+                    x = x * 1103515245u + 12345u;
+                }
+                sPspMeAudioOutput = x;
+            }
             if (count > PSP_ME_JOB_MAX) {
                 count = PSP_ME_JOB_MAX;
             }
@@ -360,8 +382,21 @@ int psp_me_job_wait(void) {
             sceKernelDcacheWritebackInvalidateAll();
             return PSP_ME_WAIT_STALE;
         }
-        if ((sPspMeState != PSP_ME_STATE_GENERATE_AUDIO) || ((t0 - sPspMeStuckT0) >= PSP_ME_STUCK_DEAD_US)) {
+        if (sPspMeState != PSP_ME_STATE_GENERATE_AUDIO) {
             sPspMeInitialized = false;
+            return PSP_ME_WAIT_DEAD;
+        }
+        if ((t0 - sPspMeStuckT0) >= PSP_ME_STUCK_DEAD_US) {
+            /* Stuck for good. Before, the audio went to the CPU for the rest of the session while the ME might still be inside the job (both on the
+             * same audio state). Now the ME is hardware-reset first (it stops touching memory at once), and started again: the audio goes to the CPU
+             * and comes back to the ME only through the trial. */
+            sPspMeStuck = false;
+            sPspMeInitialized = false;
+            if (!sPspMeSuspended) {
+                gPspMeRestarts++;
+                psp_plog("audio: ME job stuck for %u ms, restarting the ME", (unsigned) ((t0 - sPspMeStuckT0) / 1000U));
+                (void) psp_me_restart();
+            }
             return PSP_ME_WAIT_DEAD;
         }
         return PSP_ME_WAIT_BUSY;
@@ -411,9 +446,9 @@ void psp_me_note_flags(int flags) {
     sPspMePwrFlags[0] = (unsigned int) flags;
 }
 
+static void psp_me_power_event_suspend(void);
+
 void psp_me_power_event(int suspending) {
-    uint32_t t0;
-    uint32_t st;
 
     if (suspending) {
         sPspMePwrN1++;
@@ -422,13 +457,35 @@ void psp_me_power_event(int suspending) {
     }
 
     if (!suspending) {
+        psp_plog("  ME resume: armed %d, sleep hook calls %u act %d state-at-sleep %d loops %u", (int) sPspMeResumeArmed, sPspMeSysSleepCalls, sPspMeSysSleepAct,
+                 sPspMeSysSleepState, sPspMeSysSleepLoops);
         if (!sPspMeResumeArmed) {
             return;
         }
-        /* the ME has been off since the console went to sleep: the boot reset is done (in kernel mode) and it is released with IDLE
-         * (meLibOnProcess waits for BOOTING); if it is not ready within 600 ms the reset is repeated once */
-        int attempt;
         sPspMeResumeArmed = false;
+        if (psp_me_restart()) {
+            sPspMeSuspended = false;
+            gPspMeResumeOk++;
+        } else {
+            sPspMeSuspended = false;
+            gPspMeResumeFail++;
+        }
+        return;
+    }
+    if (sPspMeSuspended) {
+        return; /* already suspended (repeated notice): the permission to resume is not lost */
+    }
+    psp_me_power_event_suspend();
+}
+
+/* hardware reset + boot of the ME (on wake-up, or to get rid of a stuck job). True: running our loop and IDLE; then the audio is offered back
+ * through the trial (psp_me_take_resumed). False: left with the stop order, the audio stays on the CPU. */
+static bool psp_me_restart(void) {
+    uint32_t t0;
+    {
+        /* the boot reset is done (in kernel mode) and it is released with IDLE (meLibOnProcess waits for BOOTING); if it is not ready within 600 ms
+         * the reset is repeated once */
+        int attempt;
         for (attempt = 0; attempt < 2; attempt++) {
             sPspMeProgress = 0;
             sPspMeState = PSP_ME_STATE_BOOTING;
@@ -440,6 +497,8 @@ void psp_me_power_event(int suspending) {
             while ((sPspMeProgress != PSP_ME_PROGRESS_READY) && ((sceKernelGetSystemTimeLow() - t0) < 600000)) {
                 sceKernelDelayThread(500);
             }
+            psp_plog("  ME reset attempt %d: %s after %u ms (state %d progress %d)", attempt + 1, (sPspMeProgress == PSP_ME_PROGRESS_READY) ? "ready" : "NOT ready",
+                     (unsigned) ((sceKernelGetSystemTimeLow() - t0) / 1000U), (int) sPspMeState, (int) sPspMeProgress);
             if (sPspMeProgress == PSP_ME_PROGRESS_READY) {
                 break;
             }
@@ -448,22 +507,26 @@ void psp_me_power_event(int suspending) {
             sPspMeStuck = false;
             sceKernelDcacheWritebackInvalidateAll();
             sPspMeInitialized = true;
-            sPspMeSuspended = false;
+            sPspMeProbing = false;
+            sPspMeProbePass = 0;
+            sPspMeProbeN = 0;
+            sPspMeTrialT0 = sceKernelGetSystemTimeLow();
             sPspMeResumed = true;
-            gPspMeResumeOk++;
-        } else {
-            sPspMeResumeState = (int) sPspMeState;
-            sPspMeResumeProg = (int) sPspMeProgress;
-            sPspMeState = PSP_ME_STATE_STOP; /* in case it ever starts later, it should stop */
-            meLibSync();
-            sPspMeSuspended = false;
-            gPspMeResumeFail++;
+            return true;
         }
-        return;
+        sPspMeResumeState = (int) sPspMeState;
+        sPspMeResumeProg = (int) sPspMeProgress;
+        sPspMeState = PSP_ME_STATE_STOP; /* in case it ever starts later, it should stop */
+        meLibSync();
+        sPspMeInitialized = false;
+        return false;
     }
-    if (sPspMeSuspended) {
-        return; /* already suspended (repeated notice): the permission to resume is not lost */
-    }
+}
+
+static void psp_me_power_event_suspend(void) {
+    uint32_t t0;
+    uint32_t st;
+
     sPspMeSuspended = true;
     sPspMeResumeArmed = false;
     if (!sPspMeBootStarted || (sPspMeBootResult < 0) || !sPspMeInitialized) {
@@ -492,6 +555,8 @@ void psp_me_power_event(int suspending) {
         sceKernelDelayThread(PSP_ME_POLL_US);
     }
     sPspMeSuspState = (int) sPspMeState;
+    psp_plog("  ME suspend: state %d (%s) after %u ms", sPspMeSuspState, (sPspMeState == PSP_ME_STATE_HALTED) ? "halted" : "NOT halted",
+             (unsigned) ((sceKernelGetSystemTimeLow() - t0) / 1000U));
     if (sPspMeState == PSP_ME_STATE_HALTED) {
         /* really halted: the state is prepared for the next start and the reset on wake-up is allowed */
         sPspMeProgress = 0;
@@ -505,9 +570,48 @@ void psp_me_power_event(int suspending) {
 
 /* true only once when the ME is ready again after resuming (called by the audio producer thread between two syntheses on the CPU) */
 bool psp_me_take_resumed(void) {
-    if (!sPspMeResumed) {
+    uint32_t now, dt;
+
+    if (!sPspMeResumed || sPspMeSuspended || !sPspMeInitialized) {
         return false;
     }
+    now = sceKernelGetSystemTimeLow();
+    if (!sPspMeProbing) {
+        if (sPspMeState != PSP_ME_STATE_IDLE) {
+            return false;
+        }
+        /* a trial job (count 0): see meLibOnProcess */
+        sPspMeJobCount = 0;
+        meLibSync();
+        sPspMeState = PSP_ME_STATE_GENERATE_AUDIO;
+        meLibSync();
+        sPspMeProbeT0 = now;
+        sPspMeProbing = true;
+        return false;
+    }
+    if (sPspMeState == PSP_ME_STATE_GENERATE_AUDIO) {
+        return false; /* still on it (the CPU keeps making the audio) */
+    }
+    sPspMeProbing = false;
+    dt = now - sPspMeProbeT0;
+    sPspMeProbeN++;
+    if (sPspMeState != PSP_ME_STATE_IDLE) {
+        psp_plog("  ME trial: the ME stopped (state %d), audio stays on the CPU", (int) sPspMeState);
+        sPspMeResumed = false;
+        sPspMeInitialized = false;
+        return false;
+    }
+    if (sPspMeProbeN <= 40) {
+        psp_plog("  ME trial %d: %u.%u ms", sPspMeProbeN, (unsigned) (dt / 1000U), (unsigned) ((dt / 100U) % 10U));
+    }
+    if (dt > PSP_ME_PROBE_OK_US) {
+        sPspMeProbePass = 0;
+        return false;
+    }
+    if (++sPspMeProbePass < PSP_ME_PROBE_PASSES) {
+        return false;
+    }
+    psp_plog("  ME passed the trial: %d jobs, %u ms after the restart", sPspMeProbeN, (unsigned) ((now - sPspMeTrialT0) / 1000U));
     sPspMeResumed = false;
     return true;
 }

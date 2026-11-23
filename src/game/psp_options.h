@@ -29,6 +29,12 @@ void psp_options_save_file(const char *filename);
 void psp_options_poll(void);
 /* Called at the start of render_pause_courses_and_castle(). Returns 1 while the menu is open (the normal pause must be skipped). */
 int psp_options_pause_frame(int can_open);
+/* the file select's Multiplayer menu (SELECT): Host / Join with the list of rooms / Character (see psp_options.c) */
+void psp_options_fs_update(int can_open);    /* once per game tick of the file select: the buttons */
+void psp_options_fs_draw(void);              /* once per drawn frame: the menu, or the SELECT hint */
+int psp_options_fs_is_open(void);            /* 1 = the menu is open (the file select takes no input) */
+void psp_options_fs_file_chosen(int fileNum); /* a file was picked: a pending "Host a Game" opens the room now */
+int psp_options_fs_start(void);              /* a room was joined: the file to start the game with (0 = none) */
 /* Called right after drawing the normal pause: writes "R Options" in a corner. */
 void psp_options_pause_prompt(void);
 void psp_options_home_notice(void); /* HOME with the TV active: buzz + notice at the bottom center (called every frame) */

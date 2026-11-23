@@ -19,6 +19,9 @@
 #include "game/segment7.h"
 #include "game/spawn_object.h"
 #include "sm64.h"
+#ifdef TARGET_PSP
+#include "game/psp_options.h" /* the Multiplayer menu (SELECT): psp_options_fs_update / psp_options_fs_draw */
+#endif
 #include "text_strings.h"
 
 #include "eu_translation.h"
@@ -2832,6 +2835,13 @@ static void print_file_select_strings(void) {
 Gfx *geo_file_select_strings_and_menu_cursor(s32 callContext, UNUSED struct GraphNode *node, UNUSED Mat4 mtx) {
     if (callContext == GEO_CONTEXT_RENDER) {
         print_file_select_strings();
+#ifdef TARGET_PSP
+        /* the Multiplayer menu (SELECT, see lvl_update_obj_and_load_file_selected): while it is open the hand neither moves nor clicks */
+        psp_options_fs_draw();
+        if (psp_options_fs_is_open()) {
+            return NULL;
+        }
+#endif
         print_menu_cursor();
     }
     return NULL;
@@ -2906,5 +2916,19 @@ s32 lvl_init_menu_values_and_cursor_pos(UNUSED s32 arg, UNUSED s32 unused) {
  */
 s32 lvl_update_obj_and_load_file_selected(UNUSED s32 arg, UNUSED s32 unused) {
     area_update_objects();
+#ifdef TARGET_PSP
+    /* the Multiplayer menu: SELECT opens it, only on the main screen with nothing selected */
+    psp_options_fs_update(sCurrentMenuLevel == MENU_LAYER_MAIN && sSelectedButtonID == MENU_BUTTON_NONE && sSelectedFileNum == 0);
+    {
+        /* a room was joined from the Multiplayer menu: the game starts with the host's save file (already in this file) */
+        const int joined = psp_options_fs_start();
+        if (joined != 0) {
+            return joined;
+        }
+    }
+    if (sSelectedFileNum != 0) {
+        psp_options_fs_file_chosen(sSelectedFileNum); /* "Host a Game" was chosen: the room opens with this file */
+    }
+#endif
     return sSelectedFileNum;
 }
