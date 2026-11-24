@@ -286,8 +286,18 @@ static void level_cmd_load_mario_head(void) {
     void *addr = main_pool_alloc(DOUBLE_SIZE_ON_64_BIT(0xE1000), MEMORY_POOL_LEFT);
     if (addr != NULL) {
         gdm_init(addr, DOUBLE_SIZE_ON_64_BIT(0xE1000));
+#ifdef TARGET_PSP
+        {   /* the same 0x96000 bytes the N64 lends from its Z-buffer and frame buffers, taken from the main pool instead (freed with the level); the
+             * PSP does not need those buffers in main memory (see buffers/zbuffer.h) */
+            void *extra = main_pool_alloc(0x25800 + 0x70800, MEMORY_POOL_LEFT);
+            if (extra != NULL) {
+                gd_add_to_heap(extra, 0x25800 + 0x70800);
+            }
+        }
+#else
         gd_add_to_heap(gZBuffer, sizeof(gZBuffer)); // 0x25800
         gd_add_to_heap(gFrameBuffer0, 3 * sizeof(gFrameBuffer0)); // 0x70800
+#endif
         gdm_setup();
         gdm_maketestdl(CMD_GET(s16, 2));
     } else {

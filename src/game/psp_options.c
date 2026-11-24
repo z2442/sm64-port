@@ -2005,6 +2005,7 @@ static const char *const sTrNpEnd[5][LANG_COUNT] = {
     TR("The WLAN switch was turned off.", "Le WLAN a été désactivé.", "Der WLAN-Schalter ist aus.", "WLANスイッチガ オフニナリマシタ"),
     TR("Network error.", "Erreur réseau.", "Netzwerkfehler.", "ツウシンエラー"),
 };
+static const char *const sTrNpNoWlan[LANG_COUNT] = TR("This PSP has no WLAN.", "Cette PSP n'a pas de WLAN.", "Diese PSP hat kein WLAN.", "コノPSPニハ WLANガ アリマセン");
 static const char *const sTrNpWlanOff[2][LANG_COUNT] = {
     TR("Multiplayer:", "Multijoueur :", "Mehrspieler:", "オンライン:"),
     TR("Turn the WLAN switch on.", "Active le WLAN.", "Schalte WLAN ein.", "WLANスイッチを オンニシテクダサイ"),
@@ -2020,6 +2021,8 @@ void psp_np_hud_room_ended(int reason) {
 void psp_np_hud_notice(int kind) {
     if (kind == PSP_NP_NOTE_WLAN_OFF) {
         psp_np_popup_sys(LT(sTrNpWlanOff[0]), 0xFF, 0xA0, 0xA0, LT(sTrNpWlanOff[1]));
+    } else if (kind == PSP_NP_NOTE_NO_WLAN) {
+        psp_np_popup_sys(LT(sTrNpWlanOff[0]), 0xFF, 0xA0, 0xA0, LT(sTrNpNoWlan));
     }
 }
 
@@ -2811,6 +2814,14 @@ void psp_options_fs_update(int can_open) {
         sFsWlanPoll = 15; /* (~0.5 s: the query is a call into the radio driver) */
         sFsWlan = psp_netplay_wlan_on();
     }
+    if (!sFsWlan && !psp_netplay_wlan_hw()) {
+        /* a PSP Street (E1000): it has no WLAN, so there is no multiplayer at all (no hint either, see psp_options_fs_draw) */
+        if (can_open && (pressed & PSP_CTRL_SELECT)) {
+            play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+            psp_np_hud_notice(PSP_NP_NOTE_NO_WLAN);
+        }
+        return;
+    }
     if (!sFsWlan && (sFsOpen || sFsHostPending) && !psp_netplay_in_room() && sFsScreen != FS_JOINING) {
         /* the switch was turned off with the menu open (or a room about to be hosted): there is nothing it can do, it closes and says why */
         if (psp_netplay_state() != PSP_NP_OFF) {
@@ -3011,7 +3022,7 @@ void psp_options_fs_draw(void) {
         psp_fs_text_left(21, 10, LT(sTrFs[1]));
     } else if (psp_fs_in_room()) {
         psp_fs_text_left(21, 10, LT(sTrFs[11]));
-    } else if (sFsHintLast != 0 && sceKernelGetSystemTimeLow() - sFsHintStart < FS_HINT_US) {
+    } else if (sFsHintLast != 0 && sceKernelGetSystemTimeLow() - sFsHintStart < FS_HINT_US && (sFsWlan || psp_netplay_wlan_hw())) {
         const u32 left = FS_HINT_US - (sceKernelGetSystemTimeLow() - sFsHintStart);
         const u8 alpha = (left >= FS_HINT_FADE_US) ? 255 : (u8) (255U * (left / 1000U) / (FS_HINT_FADE_US / 1000U));
         psp_fs_text_left_a(21, 10, LT(sTrFs[0]), !sFsWlan, alpha); /* (grey with the WLAN off) */

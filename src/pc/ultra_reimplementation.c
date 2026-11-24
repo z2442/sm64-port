@@ -40,7 +40,7 @@ s32 osJamMesg(UNUSED OSMesgQueue *mq, UNUSED OSMesg msg, UNUSED s32 flag) {
     return 0;
 }
 s32 osSendMesg(UNUSED OSMesgQueue *mq, UNUSED OSMesg msg, UNUSED s32 flag) {
-#ifdef VERSION_EU
+#if defined(VERSION_EU) || defined(VERSION_SH) /* (the EU and Shindou sound engines talk to the game through real queues) */
     s32 index;
     if (mq->validCount >= mq->msgCount) {
         return -1;
@@ -52,7 +52,7 @@ s32 osSendMesg(UNUSED OSMesgQueue *mq, UNUSED OSMesg msg, UNUSED s32 flag) {
     return 0;
 }
 s32 osRecvMesg(UNUSED OSMesgQueue *mq, UNUSED OSMesg *msg, UNUSED s32 flag) {
-#if VERSION_EU
+#if defined(VERSION_EU) || defined(VERSION_SH)
     if (mq->validCount == 0) {
         return -1;
     }

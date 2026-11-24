@@ -2085,6 +2085,9 @@ static void end_peach_cutscene_summon_jumbo_star(struct MarioState *m) {
 #ifdef VERSION_EU
     #define TIMER_FADE_IN_PEACH 201
     #define TIMER_DESCEND_PEACH 280
+#elif defined(VERSION_SH)
+    #define TIMER_FADE_IN_PEACH 276
+    #define TIMER_DESCEND_PEACH 400
 #else
     #define TIMER_FADE_IN_PEACH 276
     #define TIMER_DESCEND_PEACH 355
@@ -2214,25 +2217,30 @@ static void end_peach_cutscene_dialog_1(struct MarioState *m) {
         }
     }
 
+#ifdef VERSION_SH
+    #define END_DIALOG_1_SH 30 // (Shindou: the voiced ending runs 30 frames later)
+#else
+    #define END_DIALOG_1_SH 0
+#endif
     switch (m->actionTimer) {
-        case 80:
+        case 80 + END_DIALOG_1_SH:
             sEndPeachAnimation = 6;
             break;
 
-        case 81:
+        case 81 + END_DIALOG_1_SH:
             D_8032CBE4 = 3;
             break;
 
-        case 145:
+        case 145 + END_DIALOG_1_SH:
             D_8032CBE4 = 2;
             break;
 
-        case 228:
+        case 228 + END_DIALOG_1_SH:
             D_8032CBE4 = 1;
             D_8032CBE8 = 1;
             break;
 
-        case 230:
+        case 230 + END_DIALOG_1_SH:
             set_cutscene_message(160, 227, 0, 30);
 #ifndef VERSION_JP
             func_8031FFB4(SEQ_PLAYER_LEVEL, 60, 40);
@@ -2240,19 +2248,19 @@ static void end_peach_cutscene_dialog_1(struct MarioState *m) {
 #endif
             break;
 
-        case 275:
+        case 275 + END_DIALOG_1_SH:
             D_8032CBE4 = 0;
             D_8032CBE8 = 0;
             break;
 
-        case 290:
+        case 290 + END_DIALOG_1_SH:
             set_cutscene_message(160, 227, 1, 60);
 #ifndef VERSION_JP
             play_sound(SOUND_PEACH_POWER_OF_THE_STARS, sEndPeachObj->header.gfx.cameraToObject);
 #endif
             break;
 
-        case 480:
+        case 480 + END_DIALOG_1_SH:
             advance_cutscene_step(m);
             break;
     }
@@ -2261,6 +2269,9 @@ static void end_peach_cutscene_dialog_1(struct MarioState *m) {
 #ifdef VERSION_EU
     #define TIMER_SOMETHING_SPECIAL 150
     #define TIMER_PEACH_KISS        260
+#elif defined(VERSION_SH)
+    #define TIMER_SOMETHING_SPECIAL 170
+    #define TIMER_PEACH_KISS        250
 #else
     #define TIMER_SOMETHING_SPECIAL 130
     #define TIMER_PEACH_KISS        200
@@ -2274,18 +2285,30 @@ static void end_peach_cutscene_dialog_2(struct MarioState *m) {
     sEndPeachAnimation = 9;
 
     switch (m->actionTimer) {
+#ifdef VERSION_SH
+        case 39:
+#else
         case 29:
+#endif
             set_cutscene_message(160, 227, 2, 30);
 #ifndef VERSION_JP
             play_sound(SOUND_PEACH_THANKS_TO_YOU, sEndPeachObj->header.gfx.cameraToObject);
 #endif
             break;
 
+#ifdef VERSION_SH
+        case 65:
+#else
         case 45:
+#endif
             D_8032CBE8 = 1;
             break;
 
+#ifdef VERSION_SH
+        case 105:
+#else
         case 75:
+#endif
             set_cutscene_message(160, 227, 3, 30);
 #ifndef VERSION_JP
             play_sound(SOUND_PEACH_THANK_YOU_MARIO, sEndPeachObj->header.gfx.cameraToObject);
@@ -2570,7 +2593,11 @@ static s32 act_end_peach_cutscene(struct MarioState *m) {
 #else
     #define TIMER_CREDITS_SHOW      61
     #define TIMER_CREDITS_PROGRESS  90
+#ifdef VERSION_SH
+    #define TIMER_CREDITS_WARP     204
+#else
     #define TIMER_CREDITS_WARP     200
+#endif
 #endif
 
 static s32 act_credits_cutscene(struct MarioState *m) {

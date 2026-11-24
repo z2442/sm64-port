@@ -46,12 +46,13 @@ import struct
 import subprocess
 import sys
 
-# Which ROMs a version needs. Must agree with EXTRACT_LANGS in the Makefile (Shindou: textures from
-# the SH ROM, sound from the JP ROM).
-VERSION_LANGS = {"us": ["us"], "jp": ["jp"], "eu": ["eu"], "sh": ["jp", "sh"]}
+# Which ROMs a version needs. Must agree with EXTRACT_LANGS in the Makefile (every version takes
+# everything, sound included, from its own ROM).
+VERSION_LANGS = {"us": ["us"], "jp": ["jp"], "eu": ["eu"], "sh": ["sh"]}
 
 MAGIC = b"SMAN"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 1      # manifests that use swap code 3 (Shindou sound) are written as version 2
+FORMAT_VERSION_SWAP3 = 2
 HDR = "<4sIIIIII"
 ROMREC = "<4s20s"
 SHAS = "<20s20s"
@@ -141,7 +142,8 @@ def apply_map(data, maps, map_off):
     for w in range(len(data) // 4):
         code = (maps[map_off + w // 4] >> ((w % 4) * 2)) & 3
         x = data[w * 4:w * 4 + 4]
-        out += x if code == 0 else x[::-1] if code == 1 else x[1::-1] + x[3:1:-1]
+        out += (x if code == 0 else x[::-1] if code == 1 else x[1::-1] + x[3:1:-1] if code == 2
+                else x[0:1] + x[3:4] + x[2:3] + x[1:2])
     return bytes(out)
 
 
@@ -151,7 +153,7 @@ def apply_map(data, maps, map_off):
 
 def install(template, manifest, rom_images):
     magic, fmt, nroms, nents, nmaps, tsize, _ = struct.unpack_from(HDR, manifest, 0)
-    if magic != MAGIC or fmt != FORMAT_VERSION:
+    if magic != MAGIC or fmt not in (FORMAT_VERSION, FORMAT_VERSION_SWAP3):
         die("unsupported manifest")
     pos = struct.calcsize(HDR)
     langs = []
@@ -210,6 +212,10 @@ def classify_words(rom_part, built_part):
             codes.append(1)
         elif r[1::-1] + r[3:1:-1] == b:
             codes.append(2)
+        elif r[0] == b[0] and r[2] == b[2] and r[1] == b[3] and r[3] == b[1]:
+            # a 24-bit field kept below 8 bits of flags (the Shindou sample header word: the
+            # little-endian build stores size << 8, the ROM stores the size in its low 24 bits)
+            codes.append(3)
         else:
             return None
     return codes
@@ -449,6 +455,16 @@ def main():
             return None
         return [struct.unpack(fmt + "II", data[4 + 8 * i:12 + 8 * i]) for i in range(count)]
 
+    # Shindou keeps the table in a header file of its own (a count, then 16 bytes per bank that
+    # start with its offset and size); the ctl/tbl files are the bare banks.
+    def sh_bank_table(header, fmt):
+        if len(header) < 16:
+            return None
+        count = struct.unpack(fmt + "H", header[0:2])[0]
+        if 16 + 16 * count > len(header):
+            return None
+        return [struct.unpack(fmt + "II", header[16 + 16 * i:24 + 16 * i]) for i in range(count)]
+
     for label, built in (("ctl", ctl_built), ("tbl", tbl_built)):
         key = "@sound %s " % label
         done = False
@@ -462,8 +478,18 @@ def main():
             rid = langs.index(lang)
             romoff = locs[lang][0]
             src = images[rid][romoff:romoff + size]
-            rom_banks = bank_table(src, ">")
-            built_banks = bank_table(built, "<")
+            sh_hdr = asset_map.get("@sound %s header %s" % (label, lang))
+            if sh_hdr:
+                hsize, hlocs = sh_hdr
+                rom_hdr = images[rid][hlocs[lang][0]:hlocs[lang][0] + hsize]
+                hpath = os.path.join(repo, "build", ver + "_psp", "sound", label + "_header")
+                if not os.path.isfile(hpath):
+                    die("%s not found; build version '%s' first" % (hpath, ver))
+                rom_banks = sh_bank_table(rom_hdr, ">")
+                built_banks = sh_bank_table(open(hpath, "rb").read(), "<")
+            else:
+                rom_banks = bank_table(src, ">")
+                built_banks = bank_table(built, "<")
             if not rom_banks or not built_banks or len(built_banks) < len(rom_banks):
                 continue
             pairs = []      # (built offset, rom offset, length, swap codes)
@@ -483,7 +509,7 @@ def main():
                 continue
             # the header itself only when it is the ROM's (same banks): with extra banks it is the port's own
             hdr = 4 + 8 * len(rom_banks)
-            if len(built_banks) == len(rom_banks):
+            if not sh_hdr and len(built_banks) == len(rom_banks):
                 codes = classify_words(src[:hdr], built[:hdr])
                 if codes is not None:
                     pairs.append((0, 0, hdr, codes))
@@ -533,7 +559,9 @@ def main():
         template[prx_off:prx_off + length] = bytes(length)
     template = bytes(template)
 
-    header = struct.pack(HDR, MAGIC, FORMAT_VERSION, len(langs), len(kept), len(maps), len(template), 0)
+    fmt_version = FORMAT_VERSION_SWAP3 if any(
+        (maps[i] >> sh) & 3 == 3 for i in range(len(maps)) for sh in (0, 2, 4, 6)) else FORMAT_VERSION
+    header = struct.pack(HDR, MAGIC, fmt_version, len(langs), len(kept), len(maps), len(template), 0)
     header += b"".join(struct.pack(ROMREC, l.encode(), h) for l, h in zip(langs, rom_sha))
     header += struct.pack(SHAS, sha1(template), sha1(prx))
     body = b"".join(struct.pack(ENT, p, l, r, k, 0, m, s, mp) for p, l, r, k, m, s, mp in kept)

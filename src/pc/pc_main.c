@@ -388,7 +388,9 @@ void main_func(const char *argv0) {
     /* 1.5 MB (it was 2.9 MB, twice the N64's): without the N64's segments, what a level keeps in it is its objects, graph nodes and collision.
      * The most measured (the castle's inside, with the other player) was ~420 KB. The freed memory is what lets the other characters' voices fit
      * in a PSP-1000. */
-    static u32 pool[0x180000 / sizeof(u32)];
+    /* +128 KB (0x1A0000): the title screen's Mario head also takes from it the 600 KB the N64 lent it from the Z-buffer and frame buffers (they are
+     * not in the game any more, see level_script.c). With the head the pool had ~600 KB free; levels leave over 1 MB free. */
+    static u32 pool[0x1A0000 / sizeof(u32)];
 #else
     static u32 pool[0x165000/8 / 4 * sizeof(void *) * 4];
 #endif

@@ -1134,6 +1134,19 @@ static struct TextureHashmapNode *gfx_texture_cache_peek(const uint8_t *orig_add
 }
 #endif
 
+/* For a texture whose contents change from frame to frame at the same address (the Shindou title screen easter egg): its cache entries are
+ * dropped, so the next use imports it again. The old nodes stay unused until the cache is next cleared. */
+void gfx_texture_cache_forget(const void *addr) {
+    struct TextureHashmapNode *node = gfx_texture_cache.hashmap[((uintptr_t) addr >> 5) & 0x3ff];
+
+    while (node != NULL && node - gfx_texture_cache.pool < (int) gfx_texture_cache.pool_pos) {
+        if (node->texture_addr == (const uint8_t *) addr) {
+            node->texture_addr = (const uint8_t *) 1; /* matches no texture */
+        }
+        node = node->next;
+    }
+}
+
 static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, const uint8_t *orig_addr, uint32_t fmt, uint32_t siz) {
     size_t hash = (uintptr_t)orig_addr;
     hash = (hash >> 5) & 0x3ff;
@@ -4400,7 +4413,10 @@ static unsigned int sProfSyncCur, sProfVblCur, sProfAccSync, sProfAccVbl;
 #include <pspiofilemgr.h>
 extern short gCurrLevelNum;
 extern short gCurrAreaIndex;
-static char sProfLogBuf[16384];
+#ifndef PSP_PROFILE_LOG
+#define PSP_PROFILE_LOG 0 /* 1 = allows writing ms0:/sm64_profile.txt with the FPS counter (for measuring only); 0 = final version, never writes or times */
+#endif
+static char sProfLogBuf[PSP_PROFILE_LOG ? 16384 : 16];
 unsigned int gPspLp[32]; /* logic profile: see pc/psp_lprof.h */
 unsigned int gPspLc[16];
 static unsigned int sProfLate, sProfLateLog, sProfLateEmit, sProfLateSync;

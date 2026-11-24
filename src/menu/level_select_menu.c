@@ -262,6 +262,20 @@ int intro_play_its_a_me_mario(void) {
 s32 lvl_intro_update(s16 arg1, UNUSED s32 arg2) {
     s32 retVar;
 
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    {
+        /* The title screen, the demos and the game over screen are Mario's: a game played as Luigi (file chosen with L + R) ends here,
+         * so the next file starts as Mario unless L + R is held again. */
+        extern unsigned char gPspSoloChar;
+        extern unsigned char gPspLocalChar;
+        extern int psp_netplay_in_room(void);
+        if (!psp_netplay_in_room()) {
+            gPspSoloChar = 0; /* PSP_CHAR_MARIO */
+            gPspLocalChar = 0;
+        }
+    }
+#endif
+
     switch (arg1) {
         case 0:
             retVar = intro_play_its_a_me_mario();

@@ -91,67 +91,67 @@
             "sound": "0F_toad_snoring2"
         },
         "inst16": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "10_toad_doh"
         },
         "inst17": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "11_toad_game_over"
         },
         "inst18": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "12_toad_hello"
         },
         "inst19": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "13_toad_press_start_to_play"
         },
         "inst20": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "14_toad_twirl_bounce"
         },
         "inst21": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "15_toad_snoring3"
         },
         "inst22": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "16_toad_so_longa_bowser"
         },
         "inst23": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "17_toad_ima_tired"
         },
         "inst24": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "18_toad_waha"
         },
         "inst25": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "19_toad_yippee"
         },
         "inst26": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "1A_toad_lets_a_go"

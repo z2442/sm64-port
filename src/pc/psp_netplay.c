@@ -22,6 +22,7 @@
  *   LEAVE    either side
  */
 #include "psp_netplay.h"
+#include "psp_dve.h"
 
 #if defined(TARGET_PSP) && PSP_NETPLAY
 
@@ -43,6 +44,7 @@ extern int psp_netplay_merge_progress(const void *data, int size); /* game/save_
 extern void psp_netplay_refresh_hud(void);                         /* game/save_file.c */
 extern void psp_netplay_share_progress(void);                      /* game/save_file.c: sends the current file's progress to the other console */
 extern int psp_options_np_character(void);                         /* game/psp_options.c: the character chosen on the Multiplayer page */
+extern unsigned char gPspSoloChar;                                  /* audio/external.c: the character outside a room */
 extern void psp_options_np_character_bump(int taken);              /* game/psp_options.c: the client moves off the host's character */
 
 #define NP_PORT 0x5C64
@@ -1528,6 +1530,15 @@ int psp_netplay_is_host(void) {
     return sHost;
 }
 
+/* The PSP Street (E1000) has no WLAN at all: no multiplayer there (the switch query cannot tell "no radio" from "switch off") */
+int psp_netplay_wlan_hw(void) {
+    static int hw = -1;
+    if (hw < 0) {
+        hw = (psp_dve_model() == 10) ? 0 : 1;
+    }
+    return hw;
+}
+
 int psp_netplay_wlan_on(void) {
     return sceWlanGetSwitchState() != 0; /* (a negative value is an error of the query, not "off") */
 }
@@ -1630,7 +1641,7 @@ void psp_netplay_frame(void) {
     } else if (sGameActive) {
         psp_np_game_remove_remote();
         if (!psp_netplay_in_room()) {
-            psp_np_game_keep_local_char(0); /* (Mario) */
+            psp_np_game_keep_local_char(gPspSoloChar); /* (Mario, or Luigi: see gPspSoloChar) */
         }
         sPeerChar = 0;
         psp_np_hud_link(psp_netplay_in_room() ? 0 : -1); /* (the room is over: its own notice replaces "<name> disconnected", as sm64coopdx) */
@@ -1670,6 +1681,9 @@ void psp_netplay_frame(void) {
             save_file_load_all();
             psp_netplay_refresh_hud();
         }
+    }
+    if (!sGameActive && !psp_netplay_in_room()) {
+        psp_np_game_keep_local_char(gPspSoloChar); /* single player: Mario, or Luigi when the file was chosen with L + R held (file_select.c) */
     }
 }
 

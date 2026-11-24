@@ -22,7 +22,12 @@
 #include <pspctrl.h>
 #include <psputils.h>
 #include <pspgum.h>
+#ifndef PSP_CUSTOM_HOME_MENU
+#define PSP_CUSTOM_HOME_MENU 0
+#endif
+#if PSP_CUSTOM_HOME_MENU
 #include <intraFont.h>
+#endif
 #include <string.h>
 
 #include "psp_texture_manager.h"
@@ -49,7 +54,9 @@ static __attribute__((noinline)) void gfx_scegu_varena_publish(void);
 #define sceGuDrawArray(...) (gfx_scegu_varena_publish(), sceGuDrawArray(__VA_ARGS__))
 #define sceGuFinish() (gfx_scegu_varena_publish(), sceGuFinish())
 #define sceGuCallList(l_) (gfx_scegu_varena_publish(), sceGuCallList(l_))
+#if PSP_CUSTOM_HOME_MENU
 #define intraFontPrint(...) (gfx_scegu_varena_publish(), intraFontPrint(__VA_ARGS__))
+#endif
 #endif
 
 #define BUF_WIDTH (512)
@@ -194,9 +201,9 @@ static uint32_t shader_broken[27] = {
     153094656  // Noise
 };
 
-/* 768 KB (it was 2 MB): the biggest frame measured in every course, the castle, the Bowser fights and the ending used ~160 KB of it (the vertices go to
- * sVArena, not here). If a frame ever needs more, the list is closed and started again (gfx_scegu_list_restart), as it already was. */
-unsigned int __attribute__((aligned(64))) list[196608];
+/* 384 KB (it was 2 MB, then 768 KB): the biggest frame measured in every course, the castle, the Bowser fights and the ending used ~160 KB of it (the
+ * vertices go to sVArena, not here). If a frame ever needs more, the list is closed and started again (gfx_scegu_list_restart), as it already was. */
+unsigned int __attribute__((aligned(64))) list[98304];
 
 /* sceGuGetMemory stores transient vertices in the display list. Menu text can
  * emit many small sprites, so continue in a fresh list before an allocation
@@ -478,6 +485,11 @@ static int sTvAutoFails;           /* failed automatic attempts in a row; after 
 #define TV_AUTO_TRIES 10
 static int sTvDispMode = -1, sTvDispW, sTvDispH; /* display mode the DVE left when the TV was turned on (0x1D1 / 0x1D2); if it changes the system took the output back */
 static int sTvKeepVbl;             /* re-route to the same mode: the vblank period measured before is still valid */
+extern void memcpy_vfpu(void *dst, const void *src, size_t size);
+#if PSP_CUSTOM_HOME_MENU
+/* The port's own HOME menu (src/pc/psp_home_menu.c) is not used: the firmware's HOME menu is. With it off, its two full-screen buffers (544 KB),
+ * the firmware font it loaded at start-up (intraFont) and its drawing code are not in the game at all, which leaves that memory to the game
+ * (it matters on the PSP-1000, which has 24 MB). */
 static bool sHomeMenuBgActive;
 static bool sHomeMenuBgCaptureRequested;
 static bool sHomeMenuBgCaptured;
@@ -486,7 +498,6 @@ static uint16_t sHomeMenuBgBlurScratch[BUF_WIDTH * SCR_HEIGHT] __attribute__((al
 static intraFont *sHomeMenuFont;
 static bool sHomeMenuFontInitTried;
 
-extern void memcpy_vfpu(void *dst, const void *src, size_t size);
 
 static void *gfx_scegu_vram_cpu_addr(const void *vram_buffer) {
     return (void *)(((uintptr_t)sceGeEdramGetAddr() | 0x40000000U) +
@@ -737,6 +748,7 @@ static void gfx_scegu_render_controller_mapping(int selected_index, const char *
             : "Left/Right change  Cross select  Circle back",
         0.48f, gfx_scegu_rgba(185, 195, 190, 255), INTRAFONT_ALIGN_CENTER);
 }
+#endif /* PSP_CUSTOM_HOME_MENU */
 
 static inline uint32_t get_shader_index(uint32_t id) {
     size_t i;
@@ -1929,8 +1941,10 @@ static void gfx_scegu_init(void) {
         psp_dve_mark_clear();
     }
 
+#if PSP_CUSTOM_HOME_MENU
     /* Load the firmware font before game assets consume the remaining heap. */
     gfx_scegu_ensure_home_menu_font();
+#endif
 #if PSP_ASYNC_PRESENT
     gfx_scegu_present_init();
 #endif
@@ -2510,7 +2524,7 @@ int gfx_scegu_tv_vbl_hz10(void) {
 }
 
 static void gfx_scegu_start_frame(void) {
-    bool has_home_menu_background;
+    bool has_home_menu_background = false;
     gfx_scegu_frame_gate(); /* the previous frame may still be in the GE / unpresented: do not touch the list / arena / buffers before that */
     if (sTvProbT0 != 0 && (sceKernelGetSystemTimeLow() - sTvProbT0) >= TV_PROBATION_US) { /* nobody confirmed 480i / 480p: it goes back by itself */
         sTvReqMode = sTvProbBack;
@@ -2656,6 +2670,7 @@ static void gfx_scegu_start_frame(void) {
     tmu_state[0].tex = UINT32_MAX;
     tmu_state[1].tex = UINT32_MAX;
 
+#if PSP_CUSTOM_HOME_MENU
     if (sHomeMenuBgCaptureRequested) {
         gfx_scegu_wait_shown(sFrameN); /* what is on screen has to be the last complete frame */
         gfx_scegu_copy_framebuffer_from_vram(sHomeMenuBgBuffer, sDisplayBuffer);
@@ -2663,12 +2678,15 @@ static void gfx_scegu_start_frame(void) {
         sHomeMenuBgCaptureRequested = false;
         sHomeMenuBgCaptured = true;
     }
+#endif
 
     sDrawBuffer = sFb[sFrameN % PSP_NFB];
+#if PSP_CUSTOM_HOME_MENU
     has_home_menu_background = sHomeMenuBgActive && sHomeMenuBgCaptured;
     if (has_home_menu_background) {
         gfx_scegu_copy_framebuffer_to_vram(sDrawBuffer, sHomeMenuBgBuffer);
     }
+#endif
 
     sceGuStart(GU_DIRECT, sCurList);
     sFrameList = ge_list_executed[0];
@@ -2862,6 +2880,7 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_scegu_finish_render
 };
 
+#if PSP_CUSTOM_HOME_MENU
 void gfx_scegu_request_home_menu_background(void) {
     sHomeMenuBgCaptureRequested = true;
 }
@@ -2886,5 +2905,47 @@ void gfx_scegu_render_home_menu(int selected_index, int screen, int control_sele
                                         highlight_blue);
     }
 }
+#endif /* PSP_CUSTOM_HOME_MENU */
 
 #endif // RAPI_GL_LEGACY
+
+/* The Shindou title screen easter egg (geo_intro_face_easter_egg) makes a small picture from the screen: on the N64 it reads the frame
+ * buffer. Here the last frame already on screen is read from VRAM. The box is given in N64 screen pixels (320 x 240, inside the 4:3 part of
+ * the picture); each output pixel is the average of sampleW x sampleH N64 pixels. Output: N64 RGBA16 (5551) in big-endian byte order, the
+ * layout the texture importer reads. Returns 0 if there is no frame yet. */
+static int gfx_psp_clamp(int v, int lo, int hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+int gfx_psp_sample_screen(uint16_t *out, int w, int h, int x0, int y0, int sampleW, int sampleH) {
+    const unsigned int shown = sShown;
+    const uint16_t *fb;
+    const float scale = (float) SCR_HEIGHT / 240.0f;           /* N64 pixel -> PSP pixel */
+    const float left = ((float) gPspGameW - 320.0f * scale) * 0.5f; /* the 4:3 part is centered */
+    int ix, iy, sx, sy;
+
+    if (shown == 0) {
+        return 0;
+    }
+    fb = (const uint16_t *) (((uintptr_t) sceGeEdramGetAddr() | 0x40000000U) + ((uintptr_t) sFb[(shown - 1) % PSP_NFB] & 0x00FFFFFFU)); /* uncached */
+    for (iy = 0; iy < h; iy++) {
+        for (ix = 0; ix < w; ix++) {
+            unsigned int r = 0, g = 0, b = 0, n = 0;
+            uint16_t c;
+            for (sy = 0; sy < sampleH; sy++) {
+                for (sx = 0; sx < sampleW; sx++) {
+                    const int px = gfx_psp_clamp((int) (left + (float) (x0 + ix * sampleW + sx) * scale + 0.5f), 0, SCR_WIDTH - 1);
+                    const int py = gfx_psp_clamp((int) ((float) (y0 + iy * sampleH + sy) * scale + 0.5f), 0, SCR_HEIGHT - 1);
+                    const uint16_t p = fb[py * BUF_WIDTH + px]; /* GU 5650: red in the low bits, blue in the high ones */
+                    r += p & 0x1F;
+                    g += (p >> 6) & 0x1F; /* top 5 of the 6 green bits */
+                    b += (p >> 11) & 0x1F;
+                    n++;
+                }
+            }
+            c = (uint16_t) ((((r + n / 2) / n) << 11) | (((g + n / 2) / n) << 6) | (((b + n / 2) / n) << 1) | 1);
+            out[iy * w + ix] = (uint16_t) ((c >> 8) | (c << 8));
+        }
+    }
+    return 1;
+}

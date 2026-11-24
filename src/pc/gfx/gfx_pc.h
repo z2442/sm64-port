@@ -27,6 +27,11 @@ void gfx_run(Gfx *commands);
 void gfx_end_frame(void);
 void gfx_render_callback_frame(void (*draw_callback)(void *arg), void *arg);
 
+void gfx_texture_cache_forget(const void *addr);
+#ifdef TARGET_PSP
+int gfx_psp_sample_screen(uint16_t *out, int w, int h, int x0, int y0, int sampleW, int sampleH);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

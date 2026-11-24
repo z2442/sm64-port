@@ -1727,6 +1727,9 @@ struct ParallelTrackingPoint sBBHLibraryParTrackPath[] = {
 };
 
 s32 unused_update_mode_5_camera(UNUSED struct Camera *c, UNUSED Vec3f focus, UNUSED Vec3f pos) {
+#ifdef AVOID_UB
+    return 0;
+#endif
 }
 
 static void stub_camera_1(UNUSED s32 unused) {
@@ -2052,6 +2055,9 @@ void mode_behind_mario_camera(struct Camera *c) {
 }
 
 s32 nop_update_water_camera(UNUSED struct Camera *c, UNUSED Vec3f focus, UNUSED Vec3f pos) {
+#ifdef AVOID_UB
+    return 0;
+#endif
 }
 
 /**
@@ -4893,6 +4899,9 @@ void play_sound_if_cam_switched_to_lakitu_or_mario(void) {
  */
 s32 radial_camera_input(struct Camera *c, UNUSED f32 unused) {
     s16 dummy;
+#ifdef AVOID_UB
+    dummy = 0;
+#endif
 
     if ((gCameraMovementFlags & CAM_MOVE_ENTERED_ROTATE_SURFACE) || !(gCameraMovementFlags & CAM_MOVE_ROTATE)) {
 
@@ -10433,12 +10442,21 @@ struct Cutscene sCutsceneEnding[] = {
     { cutscene_ending_kiss, 0x10b },
 #else
     { cutscene_ending_mario_land_closeup, 75 },
+#ifdef VERSION_SH // (Shindou: longer, to fit the voiced ending)
+    { cutscene_ending_stars_free_peach, 431 },
+#else
     { cutscene_ending_stars_free_peach, 386 },
+#endif
     { cutscene_ending_peach_appears, 139 },
     { cutscene_ending_peach_descends, 590 },
     { cutscene_ending_mario_to_peach, 95 },
+#ifdef VERSION_SH
+    { cutscene_ending_peach_wakeup, 455 },
+    { cutscene_ending_dialog, 286 },
+#else
     { cutscene_ending_peach_wakeup, 425 },
     { cutscene_ending_dialog, 236 },
+#endif
     { cutscene_ending_kiss, 245 },
 #endif
     { cutscene_ending_cake_for_mario, CUTSCENE_LOOP },

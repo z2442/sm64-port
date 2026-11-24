@@ -154,8 +154,10 @@ void psp_np_hud_peer_place(int known, int level, int area, int act); /* where th
 int psp_np_hud_peer_act(int course, int *peerChar);           /* the act the other player is in if it is in that course, else 0 */
 void psp_np_hud_draw(void);                                   /* once per drawn frame, at the end of the display list */
 void psp_np_hud_room_ended(int reason);                       /* the room this console was playing in is over (PSP_NP_END_*) */
+int psp_netplay_wlan_hw(void);                                /* 0 on a PSP without WLAN (PSP Street) */
 void psp_np_hud_notice(int kind);                             /* a notice of the game itself (PSP_NP_NOTE_*) */
 #define PSP_NP_NOTE_WLAN_OFF 1                                /* "Turn the WLAN switch on" (the file select's Multiplayer menu) */
+#define PSP_NP_NOTE_NO_WLAN 2                                 /* "This PSP has no WLAN" (PSP Street) */
 void psp_np_go_to_file_select(void);                          /* game/level_update.c: back to the file select as soon as a level is running */
 void psp_np_hud_patch(void);                                  /* between the two frames of a 60 fps tick (interpolation) */
 

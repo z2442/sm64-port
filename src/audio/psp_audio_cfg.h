@@ -5,9 +5,10 @@
  * do not sound with dense music). Only ACTIVE notes count. The ME synthesizes in parallel, but measured in the log (patch 36):
  * up to ~23 notes the CPU almost never waits for the ME (MEWMS < 4 ms per 30-tick window); from 24 on the wait multiplies
  * (10-19 ms per window). That is why the cap is 22 (margin below that knee). Maximum 32 (sSampleDmas has 4 entries per note).
- * 16 = original behavior. */
+ * 16 = original behavior. EU, JP and Shindou keep 16: with 22 the Shindou version ran out of audio memory right after starting and crashed (the
+ * sound engine got a null buffer from a full pool and read through it). */
 #ifndef PSP_AUDIO_NOTES
-#if defined(TARGET_PSP) && !defined(VERSION_EU) && !defined(VERSION_JP)
+#if defined(TARGET_PSP) && !defined(VERSION_EU) && !defined(VERSION_JP) && !defined(VERSION_SH)
 #define PSP_AUDIO_NOTES 22
 #else
 #define PSP_AUDIO_NOTES 16

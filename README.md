@@ -15,6 +15,7 @@ and the PSP port by [z2442](https://github.com/z2442/sm64-port).
 - Progress is saved on the Memory Stick like a normal PSP game.
 - **Four versions from the same code**: US, JP, EU (English, French and German, with the PAL layout adapted to the PSP's 16:9 screen) and Shindou (experimental). See [Supported versions](#supported-versions).
 - **WLAN multiplayer for 2 players** (PSP ad hoc, no router or internet), in the style of sm64coopdx, with Mario, Luigi, Blue Toad, Yellow Toad, Waluigi and Wario. See [Multiplayer (WLAN)](#multiplayer-wlan).
+- **Play as Luigi on your own**: hold **L + R** while you choose a save file (as in New Super Mario Bros. DS). Back at the title screen it is Mario again.
 
 > **This repository does not contain the game's data.** You need your **own copy of the Super Mario 64 ROM** of the version you want,
 > which the build process turns into the PSP version. No ROM is included and none will be provided.
@@ -47,7 +48,7 @@ and the PSP port by [z2442](https://github.com/z2442/sm64-port).
 The only thing you install on the PC is Docker Desktop. Everything else (compiler, Python, libraries) lives inside a Docker container
 that the build script creates for you.
 
-**PSP-1000 (24 MB of RAM):** the game is meant to fit in a PSP-1000's memory, and it boots and runs in PPSSPP set to a 24 MB model with roughly 2 MB of heap to spare. It has **not been tested on a real PSP-1000** yet, so treat it as experimental there. TV output is not available on a PSP-1000.
+**PSP-1000 (24 MB of RAM):** the game is meant to fit in a PSP-1000's memory, and it boots and runs in PPSSPP set to a 24 MB model (also a two-player multiplayer game with two consoles set that way). It has **not been tested on a real PSP-1000** yet, so treat it as experimental there. TV output is not available on a PSP-1000.
 
 ### Supported versions
 
@@ -56,13 +57,13 @@ that the build script creates for you.
 | **US** (USA) | `baserom.us.z64` | `9bef1128717f958171a4afac3ed78ee2bb4e86ce` | Main version, the most tested. |
 | **JP** (Japan) | `baserom.jp.z64` | `8a20a5c83d6ceb0f0506cfc9fa20d8f438cafe51` | Builds; less tested. |
 | **EU** (Europe) | `baserom.eu.z64` | `4ac5721683d0e0b6bbb561b58a71740845dceea9` | English, French and German. Tested on PSP and PPSSPP. |
-| **SH** (Shindou, Japan 1997) | `baserom.sh.z64` **and** `baserom.jp.z64` | `3f319ae697533a255a1003d09202379d78d5a2e0` (SH) | **Experimental.** Graphics and game come from the SH ROM, but the sound still comes from the JP ROM, so the audio is not the real Shindou one yet. |
+| **SH** (Shindou, Japan 1997) | `baserom.sh.z64` | `3f319ae697533a255a1003d09202379d78d5a2e0` | **Experimental.** Everything comes from the SH ROM, sound included, played by the Shindou sound engine. |
 
 Each build is its own game: the version you build is the version you get. Rename your ROM exactly as shown (all lowercase).
 
 **Known limitations**
 
-- The Shindou version needs **both** ROMs (SH and JP) and uses the Japanese sound data and audio engine (the original Shindou sound engine is not ported yet). Rumble is not available (the PSP has no rumble motor).
+- Rumble is not available in the Shindou version (the PSP has no rumble motor).
 - All versions share the same save folder and file name (`PSP\SAVEDATA\SM64PORT\sm64_save_file.bin`). Saves of different versions are not guaranteed to be compatible, so **back that file up before switching to another version**.
 
 ---
@@ -116,7 +117,6 @@ The easiest way, with no extra programs:
 
 1. Copy your ROM into the project folder, **next to the file called `Makefile`**.
 2. Rename it to exactly **`baserom.<version>.z64`** (all lowercase), where `<version>` is `us`, `jp`, `eu` or `sh`: for example `baserom.us.z64`.
-   The Shindou version needs two files: `baserom.sh.z64` and `baserom.jp.z64`.
 
 The folder should now contain, among others: `Makefile`, `build_psp.ps1`, `Dockerfile.psp`, `src`, and your ROM (`baserom.us.z64`, for example).
 
@@ -193,7 +193,7 @@ The game is the pair of files **`EBOOT.PBP`** and **`SM64.PRX`** inside **`build
 If a release is published for your version (GitHub → *Releases*), you do not need to build anything or install Docker. The release contains no data from the game: it prepares itself from **your own ROM** the first time you start it.
 
 1. Download the zip of your version (`SM64-PSP-us.zip`, `-jp`, `-eu` or `-sh`), extract it and copy the **`PSP`** folder to the root of your Memory Stick (merge folders if asked).
-2. Put your own ROM in `PSP\GAME\SM64_<VERSION>\data\` (any file name; `.z64`, `.v64` or `.n64`). The Shindou version needs both the SH and the JP ROM.
+2. Put your own ROM in `PSP\GAME\SM64_<VERSION>\data\` (any file name; `.z64`, `.v64` or `.n64`).
 3. Start **Super Mario 64** from the XMB. The first time it checks your ROM and builds the game (a progress bar is shown and it can take a while), then it starts. The next times it starts directly; the ROM, `SM64.template.prx` and `manifest.bin` are no longer needed and can be deleted.
 
 The installer shows its messages in the language of your PSP (English, French, German, Spanish, Italian or Japanese). If it says the ROM is missing, check that it is the original 8 MB ROM of that version (SHA-1 in the [table above](#supported-versions)). The installer has been tested on a real PSP-3000; reports from other models (especially the PSP-1000) are welcome.
@@ -270,7 +270,7 @@ A, B, R and Start are the game's buttons: the menu follows your control settings
 
 Two PSPs can play together over the PSP's own wireless connection (ad hoc: no router and no internet), in the style of sm64coopdx: each player moves freely and can be in a different level.
 
-1. Turn on the **WLAN switch** on both consoles (with it off, the menu does not open).
+1. Turn on the **WLAN switch** on both consoles (with it off, the menu does not open). The **PSP Street (E1000)** has no WLAN, so there is no Multiplayer menu on it.
 2. On the file-select screen press **SELECT** to open the **Multiplayer** menu. Choose your **Character** there: Mario, Luigi, Blue Toad, Yellow Toad, Waluigi or Wario (two players cannot use the same one). Your name is the PSP's nickname.
 3. One player chooses **Host a Game**, sets the room rules (Nametags, Player Interaction, Knockback, On Star Collection, Bubble On Death, Skip Intro) and then picks the save file to play with.
 4. The other player chooses **Join a Game** and picks the room from the list (it shows the host's nickname and the players).
@@ -312,7 +312,7 @@ Start the script exactly like this: `powershell -ExecutionPolicy Bypass -File .\
 
 **`Failed to open baserom.us.z64!`** (or `baserom.jp/eu/sh.z64`)
 The ROM is not in the right place or has the wrong name. It must sit **next to `Makefile`** and be called exactly `baserom.<version>.z64`
-(with extensions visible, check it is not `baserom.us.z64.z64`). For Shindou you need `baserom.sh.z64` **and** `baserom.jp.z64`.
+(with extensions visible, check it is not `baserom.us.z64.z64`).
 
 **`baserom.us.z64 has the wrong hash!`** (or the same with `jp`, `eu` or `sh`)
 It is not the ROM of that version, or it is in another format. Redo [Step 1](#step-1--check-your-rom).
@@ -408,11 +408,16 @@ sm64
 │   ├── game: behaviors and rest of game source (psp_options.c = the Options menu)
 │   ├── goddard: Mario intro screen
 │   ├── menu: title screen and file, act, and debug level selection menus
-│   └── pc: port code, audio and video renderer (PSP: gfx_psp.c, audio_psp.c, psp_me.c)
+│   ├── pc: port code, audio and video renderer (PSP: gfx_psp.c, audio_psp.c, psp_me.c)
+│   └── sh/audio: the Shindou sound engine (built only for VERSION=sh instead of src/audio; mixer_sh.c = its audio microcode in C)
 ├── text: dialog, level names, act names
 ├── textures: skybox and generic texture data
 └── tools: build tools
 ```
+
+### The Shindou sound engine (`src/sh/audio`)
+
+The Shindou ROM keeps its sounds in a format that only its own sound engine plays, so `VERSION=sh` builds `src/sh/audio` (the engine from the n64decomp/sm64 decompilation) **instead of** `src/audio` (see `SRC_DIRS` in the Makefile); US, JP and EU never use it. What the port adds there: `mixer_sh.c` (the engine's audio microcode written in C, adapted from Ship of Harkinian's `mixer.c`), `port_sh.c` (one frame of sound on the PSP instead of the N64's audio task), `sh_pc.c` / `sh_compat.h` (the N64 cartridge and DMA calls, done as memory copies), and in `external.c` the same PSP code as `src/audio/external.c` (character voices, volume options): **a change to one of the two `external.c` usually belongs in the other too.** Changes inside the decompiled files are marked with comments.
 
 ### Contributing
 
@@ -439,6 +444,7 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 - **ghurone / Sonic-R-PSP** — the ideas of the cached vertex arena and of letting the GE do the lateral clipping, and the compiler-flag hint, come from their Sonic R port for the PSP.
 - **beckerd ([psp_mk64_portable](https://github.com/beckerd/psp_mk64_portable)) and JustKidding23 ([Ocarina-of-Time-PSP](https://github.com/JustKidding23/Ocarina-of-Time-PSP), based on [z2442/oot-PSP](https://github.com/z2442/oot-PSP))** — the idea of shipping no game data and building it on the PSP, from the player's own ROM, the first time the game is launched comes from these two PSP ports (Mario Kart 64 and Ocarina of Time). The installer in this repository (`psp/installer/`) is a separate implementation: it rebuilds `SM64.PRX` from a template and a manifest instead.
 - **sm64coopdx / sm64ex-coop** — reference for the multiplayer feature's design (synchronization, menus, notices, room settings), and source of the character assets adapted for this port (Luigi, Toad, Waluigi and Wario): models and textures, HUD heads, sound banks and voice samples. The voice lines are credited there to Andrat (Luigi, also used for Waluigi), Dark the Eagle (Wario) and Ninten_King_64 (Toad). sm64coopdx builds on sm64ex-coop (djoslin0 and contributors) and DynOS (PeachyPeach). These assets belong to their respective authors and are not covered by this project's license; they are included because the multiplayer needs them. sm64coopdx publishes no license for them: if you are one of their authors and want them removed or credited differently, open an issue.
+- **Ship of Harkinian (HarbourMasters)** — the C version of the newer N64 audio microcode used by the Shindou sound engine (`src/sh/audio/mixer_sh.c`) is adapted from its `mixer.c`, which in turn grew out of the sm64-port mixer.
 - **Claude (Anthropic)** — AI assistant that wrote or helped write most of the later code changes of this port: the 60 fps adaptation and frame pacing, the rendering and GE optimizations, the options menu, the JP/EU/SH version support, the WLAN multiplayer, the no-PC installer and the documentation.
 - Everyone else who contributed to the PSP project and everyone listed in this repository's Git history (`git shortlog -sn`).
 

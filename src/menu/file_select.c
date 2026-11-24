@@ -20,6 +20,7 @@
 #include "game/spawn_object.h"
 #include "sm64.h"
 #ifdef TARGET_PSP
+#include <pspctrl.h>
 #include "game/psp_options.h" /* the Multiplayer menu (SELECT): psp_options_fs_update / psp_options_fs_draw */
 #endif
 #include "text_strings.h"
@@ -37,8 +38,8 @@
  * special menu messages and phases, button states and button clicked checks.
  */
 
-#ifdef VERSION_US
-// The current sound mode is automatically centered on US due to
+#if defined(VERSION_US) || defined(VERSION_SH)
+// The current sound mode is automatically centered on US and Shindou due to
 // the large length difference between options.
 // sSoundTextY unused (EU supports its existence).
 static s16 sSoundTextX;
@@ -1402,12 +1403,35 @@ void bhv_menu_button_manager_init(void) {
     sTextBaseAlpha = 0;
 }
 
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_JP // (Shindou plays the "okey dokey" again)
     #define SAVE_FILE_SOUND SOUND_MENU_STAR_SOUND
 #else
     #define SAVE_FILE_SOUND SOUND_MENU_STAR_SOUND_OKEY_DOKEY
 #endif
 
+
+#if defined(TARGET_PSP) && PSP_NETPLAY
+/* As in New Super Mario Bros. (DS): choosing a file while holding the PSP's L and R plays as Luigi (his "Here we go!" instead of Mario's line)
+ * until a file is chosen again. Only in builds with the multiplayer, which carry the other characters' models and voices. */
+extern unsigned int gPspRawButtons;
+extern u8 gPspKeepVoiceOnFade;
+static void psp_play_save_file_sound(void) {
+    if ((gPspRawButtons & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) == (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) {
+        gPspSoloChar = PSP_CHAR_LUIGI;
+        gPspLocalChar = PSP_CHAR_LUIGI; /* (right now, so the voice below is already his) */
+        gPspKeepVoiceOnFade = 1; /* the menu's exit fades every sound bank but the menu's: this keeps his line whole */
+        play_sound(SOUND_MENU_STAR_SOUND, gDefaultSoundArgs);
+        play_sound(SOUND_MARIO_HERE_WE_GO, gDefaultSoundArgs);
+    } else {
+        gPspSoloChar = PSP_CHAR_MARIO;
+        gPspLocalChar = PSP_CHAR_MARIO;
+        play_sound(SAVE_FILE_SOUND, gDefaultSoundArgs);
+    }
+}
+#define PSP_PLAY_SAVE_FILE_SOUND() psp_play_save_file_sound()
+#else
+#define PSP_PLAY_SAVE_FILE_SOUND() play_sound(SAVE_FILE_SOUND, gDefaultSoundArgs)
+#endif
 
 /**
  * In the main menu, check if a button was clicked to play it's button growing state.
@@ -1451,16 +1475,16 @@ void check_main_menu_clicked_buttons(void) {
         // Play sound of the save file clicked
         switch (sSelectedButtonID) {
             case MENU_BUTTON_PLAY_FILE_A:
-                play_sound(SAVE_FILE_SOUND, gDefaultSoundArgs);
+                PSP_PLAY_SAVE_FILE_SOUND();
                 break;
             case MENU_BUTTON_PLAY_FILE_B:
-                play_sound(SAVE_FILE_SOUND, gDefaultSoundArgs);
+                PSP_PLAY_SAVE_FILE_SOUND();
                 break;
             case MENU_BUTTON_PLAY_FILE_C:
-                play_sound(SAVE_FILE_SOUND, gDefaultSoundArgs);
+                PSP_PLAY_SAVE_FILE_SOUND();
                 break;
             case MENU_BUTTON_PLAY_FILE_D:
-                play_sound(SAVE_FILE_SOUND, gDefaultSoundArgs);
+                PSP_PLAY_SAVE_FILE_SOUND();
                 break;
             // Play sound of the button clicked and render buttons of that menu.
             case MENU_BUTTON_SCORE:
@@ -1793,7 +1817,11 @@ void print_save_file_star_count(s8 fileIndex, s16 x, s16 y) {
     #define SCORE_X 50
     #define COPY_X 115
     #define ERASE_X 180
+#ifdef VERSION_JP
     #define SOUNDMODE_X1 235
+#else
+    #define SOUNDMODE_X1 sSoundTextX // centered, like US
+#endif
     #define SAVEFILE_X1 92
     #define SAVEFILE_X2 209
     #define MARIOTEXT_X1 92
@@ -1847,7 +1875,7 @@ void print_main_menu_strings(void) {
     print_generic_string(SCORE_X, 39, textScore);
     print_generic_string(COPY_X, 39, textCopy);
     print_generic_string(ERASE_X, 39, textErase);
-#if !defined(VERSION_JP) && !defined(VERSION_SH)
+#ifndef VERSION_JP
     sSoundTextX = get_str_x_pos_from_center(254, textSoundModes[sSoundMode], 10.0f);
 #endif
     print_generic_string(SOUNDMODE_X1, 39, textSoundModes[sSoundMode]);
@@ -1902,7 +1930,7 @@ void print_main_lang_strings(void) {
 #ifdef VERSION_EU
 #define CHECK_FILE_X checkFileX
 #define NOSAVE_DATA_X1 noSaveDataX
-#elif VERSION_JP
+#elif defined(VERSION_JP) || defined(VERSION_SH)
 #define CHECK_FILE_X 90
 #define NOSAVE_DATA_X1 90
 #else
@@ -2137,9 +2165,12 @@ void copy_menu_update_message(void) {
     }
 }
 
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#if defined(VERSION_JP)
     #define VIEWSCORE_X1 133
     #define ERASEFILE_X2 220
+#elif defined(VERSION_SH)
+    #define VIEWSCORE_X1 133
+    #define ERASEFILE_X2 230
 #elif VERSION_EU
     #define VIEWSCORE_X1 centeredX
     #define ERASEFILE_X2 centeredX
@@ -2200,8 +2231,12 @@ void print_copy_menu_strings(void) {
 #endif
 }
 
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#if defined(VERSION_JP)
     #define CURSOR_X 160.0f
+    #define MENU_ERASE_YES_MIN_X 0x91
+    #define MENU_ERASE_YES_MAX_X 0xA4
+#elif defined(VERSION_SH)
+    #define CURSOR_X (x + 0x46)
     #define MENU_ERASE_YES_MIN_X 0x91
     #define MENU_ERASE_YES_MAX_X 0xA4
 #else
@@ -2212,8 +2247,13 @@ void print_copy_menu_strings(void) {
 
 #define MENU_ERASE_YES_NO_MIN_Y 0xBF
 #define MENU_ERASE_YES_NO_MAX_Y 0xD2
+#ifdef VERSION_SH
+#define MENU_ERASE_NO_MIN_X 194
+#define MENU_ERASE_NO_MAX_X 213
+#else
 #define MENU_ERASE_NO_MIN_X 0xBD
 #define MENU_ERASE_NO_MAX_X 0xDA
+#endif
 
 /**
  * Prints the "YES NO" prompt and checks if one of the prompts are hovered to do it's functions.
@@ -2282,7 +2322,11 @@ void print_erase_menu_prompt(s16 x, s16 y) {
 // M a r i o   A --- マ リ オ Ａ
 // 0 1 2 3 4 5 6 --- 0 1 2 3
 #if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_JP
     #define ERASE_FILE_X     96
+#else
+    #define ERASE_FILE_X     111
+#endif
     #define NOSAVE_DATA_X3   90
     #define MARIO_ERASED_VAR 3
     #define MARIO_ERASED_X   90
@@ -2471,7 +2515,7 @@ void print_erase_menu_strings(void) {
 void print_sound_mode_menu_strings(void) {
     s32 mode;
 
-#ifdef VERSION_US
+#if defined(VERSION_US) || defined(VERSION_SH)
     s16 textX;
 #elif VERSION_EU
     s32 textX;
@@ -2528,8 +2572,8 @@ void print_sound_mode_menu_strings(void) {
         } else {
             gDPSetEnvColor(gDisplayListHead++, 0, 0, 0, sTextBaseAlpha);
         }
-        #ifdef VERSION_US
-            // Mode names are centered correctly on US
+        #if defined(VERSION_US) || defined(VERSION_SH)
+            // Mode names are centered correctly on US and Shindou
             textX = get_str_x_pos_from_center(mode * 74 + 87, textSoundModes[mode], 10.0f);
             print_generic_string(textX, 87, textSoundModes[mode]);
         #elif VERSION_JP
@@ -2713,9 +2757,13 @@ void print_score_file_star_score(s8 fileIndex, s16 courseIndex, s16 x, s16 y) {
 //  PADCHAR is used to difference an x position value between
 //  JP and US when the course number is only one digit.
 #if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_JP
     #define PADCHAR 0
+#else
+    #define PADCHAR 1 // (Shindou moves one-digit courses 5 pixels right)
+#endif
     #define PRINT_COURSE_SCORES(courseIndex, pad)                                                               \
-        print_menu_generic_string(23 + (pad * 3), 23 + 12 * courseIndex, segmented_to_virtual(levelNameTable[courseIndex - 1]));  \
+        print_menu_generic_string(23 + (pad * 5), 23 + 12 * courseIndex, segmented_to_virtual(levelNameTable[courseIndex - 1]));  \
         print_score_file_star_score(fileIndex, courseIndex - 1, 152, 23 + 12 * courseIndex);                        \
         print_score_file_course_coin_score(fileIndex, courseIndex - 1, 213, 23 + 12 * courseIndex);
 #else
@@ -2745,7 +2793,11 @@ void print_score_file_star_score(s8 fileIndex, s16 courseIndex, s16 x, s16 y) {
 #undef PADCHAR
 
     // Print level name
+#ifdef VERSION_SH
+    print_menu_generic_string(LEVEL_NAME_X + 10, 215, segmented_to_virtual(levelNameTable[25]));
+#else
     print_menu_generic_string(LEVEL_NAME_X, 215, segmented_to_virtual(levelNameTable[25]));
+#endif
     // Print castle secret stars
     print_score_file_castle_secret_stars(fileIndex, SECRET_STARS_X, 215);
 

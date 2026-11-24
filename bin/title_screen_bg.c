@@ -71,6 +71,27 @@ const Gfx title_screen_bg_dl_0A000190[] = {
     gsSPEndDisplayList(),
 };
 
+#ifdef VERSION_SH
+// Shindou: start and end of the face easter egg tiles (see geo_intro_face_easter_egg)
+const Gfx title_screen_bg_dl_0A0065E8[] = {
+    gsDPPipeSync(),
+    gsDPSetCycleType(G_CYC_COPY),
+    gsDPSetTexturePersp(G_TP_NONE),
+    gsDPSetTextureFilter(G_TF_POINT),
+    gsDPSetRenderMode(G_RM_NOOP, G_RM_NOOP2),
+    gsSPEndDisplayList(),
+};
+
+const Gfx title_screen_bg_dl_0A006618[] = {
+    gsDPPipeSync(),
+    gsDPSetCycleType(G_CYC_1CYCLE),
+    gsDPSetTexturePersp(G_TP_PERSP),
+    gsDPSetTextureFilter(G_TF_BILERP),
+    gsDPSetRenderMode(G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2),
+    gsSPEndDisplayList(),
+};
+#endif
+
 // 0x0A0001C0
 ALIGNED8 static const u8 title_texture_0A0001C0[] = {
 #include "textures/title_screen_bg/title_screen_bg.001C0.rgba16.inc.c"

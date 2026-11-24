@@ -103,6 +103,10 @@ void unknown_main_func(void) {
     // uninitialized
     OSTime time;
     u32 b;
+#ifdef AVOID_UB
+    time = 0;
+    b = 0;
+#endif
 
     osSetTime(time);
     osMapTLB(0, b, NULL, 0, 0, 0);

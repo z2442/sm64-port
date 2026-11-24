@@ -916,6 +916,7 @@ void create_next_audio_buffer(s16 *samples, u32 num_samples) {
 #endif
 #define PSP_VOICE_MARIO_IDS 0x38
 #define PSP_WALUIGI_FREQ_SCALE 0.88f
+u8 gPspSoloChar = PSP_CHAR_MARIO;
 u8 gPspLocalChar = PSP_CHAR_MARIO; /* the local player's character (PSP_CHAR_*): his voice lines are that character's */
 static const f32 *sPspRemoteVoicePos; /* where the other player's voice comes from: what tells its sounds from this player's */
 static u8 sPspRemoteVoiceChar;        /* the other player's character, for the voice sounds that come from sPspRemoteVoicePos */
@@ -2541,6 +2542,10 @@ void func_80321080(u16 fadeTimer) {
     }
 }
 
+/* PSP port: set when the file select plays the Luigi line (L+R, see psp_play_save_file_sound): the fade out of the file select's exit then
+ * leaves the voice bank alone once, so the line is not cut. (Mario's "okey dokey" is a menu bank sound, which this fade never touches.) */
+u8 gPspKeepVoiceOnFade = 0;
+
 void func_803210D4(u16 fadeOutTime) {
     u8 i;
 
@@ -2564,7 +2569,7 @@ void func_803210D4(u16 fadeOutTime) {
     }
 
     for (i = 0; i < SOUND_BANK_COUNT; i++) {
-        if (i != 7) {
+        if (i != 7 && !(i == 2 && gPspKeepVoiceOnFade)) {
             fade_channel_volume_scale(SEQ_PLAYER_SFX, i, 0, fadeOutTime / 16);
 #if PSP_SFX_EXTRA
             if (sPspSfxExtraChannel[i] != 0xff) {
@@ -2573,6 +2578,7 @@ void func_803210D4(u16 fadeOutTime) {
 #endif
         }
     }
+    gPspKeepVoiceOnFade = 0;
     sHasStartedFadeOut = TRUE;
 }
 

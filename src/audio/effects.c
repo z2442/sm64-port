@@ -6,8 +6,13 @@
 #include "seqplayer.h"
 
 #ifdef TARGET_PSP
-extern float gPspVolMusic; /* psp_options.c: 0.0 a 1.0 */
+extern float gPspVolMusic; /* psp_options.c: 0.0 to 1.0 */
 extern float gPspVolSfx;
+/* Options menu (Audio) volumes: player 2 is the sound effects; players 0 and 1 are the music (level music and secondary music / fanfares). 1.0 =
+ * the game's original volume. Written by the CPU, read by the ME (the audio job is sent with the cache written back to memory). */
+static f32 psp_volume_option(struct SequencePlayer *seqPlayer) {
+    return (seqPlayer == &gSequencePlayers[2]) ? gPspVolSfx : gPspVolMusic;
+}
 #endif
 
 #ifdef VERSION_JP
@@ -27,6 +32,9 @@ static void sequence_channel_process_sound(struct SequenceChannel *seqChannel, s
             channelVolume = seqChannel->seqPlayer->muteVolumeScale * channelVolume;
         }
         seqChannel->appliedVolume = channelVolume;
+#ifdef TARGET_PSP
+        seqChannel->appliedVolume *= psp_volume_option(seqChannel->seqPlayer); /* (Options menu, Audio) */
+#endif
     }
 
     if (seqChannel->changes.as_bitfields.pan) {
@@ -72,7 +80,7 @@ static void sequence_channel_process_sound(struct SequenceChannel *seqChannel) {
     /* Options menu (Audio) volumes: player 2 is the sound effects; players 0 and 1 are the music (level music and
      * secondary music / fanfares). 1.0 = the game's original volume. The variables are written by the CPU and read by the ME (the audio job is sent
      * with the cache written back to memory). */
-    channelVolume *= (seqChannel->seqPlayer == &gSequencePlayers[2]) ? gPspVolSfx : gPspVolMusic;
+    channelVolume *= psp_volume_option(seqChannel->seqPlayer);
 #endif
 
     panFromChannel = seqChannel->pan * seqChannel->panChannelWeight;
@@ -91,6 +99,15 @@ static void sequence_channel_process_sound(struct SequenceChannel *seqChannel) {
 
 void sequence_player_process_sound(struct SequencePlayer *seqPlayer) {
     s32 i;
+#if defined(TARGET_PSP) && (defined(VERSION_EU) || defined(VERSION_SH))
+    /* (this engine keeps each channel's volume until something changes it: a change in the Options menu volume has to make it work it out again) */
+    static f32 sPspVolumeSeen[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+    const s32 playerIndex = seqPlayer - gSequencePlayers;
+    if (playerIndex >= 0 && playerIndex < 4 && sPspVolumeSeen[playerIndex] != psp_volume_option(seqPlayer)) {
+        sPspVolumeSeen[playerIndex] = psp_volume_option(seqPlayer);
+        seqPlayer->recalculateVolume = TRUE;
+    }
+#endif
 
     if (seqPlayer->fadeTimer != 0) {
         seqPlayer->fadeVolume += seqPlayer->fadeVelocity;

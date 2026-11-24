@@ -91,67 +91,67 @@
             "sound": "0F_wario_snoring2"
         },
         "inst16": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "10_wario_doh"
         },
         "inst17": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "11_wario_game_over"
         },
         "inst18": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "12_wario_hello"
         },
         "inst19": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "13_wario_press_start_to_play"
         },
         "inst20": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "14_wario_twirl_bounce"
         },
         "inst21": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "15_wario_snoring3"
         },
         "inst22": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "16_wario_so_longa_bowser"
         },
         "inst23": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "17_wario_ima_tired"
         },
         "inst24": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "18_wario_waha"
         },
         "inst25": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "19_wario_yippee"
         },
         "inst26": {
-            "ifdef": ["VERSION_US", "VERSION_EU"],
+            "ifdef": ["VERSION_US", "VERSION_EU", "VERSION_SH"],
             "release_rate": 208,
             "envelope": "envelope0",
             "sound": "1A_wario_lets_a_go"

@@ -1,3 +1,8 @@
+/* The port's own HOME menu: not used (the firmware's is), so it is only built with PSP_CUSTOM_HOME_MENU=1 (see gfx_scegu.c). */
+#ifndef PSP_CUSTOM_HOME_MENU
+#define PSP_CUSTOM_HOME_MENU 0
+#endif
+#if PSP_CUSTOM_HOME_MENU
 #if defined(TARGET_PSP)
 
 #include "psp_home_menu.h"
@@ -403,3 +408,5 @@ int psp_home_menu_get_deadzone(void) {
 }
 
 #endif
+
+#endif /* PSP_CUSTOM_HOME_MENU */

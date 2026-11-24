@@ -138,8 +138,8 @@ ifeq ($(VERSION),sh)
   $(warning Building SH is experimental and is prone to breaking. Try at your own risk.)
   VERSION_DEF := VERSION_SH
   GRUCODE_DEF := F3D_NEW
-# Shindou: the textures are extracted from baserom.sh.z64 and the sound (sequences, samples) from baserom.jp.z64, so both ROMs are needed.
-  EXTRACT_LANGS := jp sh
+# Shindou: everything comes from baserom.sh.z64, the sound too (its own samples, sequences and sound engine: src/sh/audio).
+  EXTRACT_LANGS := sh
 else
   $(error unknown version "$(VERSION)")
 endif
@@ -259,6 +259,11 @@ LEVEL_DIRS := $(patsubst levels/%,%,$(dir $(wildcard levels/*/header.h)))
 
 # Directories containing source files
 SRC_DIRS := src src/engine src/game src/audio src/menu src/buffers actors levels bin bin/$(VERSION) data assets
+ifeq ($(VERSION),sh)
+# The Shindou version has its own sound engine (the current n64decomp/sm64's, in src/sh/audio): it replaces src/audio, and "audio/..." includes
+# find it first (see INCLUDE_CFLAGS)
+SRC_DIRS := $(filter-out src/audio,$(SRC_DIRS)) src/sh/audio
+endif
 ASM_DIRS := lib
 ifeq ($(TARGET_N64),1)
   ASM_DIRS := asm $(ASM_DIRS)
@@ -346,19 +351,11 @@ ifneq ($(TARGET_N64),1)
   ULTRA_C_FILES := $(addprefix lib/src/,$(ULTRA_C_FILES))
 endif
 
-ifeq ($(VERSION),sh)
-SOUND_BANK_FILES := $(wildcard sound/sound_banks/*.json)
-SOUND_SEQUENCE_FILES := $(wildcard sound/sequences/jp/*.m64) \
-    $(wildcard sound/sequences/*.m64) \
-    $(foreach file,$(wildcard sound/sequences/jp/*.s),$(BUILD_DIR)/$(file:.s=.m64)) \
-    $(foreach file,$(wildcard sound/sequences/*.s),$(BUILD_DIR)/$(file:.s=.m64))
-else
 SOUND_BANK_FILES := $(wildcard sound/sound_banks/*.json)
 SOUND_SEQUENCE_FILES := $(wildcard sound/sequences/$(VERSION)/*.m64) \
     $(wildcard sound/sequences/*.m64) \
     $(foreach file,$(wildcard sound/sequences/$(VERSION)/*.s),$(BUILD_DIR)/$(file:.s=.m64)) \
     $(foreach file,$(wildcard sound/sequences/*.s),$(BUILD_DIR)/$(file:.s=.m64))
-endif
 
 SOUND_SAMPLE_DIRS := $(wildcard sound/samples/*)
 SOUND_BANKS_DIR := sound/sound_banks/
@@ -405,7 +402,7 @@ endif
 SEG_FILES := $(SEGMENT_ELF_FILES) $(ACTOR_ELF_FILES) $(LEVEL_ELF_FILES)
 
 ##################### Compiler Options #######################
-INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
+INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include $(if $(filter sh,$(VERSION)),-I src/sh) -I src -I .
 ENDIAN_BITWIDTH := $(BUILD_DIR)/endian-and-bitwidth
 
 ifeq ($(TARGET_N64),1)
@@ -448,7 +445,7 @@ ifeq ($(TARGET_N64),1)
   CC_CFLAGS := -fno-builtin
 endif
 
-INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
+INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include $(if $(filter sh,$(VERSION)),-I src/sh) -I src -I .
 
 ifeq ($(TARGET_PSP),1)
   CC := psp-gcc
@@ -833,18 +830,20 @@ $(SOUND_BIN_DIR)/sequences.json: sound/sequences.json $(SOUND_BIN_DIR)/netplay.m
 endif
 
 $(SOUND_BIN_DIR)/sound_data.ctl: sound/sound_banks/ $(SOUND_BANK_FILES) $(SOUND_SAMPLE_AIFCS) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
-	$(PYTHON) tools/assemble_sound.py $(BUILD_DIR)/sound/samples/ $(SOUND_BANKS_DIR) $(SOUND_BIN_DIR)/sound_data.ctl $(SOUND_BIN_DIR)/sound_data.tbl $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+	$(PYTHON) tools/assemble_sound.py $(BUILD_DIR)/sound/samples/ $(SOUND_BANKS_DIR) $(SOUND_BIN_DIR)/sound_data.ctl $(SOUND_BIN_DIR)/ctl_header $(SOUND_BIN_DIR)/sound_data.tbl $(SOUND_BIN_DIR)/tbl_header $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+
+# (the two headers are only used by the Shindou version's sound engine, src/sh/audio/load_sh.c)
+$(SOUND_BIN_DIR)/ctl_header $(SOUND_BIN_DIR)/tbl_header: $(SOUND_BIN_DIR)/sound_data.ctl
+	@true
 
 $(SOUND_BIN_DIR)/sound_data.tbl: $(SOUND_BIN_DIR)/sound_data.ctl
 	@true
 
-ifeq ($(VERSION),sh)
-$(SOUND_BIN_DIR)/sequences.bin: $(SOUND_BANK_FILES) sound/sequences.json sound/sequences/ sound/sequences/jp/ $(SOUND_SEQUENCE_FILES) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
-	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/bank_sets $(SOUND_BANKS_DIR) $(SOUND_SEQ_JSON) $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
-else
 $(SOUND_BIN_DIR)/sequences.bin: $(SOUND_BANK_FILES) sound/sequences.json sound/sequences/ sound/sequences/$(VERSION)/ $(SOUND_SEQUENCE_FILES) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
-	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/bank_sets $(SOUND_BANKS_DIR) $(SOUND_SEQ_JSON) $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
-endif
+	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/sequences_header $(SOUND_BIN_DIR)/bank_sets $(SOUND_BANKS_DIR) $(SOUND_SEQ_JSON) $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+
+$(SOUND_BIN_DIR)/sequences_header: $(SOUND_BIN_DIR)/sequences.bin
+	@true
 
 $(SOUND_BIN_DIR)/bank_sets: $(SOUND_BIN_DIR)/sequences.bin
 	@true
@@ -855,9 +854,19 @@ $(SOUND_BIN_DIR)/%.m64: $(SOUND_BIN_DIR)/%.o
 $(SOUND_BIN_DIR)/%.o: $(SOUND_BIN_DIR)/%.s
 	$(HOST_AS) $(ASFLAGS) -o $@ $< -Z  2> /dev/null
 
+# The sound player is written with C preprocessor conditionals (#ifdef VERSION_JP...), as in the current n64decomp/sm64
+$(SOUND_BIN_DIR)/sequences/%.o: sound/sequences/%.s include/seq_macros.inc
+	@mkdir -p $(dir $@)
+	cpp -P -undef -D_LANGUAGE_ASSEMBLY $(VERSION_CFLAGS) -I include -I . $< > $(@:.o=.i.s)
+	$(HOST_AS) -I include -o $@ $(@:.o=.i.s)
+
 $(SOUND_BIN_DIR)/%.inc.c: $(SOUND_BIN_DIR)/%
 	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
 	echo >> $@
+
+ifeq ($(VERSION),sh)
+$(BUILD_DIR)/src/sh/audio/load_sh.o: $(SOUND_BIN_DIR)/bank_sets.inc.c $(SOUND_BIN_DIR)/sequences_header.inc.c $(SOUND_BIN_DIR)/ctl_header.inc.c $(SOUND_BIN_DIR)/tbl_header.inc.c
+endif
 
 $(SOUND_BIN_DIR)/sound_data.o: $(SOUND_BIN_DIR)/sound_data.ctl.inc.c $(SOUND_BIN_DIR)/sound_data.tbl.inc.c $(SOUND_BIN_DIR)/sequences.bin.inc.c $(SOUND_BIN_DIR)/bank_sets.inc.c
 
@@ -1090,7 +1099,7 @@ pbp: $(EXE)
 # template + manifest and the folder to copy to the Memory Stick is packed in dist/psp_release/<version>/PSP/GAME/. Nothing above changes.
 #   make TARGET_PSP=1 release VERSION=us -j8          (FAST=1 skips the slow check that no ROM data is left in the template)
 release: pbp
-	MAKEFLAGS= $(PYTHON) tools/psp/make_release.py --version $(VERSION) --verify $(if $(FAST),,--leak-check) --pack
+	MAKEFLAGS= PORT_VERSION=$(PORT_VERSION) $(PYTHON) tools/psp/make_release.py --version $(VERSION) --verify $(if $(FAST),,--leak-check) --pack
 .PHONY: release
 endif
 endif

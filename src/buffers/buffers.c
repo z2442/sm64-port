@@ -3,7 +3,9 @@
 #include "buffers.h"
 #include "audio/psp_audio_cfg.h"
 
-ALIGNED8 u8 gDecompressionHeap[0xD000];
+#ifndef NO_SEGMENTED_MEMORY
+ALIGNED8 u8 gDecompressionHeap[0xD000]; /* (MIO0 textures: the port has no segments, so it is not used) */
+#endif
 #if defined(VERSION_EU) || defined(VERSION_SH)
 ALIGNED16 u8 gAudioHeap[DOUBLE_SIZE_ON_64_BIT(0x31200) - 0x3800 + PSP_AUDIO_LUIGI_BANK_MEM + PSP_AUDIO_LUIGI_SEQ_MEM + PSP_AUDIO_INIT_EXTRA];
 #else

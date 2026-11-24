@@ -309,3 +309,173 @@ Gfx *geo_game_over_tile(s32 sp40, struct GraphNode *sp44, UNUSED void *context) 
     }
     return displayList;
 }
+
+#ifdef VERSION_SH
+/*
+ * Shindou easter egg: pressing Z on the Mario head screen (title or game over) turns the background tiles, one by one in a spiral,
+ * into copies of the middle of the screen (Mario's face), and Z again turns them back.
+ * On the N64 the picture is read from the frame buffer; on PSP it is read from the last frame on screen (gfx_psp_sample_screen).
+ */
+#include "engine/graph_node.h"
+#include "game/game_init.h"
+#include "game/geo_misc.h"
+#include "audio/external.h"
+#ifdef TARGET_PSP
+#include "pc/gfx/gfx_pc.h"
+#endif
+
+#define FACE_IMAGE_W 40
+#define FACE_IMAGE_H 40
+#define FACE_ROWS 6
+/* The N64 tiles 8 x 6 squares of 40 pixels over its 320 x 240 screen. With the 16:9 picture the grid gets two more columns on each side
+ * (x -80 to 400, as the backdrop's extra tiles, see intro_backdrop_extra), and the spiral is worked out for the wider grid. */
+#ifdef WIDESCREEN
+#define FACE_COLS 12
+#define FACE_COL_X0 (-80)
+#else
+#define FACE_COLS 8
+#define FACE_COL_X0 0
+#endif
+#define FACE_TILES (FACE_COLS * FACE_ROWS)
+
+static s8 sFaceVisible[FACE_TILES];
+static s8 sFaceToggleOrder[FACE_TILES];
+static s8 sFaceOrderCount = 0;
+static s8 sFaceCounter = 0;
+
+/* one buffer at a fixed address: the texture cache entry is dropped every frame (gfx_texture_cache_forget) so it is imported again */
+static u16 sFaceImage[FACE_IMAGE_W * FACE_IMAGE_H] __attribute__((aligned(16)));
+
+/* The middle 4 x 2 squares (where Mario's head is) never turn, as on the N64 (screen x 80-239, y 80-159) */
+static s32 intro_face_is_middle(s32 col, s32 row) {
+    s32 x = FACE_COL_X0 + col * 40;
+    return row >= 2 && row <= 3 && x >= 80 && x < 240;
+}
+
+/* The N64's order is a clockwise spiral from the top left square inward, leaving the middle out: built here for any grid size
+ * (for 8 x 6 it gives the N64's table: 0, 1, ... 7, 15, 23, ... 17). */
+static void intro_build_face_order(void) {
+    s32 top = 0, bottom = FACE_ROWS - 1, left = 0, right = FACE_COLS - 1;
+    s32 i, n = 0;
+
+    while (top <= bottom && left <= right) {
+        for (i = left; i <= right; i++) {
+            if (!intro_face_is_middle(i, top)) sFaceToggleOrder[n++] = top * FACE_COLS + i;
+        }
+        for (i = top + 1; i <= bottom; i++) {
+            if (!intro_face_is_middle(right, i)) sFaceToggleOrder[n++] = i * FACE_COLS + right;
+        }
+        if (top < bottom) {
+            for (i = right - 1; i >= left; i--) {
+                if (!intro_face_is_middle(i, bottom)) sFaceToggleOrder[n++] = bottom * FACE_COLS + i;
+            }
+        }
+        if (left < right) {
+            for (i = bottom - 1; i > top; i--) {
+                if (!intro_face_is_middle(left, i)) sFaceToggleOrder[n++] = i * FACE_COLS + left;
+            }
+        }
+        top++;
+        bottom--;
+        left++;
+        right--;
+    }
+    sFaceOrderCount = n;
+}
+
+/* Averages 2 x 2 pixels of the 80 x 80 box in the middle of the screen (x 120-199, y 80-159) into a 40 x 40 picture. */
+static u16 *intro_sample_framebuffer(s32 imageW, s32 imageH, s32 sampleW, s32 sampleH) {
+#ifdef TARGET_PSP
+    if (!gfx_psp_sample_screen(sFaceImage, imageW, imageH, 120, 80, sampleW, sampleH)) {
+        return NULL;
+    }
+    gfx_texture_cache_forget(sFaceImage);
+    return sFaceImage;
+#else
+    (void) imageW;
+    (void) imageH;
+    (void) sampleW;
+    (void) sampleH;
+    return NULL;
+#endif
+}
+
+/* The N64 draws each square with a copy mode texture rectangle, which cannot start left of the screen: here they are quads, drawn like the
+ * backdrop (full screen orthographic view, y going up). */
+static Gfx *intro_draw_face(u16 *image, s32 imageW, s32 imageH) {
+    Gfx *dl = alloc_display_list((10 + FACE_TILES * 2) * sizeof(Gfx));
+    Vtx *verts = alloc_display_list(FACE_TILES * 4 * sizeof(Vtx));
+    Gfx *dlIter;
+    s32 i, x, y, s, t;
+
+    if (dl == NULL || verts == NULL) {
+        return NULL;
+    }
+    dlIter = dl;
+    gSPDisplayList(dlIter++, dl_proj_mtx_fullscreen);
+    gSPDisplayList(dlIter++, title_screen_bg_dl_0A000100);
+    gSPTexture(dlIter++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
+    gDPLoadTextureBlock(dlIter++, VIRTUAL_TO_PHYSICAL(image), G_IM_FMT_RGBA, G_IM_SIZ_16b, imageW, imageH, 0,
+                        G_TX_CLAMP | G_TX_NOMIRROR, G_TX_CLAMP | G_TX_NOMIRROR, 6, 6, G_TX_NOLOD, G_TX_NOLOD);
+    s = (imageW - 1) << 5;
+    t = (imageH - 1) << 5;
+    for (i = 0; i < FACE_TILES; i++) {
+        Vtx *v = verts + i * 4;
+        if (sFaceVisible[i] == 0) {
+            continue;
+        }
+        x = FACE_COL_X0 + (i % FACE_COLS) * 40;
+        y = 240 - (i / FACE_COLS + 1) * 40; /* bottom edge, y going up */
+        make_vertex(v, 0, x,      y,      -1, 0, t, 0xFF, 0xFF, 0xFF, 0xFF);
+        make_vertex(v, 1, x + 40, y,      -1, s, t, 0xFF, 0xFF, 0xFF, 0xFF);
+        make_vertex(v, 2, x + 40, y + 40, -1, s, 0, 0xFF, 0xFF, 0xFF, 0xFF);
+        make_vertex(v, 3, x,      y + 40, -1, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF);
+        gSPVertex(dlIter++, VIRTUAL_TO_PHYSICAL(v), 4, 0);
+        gSP2Triangles(dlIter++, 0, 1, 2, 0x0, 0, 2, 3, 0x0);
+    }
+    gSPDisplayList(dlIter++, title_screen_bg_dl_0A000190);
+    gSPEndDisplayList(dlIter++);
+    return dl;
+}
+
+Gfx *geo_intro_face_easter_egg(s32 state, struct GraphNode *node, UNUSED void *context) {
+    struct GraphNodeGenerated *genNode = (struct GraphNodeGenerated *) node;
+    u16 *image;
+    Gfx *dl = NULL;
+    s32 i;
+
+    if (state != 1) {
+        for (i = 0; i < FACE_TILES; i++) {
+            sFaceVisible[i] = 0;
+        }
+        sFaceCounter = 0;
+        if (sFaceOrderCount == 0) {
+            intro_build_face_order();
+        }
+    } else {
+        if (sFaceCounter == 0) {
+            if (gPlayer1Controller->buttonPressed & Z_TRIG) {
+                play_sound(SOUND_MENU_STAR_SOUND, gDefaultSoundArgs);
+                sFaceVisible[sFaceToggleOrder[0]] ^= 1;
+                sFaceCounter++;
+            }
+        } else {
+            sFaceVisible[sFaceToggleOrder[sFaceCounter++]] ^= 1;
+            if (sFaceCounter >= sFaceOrderCount) {
+                sFaceCounter = 0;
+            }
+        }
+
+        // Draw while the first or last face is visible.
+        if (sFaceOrderCount != 0
+            && (sFaceVisible[sFaceToggleOrder[0]] == 1 || sFaceVisible[sFaceToggleOrder[sFaceOrderCount - 1]] == 1)) {
+            image = intro_sample_framebuffer(FACE_IMAGE_W, FACE_IMAGE_H, 2, 2);
+            if (image != NULL) {
+                genNode->fnNode.node.flags = (genNode->fnNode.node.flags & 0xFF) | (LAYER_OPAQUE << 8);
+                dl = intro_draw_face(image, FACE_IMAGE_W, FACE_IMAGE_H);
+            }
+        }
+    }
+    return dl;
+}
+#endif

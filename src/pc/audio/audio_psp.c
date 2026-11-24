@@ -233,6 +233,8 @@ static uint32_t audio_psp_next_block_frames(void) {
  * touch the audio state, so the two caches do not overwrite each other. Before, the ME synthesized IN PARALLEL with the logic: the two CPUs
  * wrote the same cache lines (sound request counters, pause flags...) and writes were lost
  * (sounds that do not play, music that does not stop on pause). */
+static bool audio_psp_collect_me_job(void);
+
 void audio_psp_tick_begin(void) {
     {
         /* Measures how long the tick lasts (real time between two calls). In heavy areas the tick goes from 33 ms to 60-100 ms (slow motion):
@@ -251,26 +253,32 @@ void audio_psp_tick_begin(void) {
             sTickIntervalEst = (sTickIntervalEst * 7U + dt) / 8U;
         }
     }
+    audio_psp_collect_me_job();
+}
+
+/* Waits for the ME job of the previous tick and queues its audio. Returns false when the job is not collected (still busy, late or
+ * failed; each case is handled as described inside). */
+static bool audio_psp_collect_me_job(void) {
     if (!sAudioMeDriven || (sMeJobBlocks <= 0)) {
-        return;
+        return !sAudioMeDriven || sMeJobBlocks <= 0;
     }
     {
         const int r = psp_me_job_wait();
         if (r == PSP_ME_WAIT_BUSY) {
             psp_plog("audio: ME job still busy (ring %u)", (unsigned) audio_psp_buffered_frames());
-            return; /* slow ME: the audio is not touched and no other job is sent; it is looked at again on the next tick */
+            return false; /* slow ME: the audio is not touched and no other job is sent; it is looked at again on the next tick */
         }
         if (r == PSP_ME_WAIT_STALE) {
             psp_plog("audio: ME job finished late, dropped");
             sMeJobBlocks = 0; /* finished late: that audio is no longer useful, but the ME is free again */
-            return;
+            return true;
         }
         if (r != PSP_ME_WAIT_DONE) {
             /* the ME failed: the producer thread takes synthesis back on the CPU */
             psp_plog("audio: ME -> CPU (job wait %d, ring %u)", r, (unsigned) audio_psp_buffered_frames());
             sMeJobBlocks = 0;
             sAudioMeDriven = false;
-            return;
+            return true;
         }
     }
     {
@@ -289,7 +297,28 @@ void audio_psp_tick_begin(void) {
             gPspNoteMax = n;
         }
     }
+    return true;
 }
+
+#if defined(VERSION_SH) || defined(VERSION_CN)
+/* For a wait of the game thread on the sound thread (the Shindou sound reset, see audio_reset_session_eu): when the ME drives the audio,
+ * nothing synthesizes between audio_psp_tick_begin and audio_psp_tick_end, so the waiting thread makes one block itself, on this CPU
+ * (the ME is idle then). Without the ME the producer thread keeps synthesizing and this does nothing. Returns true if it made a block. */
+bool audio_psp_sync_block(void) {
+    uint32_t frames;
+
+    if (!sAudioRunning || !gProcessAudio || !sAudioMeDriven || !audio_psp_collect_me_job() || !sAudioMeDriven) {
+        return false;
+    }
+    frames = audio_psp_next_block_frames();
+    if (audio_psp_free_frames() < frames) {
+        return false; /* the ring is full: the wait goes on while the output plays it */
+    }
+    audio_psp_generate_cpu(sAudioGenerate, frames);
+    audio_psp_queue_frames(sAudioGenerate, frames);
+    return true;
+}
+#endif
 
 /* End of the tick's logic: computes how many blocks are needed to keep the ring up and sends them to the ME (does not wait). */
 void audio_psp_tick_end(void) {

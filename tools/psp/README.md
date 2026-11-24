@@ -21,7 +21,7 @@ python3 tools/psp/make_release.py --install dist/psp_release/us --rom us=baserom
 # -> dist/psp_release/us/SM64.PRX
 ```
 
-* One package per version (`us`, `jp`, `eu`, `sh`). Shindou needs both the SH and the JP ROM.
+* One package per version (`us`, `jp`, `eu`, `sh`).
 * Only the Python standard library is required. Each run takes a couple of minutes.
 * `--verify` rebuilds the module from ROM + template + manifest and compares it with the original.
 * `--leak-check` scans the template for anything that still matches the ROM assets (should be 0).
