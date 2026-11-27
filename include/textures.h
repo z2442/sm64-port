@@ -278,6 +278,7 @@ extern const Gfx title_screen_bg_dl_0A000190[];
 #ifdef VERSION_SH
 extern const Gfx title_screen_bg_dl_0A0065E8[];
 extern const Gfx title_screen_bg_dl_0A006618[];
+extern const Gfx title_screen_bg_dl_0A007548[];
 #endif
 extern const u8 *const mario_title_texture_table[];
 extern const u8 *const game_over_texture_table[];

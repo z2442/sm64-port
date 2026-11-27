@@ -3336,16 +3336,22 @@ static const Vtx intro_seg7_vertex_0700B460[] = {
     {{{   268,    196,     -1}, 0, {     0,      0}, {0xff, 0xff, 0xff, 0xff}}},
 };
 
-#ifdef VERSION_EU
+#if defined(VERSION_EU) || defined(VERSION_SH) // ("(c) 1996, 1997 Nintendo")
 // 0x0700B4A0 - 0x0700B4A2
 ALIGNED8 static const u8 intro_seg7_texture_0700B4A0[] = {
 #include "levels/intro/2_eu_copyright.rgba16.inc.c"
 };
 
+#ifdef VERSION_SH
+ALIGNED8 static const u8 intro_seg7_texture_0700C4A0[] = {
+#include "levels/intro/3_sh_tm.rgba16.inc.c"
+};
+#else
 // 0x0700C4A0 - 0x0700D4A0
 ALIGNED8 static const u8 intro_seg7_texture_0700C4A0[] = {
 #include "levels/intro/3_eu_tm.rgba16.inc.c"
 };
+#endif
 
 #else
 // 0x0700B4A0 - 0x0700B4A2

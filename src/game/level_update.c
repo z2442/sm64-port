@@ -1427,7 +1427,7 @@ s32 init_level(void) {
                 if (gMarioState->action != ACT_UNINITIALIZED) {
                     /* in a WLAN room the host's Skip Intro Cutscene rule decides whether Lakitu's opening plays on a file that is still empty
                      * (sm64coopdx's skipIntro) */
-                    if (save_file_exists(gCurrSaveFileNum - 1) || (psp_netplay_in_room() && psp_np_room_setting(PSP_NP_SET_SKIPINTRO))) {
+                    if (save_file_exists(gCurrSaveFileNum - 1) || psp_np_room_setting(PSP_NP_SET_SKIPINTRO) /* (0 outside a room) */) {
                         set_mario_action(gMarioState, ACT_IDLE, 0);
                     } else {
                         set_mario_action(gMarioState, ACT_INTRO_CUTSCENE, 0);

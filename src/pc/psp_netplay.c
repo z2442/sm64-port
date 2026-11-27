@@ -1522,7 +1522,8 @@ int psp_netplay_in_room(void) {
 }
 
 int psp_np_room_setting(int which) {
-    const uint32_t set = psp_netplay_in_room() ? sRoomSet : PSP_NP_SET_DEFAULTS;
+    /* (also while the room is still starting: the host can pick its file before the room is fully open, and its rules apply from the start) */
+    const uint32_t set = (psp_netplay_in_room() || sState == PSP_NP_STARTING) ? sRoomSet : PSP_NP_SET_DEFAULTS;
     return (which >= 0 && which < PSP_NP_SET_COUNT) ? (int) ((set >> (4 * which)) & 15u) : 0;
 }
 

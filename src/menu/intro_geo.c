@@ -478,4 +478,28 @@ Gfx *geo_intro_face_easter_egg(s32 state, struct GraphNode *node, UNUSED void *c
     }
     return dl;
 }
+/* Shindou's "Rumble Pak" logo at the bottom right of the title and game over screens, shown while that corner tile is the "Super Mario 64" one
+ * (the PSP has no rumble: the logo is kept only so the screen looks as on the N64) */
+Gfx *geo_intro_rumble_pak_graphic(s32 state, struct GraphNode *node, UNUSED void *context) {
+    struct GraphNodeGenerated *genNode = (struct GraphNodeGenerated *) node;
+    Gfx *dl = NULL;
+    s8 backgroundTileSix = 0;
+
+    if (state == 1) {
+        genNode->fnNode.node.flags = (genNode->fnNode.node.flags & 0xFF) | (LAYER_OPAQUE << 8);
+        if ((genNode->parameter & 0xFF) == 0) {
+            backgroundTileSix = introBackgroundIndexTable[6];
+        } else {
+            backgroundTileSix = gameOverBackgroundTable[6];
+        }
+        if (backgroundTileSix == INTRO_BACKGROUND_SUPER_MARIO) {
+            dl = alloc_display_list(3 * sizeof(*dl));
+            if (dl != NULL) {
+                gSPDisplayList(dl, title_screen_bg_dl_0A007548);
+                gSPEndDisplayList(dl + 1);
+            }
+        }
+    }
+    return dl;
+}
 #endif
