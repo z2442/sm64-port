@@ -24,12 +24,15 @@ TARGET_WEB ?= 0
 # Build for PSP
 TARGET_PSP ?= 0
 # WLAN multiplayer (src/pc/psp_netplay.c), experimental. PSP_NETPLAY=0 removes the whole feature: nothing is built, linked or shown in
-# the menu. It is ON by default; build with PSP_NETPLAY=0 to leave it out. 'make release' defaults to OFF because the release packer
-# (tools/psp/make_release.py) can only rebuild a sound bank that derives from the ROM, and the Luigi banks do not.
-ifneq ($(filter release,$(MAKECMDGOALS)),)
-PSP_NETPLAY ?= 0
-endif
+# the menu. It is ON by default (also for 'make release': the release packer maps the ROM's sound banks one by one and leaves the
+# characters' own voice banks in the template); build with PSP_NETPLAY=0 to leave it out.
 PSP_NETPLAY ?= 1
+# Multiplayer diagnostic log (src/pc/psp_netplay.c): with PSP_NETLOG=1 every connection status change is written to ms0:/sm64_net.txt.
+# OFF by default: normal builds and releases write no log.
+PSP_NETLOG ?= 0
+# Sleep measurement (src/pc/psp_powerlog.c): with PSP_POWERLOG=1 every console sleep / wake-up is written to ms0:/sm64_power.txt (power notices, video, ME,
+# audio). OFF by default: it is a diagnostic build, not for releases.
+PSP_POWERLOG ?= 0
 # Enable gprof profiling for PSP builds (only works with TARGET_PSP=1)
 PROFILE_PSP ?= 0
 # Compiler to use (ido or gcc)
@@ -135,8 +138,8 @@ ifeq ($(VERSION),sh)
   $(warning Building SH is experimental and is prone to breaking. Try at your own risk.)
   VERSION_DEF := VERSION_SH
   GRUCODE_DEF := F3D_NEW
-# Shindou: the textures are extracted from baserom.sh.z64 and the sound (sequences, samples) from baserom.jp.z64, so both ROMs are needed.
-  EXTRACT_LANGS := jp sh
+# Shindou: everything comes from baserom.sh.z64, the sound too (its own samples, sequences and sound engine: src/sh/audio).
+  EXTRACT_LANGS := sh
 else
   $(error unknown version "$(VERSION)")
 endif
@@ -256,6 +259,11 @@ LEVEL_DIRS := $(patsubst levels/%,%,$(dir $(wildcard levels/*/header.h)))
 
 # Directories containing source files
 SRC_DIRS := src src/engine src/game src/audio src/menu src/buffers actors levels bin bin/$(VERSION) data assets
+ifeq ($(VERSION),sh)
+# The Shindou version has its own sound engine (the current n64decomp/sm64's, in src/sh/audio): it replaces src/audio, and "audio/..." includes
+# find it first (see INCLUDE_CFLAGS)
+SRC_DIRS := $(filter-out src/audio,$(SRC_DIRS)) src/sh/audio
+endif
 ASM_DIRS := lib
 ifeq ($(TARGET_N64),1)
   ASM_DIRS := asm $(ASM_DIRS)
@@ -343,30 +351,22 @@ ifneq ($(TARGET_N64),1)
   ULTRA_C_FILES := $(addprefix lib/src/,$(ULTRA_C_FILES))
 endif
 
-ifeq ($(VERSION),sh)
-SOUND_BANK_FILES := $(wildcard sound/sound_banks/*.json)
-SOUND_SEQUENCE_FILES := $(wildcard sound/sequences/jp/*.m64) \
-    $(wildcard sound/sequences/*.m64) \
-    $(foreach file,$(wildcard sound/sequences/jp/*.s),$(BUILD_DIR)/$(file:.s=.m64)) \
-    $(foreach file,$(wildcard sound/sequences/*.s),$(BUILD_DIR)/$(file:.s=.m64))
-else
 SOUND_BANK_FILES := $(wildcard sound/sound_banks/*.json)
 SOUND_SEQUENCE_FILES := $(wildcard sound/sequences/$(VERSION)/*.m64) \
     $(wildcard sound/sequences/*.m64) \
     $(foreach file,$(wildcard sound/sequences/$(VERSION)/*.s),$(BUILD_DIR)/$(file:.s=.m64)) \
     $(foreach file,$(wildcard sound/sequences/*.s),$(BUILD_DIR)/$(file:.s=.m64))
-endif
 
 SOUND_SAMPLE_DIRS := $(wildcard sound/samples/*)
 SOUND_BANKS_DIR := sound/sound_banks/
 SOUND_SEQ_JSON := sound/sequences.json
 SOUND_NP_DEPS := $(SOUND_BIN_DIR)/netplay.mode
 ifneq ($(PSP_NETPLAY),1)
-# Luigi's voice (his two sound banks and sample sets) only exists for the WLAN multiplayer. Without it the sound data is exactly the original one
+# The voices of the other characters (Luigi, Toad and Wario: their sound banks and sample sets) only exist for the WLAN multiplayer. Without it the sound data is exactly the original one
 # (tools/psp/make_release.py needs that: it checks that the sound bank data comes from the game's ROM). The banks and the list of banks of each sequence
 # are used from filtered copies in the build folder (see the rules below).
-SOUND_SAMPLE_DIRS := $(filter-out sound/samples/sfx_custom_luigi%,$(SOUND_SAMPLE_DIRS))
-SOUND_BANK_FILES := $(foreach f,$(SOUND_BANK_FILES),$(if $(findstring custom_luigi,$(f)),,$(f)))
+SOUND_SAMPLE_DIRS := $(filter-out sound/samples/sfx_custom_%,$(SOUND_SAMPLE_DIRS))
+SOUND_BANK_FILES := $(foreach f,$(SOUND_BANK_FILES),$(if $(findstring _custom_,$(f)),,$(f)))
 SOUND_BANKS_DIR := $(SOUND_BIN_DIR)/sound_banks/
 SOUND_SEQ_JSON := $(SOUND_BIN_DIR)/sequences.json
 SOUND_NP_DEPS += $(SOUND_BIN_DIR)/sound_banks.stamp $(SOUND_BIN_DIR)/sequences.json
@@ -402,7 +402,7 @@ endif
 SEG_FILES := $(SEGMENT_ELF_FILES) $(ACTOR_ELF_FILES) $(LEVEL_ELF_FILES)
 
 ##################### Compiler Options #######################
-INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
+INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include $(if $(filter sh,$(VERSION)),-I src/sh) -I src -I .
 ENDIAN_BITWIDTH := $(BUILD_DIR)/endian-and-bitwidth
 
 ifeq ($(TARGET_N64),1)
@@ -445,7 +445,7 @@ ifeq ($(TARGET_N64),1)
   CC_CFLAGS := -fno-builtin
 endif
 
-INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include -I src -I .
+INCLUDE_CFLAGS := -I include -I $(BUILD_DIR) -I $(BUILD_DIR)/include $(if $(filter sh,$(VERSION)),-I src/sh) -I src -I .
 
 ifeq ($(TARGET_PSP),1)
   CC := psp-gcc
@@ -541,7 +541,7 @@ ifeq ($(TARGET_PSP),1)
   PSP_PREFIX    = $(shell psp-config -P)
   # Notes from neo
   #-gdwarf-2 -gstrict-dwarf -g3 --ffunction-sections -fdata-sections -Wl,-gc-sections
-  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_NETPLAY=$(PSP_NETPLAY) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
+  PLATFORM_CFLAGS  := -DTARGET_PSP -DPSP -D__PSP__ -DSRC_VER=\"$(SRC_VER)\" -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include -G0 -D_PSP_FW_VERSION=500 -DNDEBUG $(PSP_OPT) $(PSP_FALIGN) $(PSP_EXTRA_CFLAGS) -DPSP_NETPLAY=$(PSP_NETPLAY) -DPSP_POWERLOG=$(PSP_POWERLOG) -DPSP_NETLOG=$(PSP_NETLOG) -DPSP_BUILD_OPT=\"$(PSP_OPT)\" -DPSP_BUILD_FALIGN=$(if $(strip $(PSP_FALIGN)),1,0) -g3 -fno-rounding-math -ffp-contract=off -Wfatal-errors -fsigned-char
   PLATFORM_LDFLAGS := -L$(PSPSDK_PREFIX)/lib -L$(PSP_PREFIX)/lib -Wl,-u,sm64PspMeKcallImport -Wl,-u,sm64PspDveImport -Wl,-u,sm64PspCrashImport -lme-core
   
   ifeq ($(PROFILE_PSP),1)
@@ -717,8 +717,11 @@ $(BUILD_DIR)/src/game/ingame_menu.o: $(BUILD_DIR)/include/text_strings.h
 
 # Luigi (WLAN multiplayer): its textures are generated from the PNGs before group0.c includes them
 LUIGI_TEXTURES := $(patsubst actors/luigi/%.png,$(BUILD_DIR)/actors/luigi/%.inc.c,$(wildcard actors/luigi/*.png))
+# (and the other sm64coopdx characters)
+LUIGI_TEXTURES += $(foreach c,wario waluigi toad_player,$(patsubst actors/$(c)/%.png,$(BUILD_DIR)/actors/$(c)/%.inc.c,$(wildcard actors/$(c)/*.png)))
 $(BUILD_DIR)/actors/group0.o: $(LUIGI_TEXTURES)
-$(BUILD_DIR)/bin/segment2.o: $(BUILD_DIR)/textures/segment2/custom_luigi_head.rgba16.inc.c
+# (every custom_* texture of segment2: the character heads, the HUD letters and the slash of the dialog font from sm64coopdx / the port)
+$(BUILD_DIR)/bin/segment2.o: $(patsubst textures/segment2/%.png,$(BUILD_DIR)/textures/segment2/%.inc.c,$(wildcard textures/segment2/custom_*.png))
 
 ################################################################
 # TEXTURE GENERATION                                           #
@@ -793,12 +796,27 @@ $(ENDIAN_BITWIDTH): tools/determine-endian-bitwidth.c
 #	@rm $@.dummy1
 #	@rm $@.dummy2
 
-# What the sound data was built for (WLAN multiplayer on / off). When it changes, the sound data is rebuilt and the Luigi files of the other mode are dropped.
+# What the sound data was built for (WLAN multiplayer on / off; "chars": with the voices of all the characters). When it changes, the sound data is rebuilt and the character voice files of the other mode are dropped.
 .PHONY: FORCE
 FORCE:
+ifeq ($(TARGET_PSP),1)
+# The code is built differently with and without the WLAN multiplayer too (for example levels/scripts.c loads the other characters' models only
+# with it): when PSP_NETPLAY changes (pbp after release, or the other way round), every object is built again instead of keeping ones of the other mode.
+$(O_FILES) $(GODDARD_O_FILES): $(SOUND_BIN_DIR)/netplay.mode
+# (the same for PSP_POWERLOG: switching it rebuilds the objects, so no file is left built the other way)
+$(O_FILES): $(BUILD_DIR)/powerlog.mode
+$(BUILD_DIR)/powerlog.mode: FORCE
+	@mkdir -p $(dir $@)
+	@echo $(PSP_POWERLOG) | cmp -s - $@ || echo $(PSP_POWERLOG) > $@
+# (and for PSP_NETLOG, which only changes src/pc/psp_netplay.c)
+$(BUILD_DIR)/src/pc/psp_netplay.o: $(BUILD_DIR)/netlog.mode
+$(BUILD_DIR)/netlog.mode: FORCE
+	@mkdir -p $(dir $@)
+	@echo $(PSP_NETLOG) | cmp -s - $@ || echo $(PSP_NETLOG) > $@
+endif
 $(SOUND_BIN_DIR)/netplay.mode: FORCE
 	@mkdir -p $(dir $@)
-	@echo $(PSP_NETPLAY) | cmp -s - $@ || { echo $(PSP_NETPLAY) > $@; $(if $(filter 1,$(PSP_NETPLAY)),,rm -rf $(BUILD_DIR)/sound/samples/sfx_custom_luigi* $(SOUND_BIN_DIR)/sound_banks $(SOUND_BIN_DIR)/sound_banks.stamp;) }
+	@echo $(PSP_NETPLAY) chars | cmp -s - $@ || { echo $(PSP_NETPLAY) chars > $@; $(if $(filter 1,$(PSP_NETPLAY)),,rm -rf $(BUILD_DIR)/sound/samples/sfx_custom_* $(SOUND_BIN_DIR)/sound_banks $(SOUND_BIN_DIR)/sound_banks.stamp;) }
 
 ifneq ($(PSP_NETPLAY),1)
 $(SOUND_BIN_DIR)/sound_banks.stamp: $(SOUND_BANK_FILES) $(SOUND_BIN_DIR)/netplay.mode
@@ -808,22 +826,24 @@ $(SOUND_BIN_DIR)/sound_banks.stamp: $(SOUND_BANK_FILES) $(SOUND_BIN_DIR)/netplay
 	touch $@
 
 $(SOUND_BIN_DIR)/sequences.json: sound/sequences.json $(SOUND_BIN_DIR)/netplay.mode
-	sed -e 's/, *"[0-9A-Fa-f]*_custom_luigi[a-z_]*"//g' $< > $@
+	sed -e 's/, *"[0-9A-Fa-f]*_custom_[a-z_]*"//g' $< > $@
 endif
 
 $(SOUND_BIN_DIR)/sound_data.ctl: sound/sound_banks/ $(SOUND_BANK_FILES) $(SOUND_SAMPLE_AIFCS) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
-	$(PYTHON) tools/assemble_sound.py $(BUILD_DIR)/sound/samples/ $(SOUND_BANKS_DIR) $(SOUND_BIN_DIR)/sound_data.ctl $(SOUND_BIN_DIR)/sound_data.tbl $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+	$(PYTHON) tools/assemble_sound.py $(BUILD_DIR)/sound/samples/ $(SOUND_BANKS_DIR) $(SOUND_BIN_DIR)/sound_data.ctl $(SOUND_BIN_DIR)/ctl_header $(SOUND_BIN_DIR)/sound_data.tbl $(SOUND_BIN_DIR)/tbl_header $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+
+# (the two headers are only used by the Shindou version's sound engine, src/sh/audio/load_sh.c)
+$(SOUND_BIN_DIR)/ctl_header $(SOUND_BIN_DIR)/tbl_header: $(SOUND_BIN_DIR)/sound_data.ctl
+	@true
 
 $(SOUND_BIN_DIR)/sound_data.tbl: $(SOUND_BIN_DIR)/sound_data.ctl
 	@true
 
-ifeq ($(VERSION),sh)
-$(SOUND_BIN_DIR)/sequences.bin: $(SOUND_BANK_FILES) sound/sequences.json sound/sequences/ sound/sequences/jp/ $(SOUND_SEQUENCE_FILES) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
-	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/bank_sets $(SOUND_BANKS_DIR) $(SOUND_SEQ_JSON) $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
-else
 $(SOUND_BIN_DIR)/sequences.bin: $(SOUND_BANK_FILES) sound/sequences.json sound/sequences/ sound/sequences/$(VERSION)/ $(SOUND_SEQUENCE_FILES) $(ENDIAN_BITWIDTH) $(SOUND_NP_DEPS)
-	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/bank_sets $(SOUND_BANKS_DIR) $(SOUND_SEQ_JSON) $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
-endif
+	$(PYTHON) tools/assemble_sound.py --sequences $@ $(SOUND_BIN_DIR)/sequences_header $(SOUND_BIN_DIR)/bank_sets $(SOUND_BANKS_DIR) $(SOUND_SEQ_JSON) $(SOUND_SEQUENCE_FILES) $(VERSION_CFLAGS) $$(cat $(ENDIAN_BITWIDTH))
+
+$(SOUND_BIN_DIR)/sequences_header: $(SOUND_BIN_DIR)/sequences.bin
+	@true
 
 $(SOUND_BIN_DIR)/bank_sets: $(SOUND_BIN_DIR)/sequences.bin
 	@true
@@ -834,9 +854,19 @@ $(SOUND_BIN_DIR)/%.m64: $(SOUND_BIN_DIR)/%.o
 $(SOUND_BIN_DIR)/%.o: $(SOUND_BIN_DIR)/%.s
 	$(HOST_AS) $(ASFLAGS) -o $@ $< -Z  2> /dev/null
 
+# The sound player is written with C preprocessor conditionals (#ifdef VERSION_JP...), as in the current n64decomp/sm64
+$(SOUND_BIN_DIR)/sequences/%.o: sound/sequences/%.s include/seq_macros.inc
+	@mkdir -p $(dir $@)
+	cpp -P -undef -D_LANGUAGE_ASSEMBLY $(VERSION_CFLAGS) -I include -I . $< > $(@:.o=.i.s)
+	$(HOST_AS) -I include -o $@ $(@:.o=.i.s)
+
 $(SOUND_BIN_DIR)/%.inc.c: $(SOUND_BIN_DIR)/%
 	$(HEXDUMP) -v -e '1/1 "0x%X,"' $< > $@
 	echo >> $@
+
+ifeq ($(VERSION),sh)
+$(BUILD_DIR)/src/sh/audio/load_sh.o: $(SOUND_BIN_DIR)/bank_sets.inc.c $(SOUND_BIN_DIR)/sequences_header.inc.c $(SOUND_BIN_DIR)/ctl_header.inc.c $(SOUND_BIN_DIR)/tbl_header.inc.c
+endif
 
 $(SOUND_BIN_DIR)/sound_data.o: $(SOUND_BIN_DIR)/sound_data.ctl.inc.c $(SOUND_BIN_DIR)/sound_data.tbl.inc.c $(SOUND_BIN_DIR)/sequences.bin.inc.c $(SOUND_BIN_DIR)/bank_sets.inc.c
 
@@ -962,6 +992,14 @@ ifeq ($(TARGET_PSP),1)
 		psp-prxgen $@ $@.prx; \
 	fi
 
+# The port's version, shown by the XMB (Triangle > Information) for the EBOOT: change it here for each release (`make ... PORT_VERSION=x.y.z`
+# overrides it). It goes into PARAM.SFO as APP_VER "0X.YZ" and DISC_VERSION "X.YZ": the XMB has two digits after the point (minor and patch,
+# 9 at most each), so 1.2.0 shows as 01.20. (Not VERSION: that one is the game's region, us/jp/eu/sh.)
+PORT_VERSION ?= 1.3.0
+PORT_VERSION_XYZ := $(shell echo '$(PORT_VERSION)' | sed 's/[-+].*//')
+SFO_VERSION = $(shell echo '$(PORT_VERSION_XYZ)' | awk -F. '{m=$$2>9?9:$$2;p=$$3>9?9:$$3;printf "$(1)",$$1,m,p}')
+SFOFLAGS := -s APP_VER=$(call SFO_VERSION,%02d.%d%d) -s DISC_VERSION=$(call SFO_VERSION,%d.%d%d)
+
 ifneq ($(filter jp sh,$(VERSION)),)
   TITLE     := "スーパーマリオ64"
   EBOOT_DIR := psp/JP_EBOOT
@@ -1039,7 +1077,8 @@ $(BUILD_DIR)/src/pc/psp_watchdog.o: $(CRASHLOG_DIR)/crashlog_prx.inc
 
 pbp: $(EXE)
 	@mkdir -p $(BUILD_DIR)/mario64
-	mksfoex -d MEMSIZE=1 $(TITLE) $(BUILD_DIR)/PARAM.SFO
+	mksfoex -d MEMSIZE=1 $(SFOFLAGS) $(TITLE) $(BUILD_DIR)/PARAM.SFO
+	$(PYTHON) tools/psp/sort_sfo.py $(BUILD_DIR)/PARAM.SFO # keys in alphabetical order, as in Sony's (see the script)
 	@if [ "$(PROFILE_PSP)" = "1" ]; then \
 		pack-pbp $(BUILD_DIR)/mario64/EBOOT.PBP $(BUILD_DIR)/PARAM.SFO $(EBOOT_DIR)/ICON0.png NULL NULL $(EBOOT_DIR)/PIC0.png $(EBOOT_DIR)/SND0.at3 $(EXE) NULL; \
 	else \
@@ -1060,7 +1099,7 @@ pbp: $(EXE)
 # template + manifest and the folder to copy to the Memory Stick is packed in dist/psp_release/<version>/PSP/GAME/. Nothing above changes.
 #   make TARGET_PSP=1 release VERSION=us -j8          (FAST=1 skips the slow check that no ROM data is left in the template)
 release: pbp
-	MAKEFLAGS= $(PYTHON) tools/psp/make_release.py --version $(VERSION) --verify $(if $(FAST),,--leak-check) --pack
+	MAKEFLAGS= PORT_VERSION=$(PORT_VERSION) $(PYTHON) tools/psp/make_release.py --version $(VERSION) --verify $(if $(FAST),,--leak-check) --pack
 .PHONY: release
 endif
 endif

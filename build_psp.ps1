@@ -2,7 +2,7 @@
 #
 #   .\build_psp.ps1                  -> version US, -O3 (el de siempre). Resultado: build\us_psp\mario64\ (EBOOT.PBP + SM64.PRX)
 #   .\build_psp.ps1 -Version eu      -> otra version: us (por defecto), jp, eu o sh. Resultado: build\eu_psp\mario64\
-#                                       (necesita baserom.<version>.z64 junto al Makefile; sh necesita baserom.sh.z64 Y baserom.jp.z64)
+#                                       (necesita baserom.<version>.z64 junto al Makefile)
 #   .\build_psp.ps1 -Opt O2          -> -O2 sin alinear funciones. Resultado: build_O2\us_psp\mario64\ (EBOOT.PBP + SM64.PRX)
 #   .\build_psp.ps1 -Clean           -> borra antes la compilacion de esa version y configuracion (las otras versiones no se tocan)
 #   .\build_psp.ps1 -Rebuild      -> vuelve a construir la imagen de Docker (si cambias Dockerfile.psp)
@@ -48,7 +48,6 @@ if ($Clean -and (Test-Path $outDir)) {
 
 # comprobar las ROM necesarias antes de empezar
 $roms = @("baserom.$Version.z64")
-if ($Version -eq "sh") { $roms += "baserom.jp.z64" }
 foreach ($r in $roms) {
     if (-not (Test-Path $r)) { Write-Host "Falta $r (debe estar junto al Makefile, con ese nombre exacto)"; exit 1 }
 }

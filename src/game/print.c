@@ -358,8 +358,8 @@ void add_glyph_texture(s8 glyphIndex) {
     const u8 *glyph = glyphs[glyphIndex];
 
 #ifdef TARGET_PSP
-    if (glyphIndex == GLYPH_MARIO_HEAD && gPspLuigiVoice) {
-        glyph = texture_hud_char_luigi_head; /* multiplayer: this player is Luigi */
+    if (glyphIndex == GLYPH_MARIO_HEAD && psp_char_head(gPspLocalChar) != NULL) {
+        glyph = psp_char_head(gPspLocalChar); /* multiplayer: this player is Luigi, Toad, Waluigi or Wario */
     }
 #endif
     gDPPipeSync(gDisplayListHead++);

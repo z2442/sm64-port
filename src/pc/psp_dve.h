@@ -11,6 +11,7 @@ extern int gPspTvActive; /* TV mode in use (PSP_TV_*); 0 = console screen. Decid
 
 /* Loads the module (only once). Returns 1 if there is a module and the console is not a PSP-1000. */
 int psp_dve_probe(void);
+int psp_dve_model(void); /* the console model as the TV module reads it (0 PSP-1000, 1 PSP-2000, 4 PSP Go, 10 PSP Street E1000...), -1 if unknown */
 /* Cable type to use to route the TV (PSP_CABLE_*): composite only if detected; in any other case (component, none, no data) component. */
 int psp_dve_cable(void);
 /* Reason why the "TV Output" row is not available (shown in the menu). detail: error code / model / raw cable value. */

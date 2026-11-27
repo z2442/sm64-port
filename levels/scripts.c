@@ -49,6 +49,9 @@ static const LevelScript script_L2[4];
 static const LevelScript script_L3[4];
 static const LevelScript script_L4[4];
 static const LevelScript script_L5[4];
+#ifdef TARGET_PSP
+static const LevelScript script_L6[4];
+#endif
 
 #define STUB_LEVEL(_0, _1, _2, _3, _4, _5, _6, _7, _8)
 #define DEFINE_LEVEL(_0, _1, _2, folder, _4, _5, _6, _7, _8, _9, _10) static const LevelScript script_exec_ ## folder [4 + 1];
@@ -67,6 +70,28 @@ const LevelScript level_main_scripts_entry[] = {
     ALLOC_LEVEL_POOL(),
     LOAD_MODEL_FROM_GEO(MODEL_MARIO,                   mario_geo),
     LOAD_MODEL_FROM_GEO(MODEL_LUIGI,                   luigi_geo),
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    LOAD_MODEL_FROM_GEO(MODEL_BUBBLE_PLAYER,           water_bomb_geo), /* (sm64coopdx: in every level, like Mario's own models) */
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGI,                 waluigi_geo),    /* (the other sm64coopdx characters) */
+    LOAD_MODEL_FROM_GEO(MODEL_WARIO,                   wario_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOAD_PLAYER,             toad_player_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_LUIGIS_CAP, luigis_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_LUIGIS_METAL_CAP, luigis_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_LUIGIS_WING_CAP, luigis_wing_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_LUIGIS_WINGED_METAL_CAP, luigis_winged_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOADS_CAP, toads_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOADS_METAL_CAP, toads_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOADS_WING_CAP, toads_wing_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_TOADS_WINGED_METAL_CAP, toads_winged_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGIS_CAP, waluigis_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGIS_METAL_CAP, waluigis_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGIS_WING_CAP, waluigis_wing_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WALUIGIS_WINGED_METAL_CAP, waluigis_winged_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WARIOS_CAP, warios_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WARIOS_METAL_CAP, warios_metal_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WARIOS_WING_CAP, warios_wing_cap_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_WARIOS_WINGED_METAL_CAP, warios_winged_metal_cap_geo),
+#endif
     LOAD_MODEL_FROM_GEO(MODEL_SMOKE,                   smoke_geo),
     LOAD_MODEL_FROM_GEO(MODEL_SPARKLES,                sparkles_geo),
     LOAD_MODEL_FROM_GEO(MODEL_BUBBLE,                  bubble_geo),
@@ -125,6 +150,9 @@ const LevelScript level_main_scripts_entry[] = {
     JUMP_IF(/*op*/ OP_EQ, /*arg*/ -3, script_L4),
     JUMP_IF(/*op*/ OP_EQ, /*arg*/ -8, script_L1),
     JUMP_IF(/*op*/ OP_EQ, /*arg*/ -9, script_L5),
+#ifdef TARGET_PSP
+    JUMP_IF(/*op*/ OP_EQ, /*arg*/ -10, script_L6), /* multiplayer: the client's room ended, straight back to the file select */
+#endif
 };
 
 static const LevelScript script_L1[] = {
@@ -146,6 +174,12 @@ static const LevelScript script_L4[] = {
 static const LevelScript script_L5[] = {
     EXIT_AND_EXECUTE(/*seg*/ 0x14, _introSegmentRomStart, _introSegmentRomEnd, level_intro_entry_4),
 };
+
+#ifdef TARGET_PSP
+static const LevelScript script_L6[] = {
+    EXIT_AND_EXECUTE(/*seg*/ 0x14, _menuSegmentRomStart, _menuSegmentRomEnd, level_main_menu_entry_1),
+};
+#endif
 
 // Include the level jumptable.
 

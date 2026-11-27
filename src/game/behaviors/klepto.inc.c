@@ -361,7 +361,8 @@ void bhv_klepto_update(void) {
 
             if (o->oAnimState == KLEPTO_ANIM_STATE_HOLDING_CAP) {
                 save_file_clear_flags(SAVE_FLAG_CAP_ON_KLEPTO);
-                spawn_object(o, MODEL_MARIOS_CAP, bhvNormalCap);
+                psp_np_cap_owner(spawn_object(o, psp_np_cap_model(psp_np_enemy_cap_char(o), MODEL_MARIOS_CAP), bhvNormalCap), psp_np_enemy_cap_char(o)); /* (the cap of whoever it took it from) */
+                o->unused1 = 0;
             } else if (o->oAnimState == KLEPTO_ANIM_STATE_HOLDING_STAR) {
                 spawn_default_star(-5550.0f, 300.0f, -930.0f);
             }

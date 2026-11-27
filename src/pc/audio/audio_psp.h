@@ -14,6 +14,9 @@ void audio_psp_shutdown(void);
 void audio_psp_generate_cpu(int16_t *samples, uint32_t frames);
 void audio_psp_tick_begin(void);
 void audio_psp_tick_end(void);
+#if defined(VERSION_SH) || defined(VERSION_CN)
+bool audio_psp_sync_block(void);
+#endif
 #endif
 
 #endif

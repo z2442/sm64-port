@@ -19,6 +19,13 @@ else
   EBOOT_DIR := $(TOP)/psp/EBOOT
 endif
 
+# The port's version in PARAM.SFO (XMB: Triangle > Information), the same as the game's EBOOT: it is read from PORT_VERSION in the main
+# Makefile (`make release ... PORT_VERSION=x.y.z` passes its own down), and turned into APP_VER / DISC_VERSION the same way.
+PORT_VERSION ?= $(shell sed -n 's/^PORT_VERSION ?= *//p' $(TOP)/Makefile)
+PORT_VERSION_XYZ := $(shell echo '$(PORT_VERSION)' | sed 's/[-+].*//')
+SFO_VERSION = $(shell echo '$(PORT_VERSION_XYZ)' | awk -F. '{m=$$2>9?9:$$2;p=$$3>9?9:$$3;printf "$(1)",$$1,m,p}')
+SFOFLAGS := -s APP_VER=$(call SFO_VERSION,%02d.%d%d) -s DISC_VERSION=$(call SFO_VERSION,%d.%d%d)
+
 SRC := $(TOP)/psp/installer
 CFLAGS := -O2 -G0 -Wall -DSMI_PSP_IO -D_PSP_FW_VERSION=500 -I$(SRC) -I$(PSPSDK_PREFIX)/include -I$(PSP_PREFIX)/include
 
@@ -35,8 +42,10 @@ $(OUT)/installer.elf: $(OUT)/installer.o $(OUT)/smi_core.o
 $(OUT)/installer.prx: $(OUT)/installer.elf
 	psp-prxgen $< $@
 
-$(OUT)/EBOOT.PBP: $(OUT)/installer.prx
-	mksfoex -d MEMSIZE=1 $(TITLE) $(OUT)/PARAM.SFO
+# (also remade when the main Makefile changes: that is where the version is)
+$(OUT)/EBOOT.PBP: $(OUT)/installer.prx $(TOP)/Makefile
+	mksfoex -d MEMSIZE=1 $(SFOFLAGS) $(TITLE) $(OUT)/PARAM.SFO
+	python3 $(TOP)/tools/psp/sort_sfo.py $(OUT)/PARAM.SFO # keys in alphabetical order, as in Sony's (see the script)
 	pack-pbp $@ $(OUT)/PARAM.SFO $(EBOOT_DIR)/ICON0.png NULL NULL $(EBOOT_DIR)/PIC0.png $(EBOOT_DIR)/SND0.at3 $< NULL
 
 host-test: $(TOP)/build/host_test

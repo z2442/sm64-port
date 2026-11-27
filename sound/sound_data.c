@@ -10,6 +10,8 @@ unsigned char gMusicData[] = {
 #include "sound/sequences.bin.inc.c"
 };
 
+#ifndef VERSION_SH /* (the Shindou sound engine has its own, in src/sh/audio/load_sh.c) */
 unsigned char gBankSetsData[] = {
 #include "sound/bank_sets.inc.c"
 };
+#endif

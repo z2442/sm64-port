@@ -6,7 +6,8 @@
  *
  * Wire format: every packet starts with a 12 byte header (magic "SM64", type, two small arguments, a 32 bit session id). One room = one
  * session id, chosen by the host and also encoded in the name of its ad-hoc group ("SM" + 6 hex digits), so the client can find it with a scan.
- *   ADV      host -> broadcast, every 500 ms while it has no client
+ *   ADV      host -> broadcast, every 500 ms (also with a client: a console browsing the rooms reads it): the room's details (NpAdv: multiplayer
+ *            protocol, region, players, its host's character and nickname), shown in the file select's "Join a Game" list
  *   JOIN     client -> host, every 300 ms until WELCOME arrives
  *   WELCOME  host -> client (a = host's current save file, 1..4)
  *   SAVE     host -> client, 2 chunks of 256 bytes (a = chunk, b = chunk count), repeated until SAVEACK
@@ -17,10 +18,11 @@
  *            writes it to the Memory Stick, the client only to its in-memory copy.
  *   PROGACK  receiver -> sender (a = the PROGRESS sequence number)
  *   STATE    either side -> the other, ~30 times a second, unreliable: the sender's pose (level, area, position, angles, animation), which the
- *            receiver shows as a second Mario / Luigi (game/psp_netplay_game.c). Old or repeated ones are dropped by their sequence number.
+ *            receiver shows as a second player, with the model of its character (game/psp_netplay_game.c). Old or repeated ones are dropped by their sequence number.
  *   LEAVE    either side
  */
 #include "psp_netplay.h"
+#include "psp_dve.h"
 
 #if defined(TARGET_PSP) && PSP_NETPLAY
 
@@ -40,6 +42,10 @@ extern void save_file_load_all(void);
 extern void psp_netplay_adopt_host_save(int hostFile); /* game/save_file.c */
 extern int psp_netplay_merge_progress(const void *data, int size); /* game/save_file.c */
 extern void psp_netplay_refresh_hud(void);                         /* game/save_file.c */
+extern void psp_netplay_share_progress(void);                      /* game/save_file.c: sends the current file's progress to the other console */
+extern int psp_options_np_character(void);                         /* game/psp_options.c: the character chosen on the Multiplayer page */
+extern unsigned char gPspSoloChar;                                  /* audio/external.c: the character outside a room */
+extern void psp_options_np_character_bump(int taken);              /* game/psp_options.c: the client moves off the host's character */
 
 #define NP_PORT 0x5C64
 #define NP_SAVE_BYTES 512
@@ -61,13 +67,30 @@ extern void psp_netplay_refresh_hud(void);                         /* game/save_
 #define NP_LOG "ms0:/sm64_net.txt" /* (memory stick root, like the other logs: easy to find) */
 
 enum { PK_ADV = 1, PK_JOIN, PK_WELCOME, PK_SAVE, PK_SAVEACK, PK_PING, PK_PONG, PK_LEAVE, PK_PROGRESS, PK_PROGACK, PK_STATE, PK_NAME, PK_EVENT, PK_EVACK, PK_OBJ, PK_FLD };
-enum { REQ_NONE, REQ_HOST, REQ_JOIN, REQ_LEAVE };
+enum { REQ_NONE, REQ_HOST, REQ_JOIN, REQ_LEAVE, REQ_BROWSE, REQ_JOINROOM };
 
 typedef struct {
     uint8_t magic[4];
     uint8_t type, a, b, pad;
     uint32_t session;
 } NpHeader; /* 12 bytes, followed by the payload */
+
+/* The payload of ADV. NP_PROTO changes whenever the packets change in a way the other side would misread: rooms of another protocol (or another region of
+ * the game) are listed but cannot be joined. */
+#define NP_PROTO 2 /* 2: WELCOME carries the host settings */
+typedef struct {
+    uint8_t proto, region, players, maxPlayers, character, pad[3];
+    char name[PSP_NP_NAME_BYTES];
+} NpAdv;
+#if defined(VERSION_JP)
+#define NP_REGION 'J'
+#elif defined(VERSION_EU)
+#define NP_REGION 'E'
+#elif defined(VERSION_SH)
+#define NP_REGION 'S'
+#else
+#define NP_REGION 'U'
+#endif
 
 static volatile int sState = PSP_NP_OFF;
 static char sStatus[64] = "";
@@ -100,6 +123,22 @@ static SceNetAdhocctlScanInfo sScan[16];
 static SceNetAdhocctlScanInfo sTarget;
 static int sHaveTarget;
 static int sScanPending;
+static uint32_t sWantSession; /* client: the room it joined from the list; a reconnection looks only for that one (0 = the first room found) */
+
+/* browsing the rooms (file select, "Join a Game"): the scan, then each room is joined for a moment to read its ADV */
+enum { BR_SCAN, BR_JOIN, BR_NET, BR_ADV, BR_LEAVE, BR_GONE, BR_IDLE, BR_TOJOIN };
+#define NP_BR_SCAN_US 8000000U   /* the scan itself */
+#define NP_BR_NET_US 6000000U    /* joining a room's group */
+#define NP_BR_ADV_US 2500000U    /* its ADV (sent every 500 ms) */
+#define NP_BR_GONE_US 3000000U   /* leaving its group */
+static int sBrowse;              /* 1: browsing (no room joined to play) */
+static int sBrPhase, sBrIdx, sBrCount, sBrJoin = -1, sBrDisc;
+static uint32_t sTBr;
+static SceNetAdhocctlScanInfo sBrScan[PSP_NP_MAX_ROOMS];
+static uint32_t sBrSession[PSP_NP_MAX_ROOMS];
+static PspNpRoom sRooms[PSP_NP_MAX_ROOMS]; /* shared with the game thread: copied with interrupts off */
+static volatile int sRoomCount;
+static volatile int sJoinReqIdx = -1;
 
 static uint8_t sPeerMac[6];
 static int sPeerKnown; /* client: the host's MAC (learned from its ADV); host: a client has joined */
@@ -131,6 +170,15 @@ static int sProgInSeq = -1;
 static uint32_t sTRecovered; /* when the last automatic restart was issued (late error events of the teardown are not new errors) */
 static int sIgnoredErr; /* radio error events ignored in a row while the link kept working (cleared when the link is stable, see sRetries) */
 static int sRetries; /* automatic restarts in a row (radio error, lost link); cleared once the link has been stable for a while */
+/* The link is being rebuilt by itself (np_recover): the room is not over, so the client keeps playing with the host's save meanwhile instead of
+ * going back to its own. Cleared when the link is up again, when the player leaves and when a failure ends the room for good. */
+static volatile int sRecovering;
+static int sInRecoverLoop; /* (np_fail inside np_recover's own restarts does not end the room yet) */
+static uint32_t sTRecoverStart; /* when the link started rebuilding itself: a client gives up after NP_CLIENT_RECOVER_US */
+#define NP_CLIENT_RECOVER_US 20000000U /* (sm64coopdx's client drops the room after ~22 s of silence) */
+static volatile int sEndReason = PSP_NP_END_ERROR; /* why the last room ended (PSP_NP_END_*) */
+static volatile uint32_t sRoomSet = PSP_NP_SET_DEFAULTS; /* the room's rules (psp_np_room_setting): the host's own, or the ones its WELCOME brought */
+static int sWasInRoom;     /* (game thread) the previous frame was in a room */
 static uint32_t sTConnected; /* when the link last became CONNECTED */
 static uint32_t sTSwitch;
 static int sWlanOffCount;
@@ -202,14 +250,19 @@ static void np_events_reset(void) {
 static char sMyName[PSP_NP_NAME_BYTES];
 static char sPeerName[PSP_NP_NAME_BYTES];
 static volatile int sPeerNameNew;
+static int sPeerChar; /* the other player's character (PSP_CHAR_*), as its states say (game thread) */
 
 static uint8_t sRx[PSP_NP_FLD_BYTES + 64]; /* the biggest packet is a batch of enemy states */
 static uint8_t sTx[PSP_NP_FLD_BYTES + 64];
 
 /* ------------------------------------------------------------------ helpers */
 
-/* Short diagnostic log (sm64_net.txt in the save folder): every status change with its time, so a failure can be understood afterwards. */
+/* Short diagnostic log (ms0:/sm64_net.txt): every status change with its time, so a failure can be understood afterwards. Only in a diagnostic build
+ * (make ... PSP_NETLOG=1): normal builds and releases write nothing. */
 static void np_log(const char *text) {
+#if !PSP_NETLOG
+    (void) text;
+#else
     char line[112];
     SceUID fd;
     const int n = snprintf(line, sizeof(line), "%8u ms  %s\n", (unsigned int) (sceKernelGetSystemTimeLow() / 1000U), text);
@@ -224,12 +277,14 @@ static void np_log(const char *text) {
         sceIoWrite(fd, line, (n < (int) sizeof(line)) ? n : (int) sizeof(line) - 1);
         sceIoClose(fd);
     }
+#endif
 }
 
 static void np_status(int state, const char *text) {
     sState = state;
     if (state == PSP_NP_CONNECTED) {
         sTConnected = sceKernelGetSystemTimeLow();
+        sRecovering = 0;
     }
     snprintf(sStatus, sizeof(sStatus), "%s", text);
     if (text[0]) {
@@ -329,6 +384,7 @@ static void np_cleanup(void) {
         sModCommon = 0;
     }
     sPeerKnown = sWelcomed = sHaveTarget = sScanPending = 0;
+    sBrowse = 0;
     sAcked = 0;
     sChunkMask = 0;
     sRtt = -1;
@@ -343,8 +399,12 @@ static void np_cleanup(void) {
     np_events_reset();
 }
 
-static void np_fail(const char *what, int code) {
+static void np_fail_why(const char *what, int code, int why) {
     char text[64];
+    sEndReason = why;
+    if (!sInRecoverLoop) {
+        sRecovering = 0;
+    }
     if (code != 0) {
         snprintf(text, sizeof(text), "%s (0x%08X)", what, (unsigned int) code);
     } else {
@@ -352,6 +412,10 @@ static void np_fail(const char *what, int code) {
     }
     np_cleanup();
     np_status(PSP_NP_ERROR, text);
+}
+
+static void np_fail(const char *what, int code) {
+    np_fail_why(what, code, PSP_NP_END_ERROR);
 }
 
 /* 0x80110802 / 0x80111102: the module is already loaded (by the system or by someone else): it is used but not unloaded. */
@@ -377,7 +441,7 @@ static int np_open(void) {
         sceKernelDelayThread(150000);
     }
     if (r >= 6) {
-        np_fail("Turn the WLAN switch on", 0);
+        np_fail_why("Turn the WLAN switch on", 0, PSP_NP_END_WLAN);
         return 0;
     }
     np_status(PSP_NP_STARTING, "Loading network modules...");
@@ -437,10 +501,27 @@ static void np_start_join(void) {
     np_status(PSP_NP_SEARCHING, "Looking for a room...");
 }
 
-/* Picks the first scan result that looks like one of our rooms: name "SM" + 6 hex digits, on a normal channel. */
+/* The session id of one of our rooms from its scan result (group name "SM" + 6 hex digits, on a normal channel), 0 if it is not one. */
+static uint32_t np_room_session(const SceNetAdhocctlScanInfo *s) {
+    uint32_t session = 0;
+    int k;
+    if (s->name[0] != 'S' || s->name[1] != 'M' || !(s->channel == 1 || s->channel == 6 || s->channel == 11)) {
+        return 0;
+    }
+    for (k = 2; k < 8; k++) {
+        int d = s->name[k];
+        if (d >= '0' && d <= '9') d -= '0';
+        else if (d >= 'A' && d <= 'F') d -= 'A' - 10;
+        else return 0;
+        session = (session << 4) | (uint32_t) d;
+    }
+    return session;
+}
+
+/* Picks the first scan result that is one of our rooms (only the one in sWantSession, if set: a reconnection must not end up in somebody else's room). */
 static int np_pick_room(void) {
     int length = (int) sizeof(sScan);
-    int r, count, i, k;
+    int r, count, i;
     r = sceNetAdhocctlGetScanInfo(&length, sScan);
     if (r < 0 || length < 0 || length > (int) sizeof(sScan)) {
         return 0;
@@ -448,16 +529,8 @@ static int np_pick_room(void) {
     count = length / (int) sizeof(sScan[0]);
     for (i = 0; i < count; i++) {
         const SceNetAdhocctlScanInfo *s = &sScan[i];
-        uint32_t session = 0;
-        int ok = (s->name[0] == 'S' && s->name[1] == 'M');
-        for (k = 2; ok && k < 8; k++) {
-            int d = s->name[k];
-            if (d >= '0' && d <= '9') d -= '0';
-            else if (d >= 'A' && d <= 'F') d -= 'A' - 10;
-            else ok = 0;
-            session = (session << 4) | (uint32_t) (d & 15);
-        }
-        if (ok && session != 0 && (s->channel == 1 || s->channel == 6 || s->channel == 11)) {
+        const uint32_t session = np_room_session(s);
+        if (session != 0 && (sWantSession == 0 || session == sWantSession)) {
             memset(&sTarget, 0, sizeof(sTarget));
             sTarget.channel = s->channel;
             memcpy(sTarget.name, s->name, 8);
@@ -517,12 +590,20 @@ static void np_handle_packet(const uint8_t *mac, const uint8_t *data, int len, u
                     np_status(PSP_NP_JOINING, "Player joining, sending the save...");
                 }
                 sTRx = now;
-                np_send(sPeerMac, PK_WELCOME, sHostFile, 0, NULL, 0);
+                {
+                    const uint32_t set = sRoomSet; /* (the room's rules travel with the welcome: the client plays by them) */
+                    np_send(sPeerMac, PK_WELCOME, sHostFile, 0, &set, (int) sizeof(set));
+                }
             }
             break;
         case PK_WELCOME: /* client only */
             if (!sHost && sPeerKnown && !sWelcomed) {
                 sWelcomed = 1;
+                if (plen >= 4) {
+                    uint32_t set;
+                    memcpy(&set, payload, sizeof(set));
+                    sRoomSet = set;
+                }
                 np_events_reset();
                 sClientHostFile = h->a;
                 sChunkMask = 0;
@@ -663,7 +744,7 @@ static void np_handle_packet(const uint8_t *mac, const uint8_t *data, int len, u
                     sAcked = 0;
                     np_status(PSP_NP_HOSTING, "The player left. Waiting for a player...");
                 } else {
-                    np_fail("The host closed the room", 0);
+                    np_fail_why("The host closed the room", 0, PSP_NP_END_CLOSED);
                 }
             }
             break;
@@ -683,6 +764,11 @@ static int np_recover(const char *why) {
     if (sRetries >= NP_RETRIES_MAX) {
         return 0;
     }
+    if (!sRecovering) {
+        sTRecoverStart = sceKernelGetSystemTimeLow();
+    }
+    sRecovering = 1;
+    sInRecoverLoop = 1;
     sRetries++;
     snprintf(msg, sizeof(msg), "%s: reconnecting (%d/%d)", why, sRetries, NP_RETRIES_MAX);
     np_status(PSP_NP_STARTING, msg);
@@ -690,6 +776,7 @@ static int np_recover(const char *why) {
     for (;;) {
         sceKernelDelayThread(800000U + 700000U * (unsigned) sRetries);
         if (sQuit || sReq != REQ_NONE || sState == PSP_NP_OFF) {
+            sInRecoverLoop = 0;
             return 1; /* the player left meanwhile */
         }
         np_take_events(); /* what the teardown itself reported is not a new error */
@@ -702,6 +789,13 @@ static int np_recover(const char *why) {
             break;
         }
         sRetries++; /* even starting again failed (the radio is still busy): wait longer and retry */
+    }
+    sInRecoverLoop = 0;
+    if (sState == PSP_NP_ERROR) {
+        sRecovering = 0; /* it could not even start again: the room is over (np_start_* gave the reason) */
+        if (sEndReason == PSP_NP_END_ERROR) {
+            sEndReason = PSP_NP_END_LOST;
+        }
     }
     sTRecovered = sceKernelGetSystemTimeLow() | 1U; /* (from the moment the restart has been issued) */
     return 1;
@@ -743,6 +837,200 @@ void psp_netplay_perf_note(unsigned tickUs, unsigned logicUs, unsigned netUs, un
         if (v[i] > sPfMax[i]) {
             sPfMax[i] = v[i];
         }
+    }
+}
+
+/* ------------------------------------------------------------------ browsing the rooms (file select, "Join a Game") */
+
+static void np_room_status(int i, int status) {
+    const int lock = sceKernelCpuSuspendIntr();
+    sRooms[i].status = (unsigned char) status;
+    sceKernelCpuResumeIntr(lock);
+}
+
+/* Starts browsing: the radio is opened and a scan is started; np_browse_step goes on from there. */
+static void np_start_browse(void) {
+    int r, lock;
+    np_cleanup();
+    sHost = 0;
+    sWantSession = 0;
+    lock = sceKernelCpuSuspendIntr();
+    sRoomCount = 0;
+    sceKernelCpuResumeIntr(lock);
+    if (!np_open()) {
+        return;
+    }
+    sBrowse = 1;
+    sSession = 0;
+    sBrJoin = -1;
+    if ((r = sceNetAdhocctlScan()) < 0) {
+        np_fail("Scan", r);
+        return;
+    }
+    sBrPhase = BR_SCAN;
+    sTBr = sceKernelGetSystemTimeLow();
+    np_status(PSP_NP_SEARCHING, "Looking for rooms...");
+}
+
+/* One step of the browsing: scan -> for each room: join its group, open the socket, wait for its ADV, leave -> idle (the radio stays open: joining one of the
+ * rooms, or looking again, is then quick). A room that does not answer is listed as silent. */
+static void np_browse_step(uint32_t now, unsigned events, int group) {
+    int r, i;
+    switch (sBrPhase) {
+        case BR_SCAN:
+            if (events & (1U << 3)) {
+                int length = (int) sizeof(sScan), count, lock;
+                r = sceNetAdhocctlGetScanInfo(&length, sScan);
+                count = (r >= 0 && length > 0 && length <= (int) sizeof(sScan)) ? length / (int) sizeof(sScan[0]) : 0;
+                lock = sceKernelCpuSuspendIntr();
+                sBrCount = 0;
+                for (i = 0; i < count && sBrCount < PSP_NP_MAX_ROOMS; i++) {
+                    const uint32_t session = np_room_session(&sScan[i]);
+                    int k, dup = 0;
+                    for (k = 0; k < sBrCount; k++) {
+                        dup |= (sBrSession[k] == session);
+                    }
+                    if (session == 0 || dup) {
+                        continue;
+                    }
+                    memset(&sBrScan[sBrCount], 0, sizeof(sBrScan[0]));
+                    sBrScan[sBrCount].channel = sScan[i].channel;
+                    memcpy(sBrScan[sBrCount].name, sScan[i].name, 8);
+                    memcpy(sBrScan[sBrCount].bssid, sScan[i].bssid, 6);
+                    sBrSession[sBrCount] = session;
+                    memset(&sRooms[sBrCount], 0, sizeof(sRooms[0]));
+                    sRooms[sBrCount].status = PSP_NP_ROOM_READING;
+                    sBrCount++;
+                }
+                sRoomCount = sBrCount;
+                sceKernelCpuResumeIntr(lock);
+                sBrIdx = 0;
+                sBrPhase = sBrCount ? BR_JOIN : BR_IDLE;
+                np_status(PSP_NP_SEARCHING, sBrCount ? "Reading the rooms..." : "No rooms found");
+            } else if (now - sTBr >= NP_BR_SCAN_US) {
+                sBrPhase = BR_IDLE;
+                np_status(PSP_NP_SEARCHING, "No rooms found");
+            }
+            break;
+        case BR_JOIN:
+            if (sBrJoin >= 0) {
+                sBrPhase = BR_TOJOIN;
+                break;
+            }
+            if (sBrIdx >= sBrCount) {
+                sBrPhase = BR_IDLE;
+                np_status(PSP_NP_SEARCHING, sBrCount ? "Pick a room" : "No rooms found");
+                break;
+            }
+            r = sceNetAdhocctlJoin(&sBrScan[sBrIdx]);
+            if (r < 0) {
+                np_room_status(sBrIdx, PSP_NP_ROOM_SILENT);
+                sBrIdx++;
+                break;
+            }
+            sBrPhase = BR_NET;
+            sTBr = now;
+            break;
+        case BR_NET:
+            if (group == 1) {
+                r = sceNetAdhocPdpCreate(sMac, NP_PORT, 8192, 0);
+                if (r < 0) {
+                    np_room_status(sBrIdx, PSP_NP_ROOM_SILENT);
+                    sBrPhase = BR_LEAVE;
+                    break;
+                }
+                sSocket = r;
+                sBrPhase = BR_ADV;
+                sTBr = now;
+            } else if (now - sTBr >= NP_BR_NET_US || sBrJoin >= 0) {
+                if (sBrJoin < 0) {
+                    np_room_status(sBrIdx, PSP_NP_ROOM_SILENT);
+                }
+                sBrPhase = BR_LEAVE;
+            }
+            break;
+        case BR_ADV: {
+            int got = 0;
+            for (i = 0; i < 8 && !got; i++) {
+                uint8_t mac[8];
+                unsigned short port = 0;
+                int length = (int) sizeof(sRx);
+                const NpHeader *h = (const NpHeader *) sRx;
+                r = sceNetAdhocPdpRecv(sSocket, mac, &port, sRx, &length, 0, 1);
+                if (r < 0) {
+                    break;
+                }
+                if (length >= (int) sizeof(NpHeader) && memcmp(h->magic, "SM64", 4) == 0 && h->type == PK_ADV && h->session == sBrSession[sBrIdx]) {
+                    NpAdv adv;
+                    const int plen = length - (int) sizeof(NpHeader);
+                    int lock;
+                    memset(&adv, 0, sizeof(adv));
+                    memcpy(&adv, sRx + sizeof(NpHeader), (size_t) ((plen < (int) sizeof(adv)) ? (plen > 0 ? plen : 0) : (int) sizeof(adv)));
+                    adv.name[PSP_NP_NAME_BYTES - 1] = '\0';
+                    lock = sceKernelCpuSuspendIntr();
+                    memcpy(sRooms[sBrIdx].name, adv.name, sizeof(sRooms[0].name));
+                    sRooms[sBrIdx].name[sizeof(sRooms[0].name) - 1] = '\0';
+                    sRooms[sBrIdx].character = adv.character;
+                    sRooms[sBrIdx].players = adv.players;
+                    sRooms[sBrIdx].maxPlayers = adv.maxPlayers;
+                    sRooms[sBrIdx].region = (char) adv.region;
+                    if (plen < 8 || adv.proto != NP_PROTO || adv.region != NP_REGION) {
+                        sRooms[sBrIdx].status = PSP_NP_ROOM_OTHER; /* (an older version sends an ADV with no details) */
+                    } else if (adv.players >= adv.maxPlayers) {
+                        sRooms[sBrIdx].status = PSP_NP_ROOM_FULL;
+                    } else {
+                        sRooms[sBrIdx].status = PSP_NP_ROOM_OPEN;
+                    }
+                    sceKernelCpuResumeIntr(lock);
+                    got = 1;
+                }
+            }
+            if (got || sBrJoin >= 0) {
+                sBrPhase = BR_LEAVE;
+            } else if (now - sTBr >= NP_BR_ADV_US) {
+                np_room_status(sBrIdx, PSP_NP_ROOM_SILENT);
+                sBrPhase = BR_LEAVE;
+            }
+            break;
+        }
+        case BR_LEAVE:
+            if (sSocket >= 0) {
+                sceNetAdhocPdpDelete(sSocket, 0);
+                sSocket = -1;
+            }
+            sceNetAdhocctlDisconnect();
+            sBrPhase = BR_GONE;
+            sTBr = now;
+            break;
+        case BR_GONE:
+            if (group == 0 || now - sTBr >= NP_BR_GONE_US) {
+                sBrIdx++;
+                sBrPhase = (sBrJoin >= 0) ? BR_TOJOIN : BR_JOIN;
+            }
+            break;
+        case BR_TOJOIN:
+            /* the player picked a room: it is joined to play, like the normal Join does after its scan (and only that one again if the link is lost) */
+            sBrowse = 0;
+            sTarget = sBrScan[sBrJoin];
+            sSession = sWantSession = sBrSession[sBrJoin];
+            sBrJoin = -1;
+            sHaveTarget = 1;
+            sScanPending = 0;
+            sPeerKnown = sWelcomed = 0;
+            np_take_events(); /* (the scan / leave notices of the browsing are not about this room) */
+            r = sceNetAdhocctlJoin(&sTarget);
+            if (r < 0) {
+                np_fail("Join room", r);
+                return;
+            }
+            sTStart = now;
+            np_status(PSP_NP_SEARCHING, "Room found, connecting...");
+            break;
+        default: /* BR_IDLE */
+            if (sBrJoin >= 0) {
+                sBrPhase = BR_TOJOIN;
+            }
+            break;
     }
 }
 
@@ -814,7 +1102,7 @@ static void np_step(void) {
         sTSwitch = now;
         if (sceWlanGetSwitchState() == 0) {
             if (++sWlanOffCount >= 4) { /* ~1 s in a row */
-                np_fail("WLAN switch turned off", 0);
+                np_fail_why("WLAN switch turned off", 0, PSP_NP_END_WLAN);
                 return;
             }
         } else {
@@ -826,6 +1114,9 @@ static void np_step(void) {
         char msg[80];
         snprintf(msg, sizeof(msg), "radio error 0x%08X, last rx %u ms ago, switch %d", (unsigned int) sEventError, (unsigned) ((now - sTRx) / 1000U), sceWlanGetSwitchState());
         np_log(msg);
+        if (sBrowse) {
+            return; /* while browsing (a room that just closed, a scan): the room being read is listed as silent by its timeout, nothing else is affected */
+        }
         if (sTRecovered != 0 && now - sTRecovered < 2000000U) {
             np_log("radio error ignored: left over from the restart");
             return; /* the radio library reports the teardown's own errors late: they were seen to start the next restart before it began (6 restarts in 50 s) */
@@ -843,12 +1134,16 @@ static void np_step(void) {
         if (np_recover("radio error")) {
             return;
         }
-        np_fail("Radio error", sEventError);
+        np_fail_why("Radio error", sEventError, PSP_NP_END_LOST);
         return;
     }
     r = sceNetAdhocctlGetState(&group);
     if (r < 0) {
         np_fail("Group state", r);
+        return;
+    }
+    if (sBrowse) {
+        np_browse_step(now, events, group);
         return;
     }
 
@@ -920,7 +1215,7 @@ static void np_step(void) {
         return;
     } else if (group != 1) {
         if (!np_recover("link lost")) {
-            np_fail("Connection lost", 0);
+            np_fail_why("Connection lost", 0, PSP_NP_END_LOST);
         }
         return;
     }
@@ -949,11 +1244,22 @@ static void np_step(void) {
 
     /* --- periodic sends --- */
     if (sHost) {
+        static uint32_t sTAdv;
+        if (now - sTAdv >= NP_ADV_US) {
+            /* the room's details, also with a player in it: a console browsing the rooms reads them (and sees the room is full) */
+            NpAdv adv;
+            sTAdv = now;
+            memset(&adv, 0, sizeof(adv));
+            adv.proto = NP_PROTO;
+            adv.region = NP_REGION;
+            adv.players = (uint8_t) (1 + (sPeerKnown ? 1 : 0));
+            adv.maxPlayers = PSP_NP_MAX_PLAYERS;
+            adv.character = (uint8_t) psp_options_np_character();
+            memcpy(adv.name, sMyName, sizeof(adv.name));
+            np_send(broadcast, PK_ADV, 0, 0, &adv, (int) sizeof(adv));
+        }
         if (!sPeerKnown) {
-            if (now - sTSent >= NP_ADV_US) {
-                sTSent = now;
-                np_send(broadcast, PK_ADV, 0, 0, NULL, 0);
-            }
+            /* (waiting for a player) */
         } else if (!sAcked && now - sTSent >= NP_RESEND_SAVE_US) {
             sTSent = now;
             for (i = 0; i < NP_CHUNKS; i++) {
@@ -1037,8 +1343,9 @@ static void np_step(void) {
             sPeerName[0] = '\0'; /* the next player is somebody else */
             sAcked = 0;
             np_status(PSP_NP_HOSTING, "Player lost. Waiting for a player...");
-        } else if (!np_recover("host silent")) {
-            np_fail("Connection to the host lost", 0);
+        } else {
+            /* like sm64coopdx's client (it drops the room after its timeout, no rejoin): 15 s without a word from the host is the end of the room */
+            np_fail_why("Connection to the host lost", 0, PSP_NP_END_LOST);
         }
     }
 }
@@ -1063,9 +1370,29 @@ static int np_thread(SceSize args, void *argp) {
         if (req != REQ_NONE) {
             sReq = REQ_NONE;
             if (req == REQ_HOST) {
+                sWantSession = 0;
                 np_start_host();
             } else if (req == REQ_JOIN) {
+                sWantSession = 0;
                 np_start_join();
+            } else if (req == REQ_BROWSE) {
+                if (sBrowse && sCtl && sBrPhase == BR_IDLE && sceNetAdhocctlScan() >= 0) {
+                    /* looking again: the radio is already open, only a new scan */
+                    const int lock = sceKernelCpuSuspendIntr();
+                    sRoomCount = 0;
+                    sceKernelCpuResumeIntr(lock);
+                    sBrJoin = -1;
+                    sBrPhase = BR_SCAN;
+                    sTBr = sceKernelGetSystemTimeLow();
+                    np_status(PSP_NP_SEARCHING, "Looking for rooms...");
+                } else {
+                    np_start_browse();
+                }
+            } else if (req == REQ_JOINROOM) {
+                const int idx = sJoinReqIdx;
+                if (sBrowse && idx >= 0 && idx < sBrCount) {
+                    sBrJoin = idx; /* np_browse_step leaves the room it is reading (if any) and joins this one */
+                }
             } else {
                 np_leave_now();
             }
@@ -1117,6 +1444,9 @@ static void np_read_names(void) {
 
 void psp_netplay_host(void) {
     if (sState == PSP_NP_OFF || sState == PSP_NP_ERROR) {
+        sRoomSet = psp_options_np_host_settings();
+        sEndReason = PSP_NP_END_ERROR;
+        sRecovering = 0;
         np_read_names();
         sRetries = 0;
         np_status(PSP_NP_STARTING, "Starting...");
@@ -1126,6 +1456,9 @@ void psp_netplay_host(void) {
 
 void psp_netplay_join(void) {
     if (sState == PSP_NP_OFF || sState == PSP_NP_ERROR) {
+        sEndReason = PSP_NP_END_ERROR;
+        sRoomSet = PSP_NP_SET_DEFAULTS; /* (until the host's WELCOME says otherwise) */
+        sRecovering = 0;
         np_read_names();
         sRetries = 0;
         np_status(PSP_NP_STARTING, "Starting...");
@@ -1133,8 +1466,47 @@ void psp_netplay_join(void) {
     }
 }
 
+/* The file select's "Join a Game": looks at the rooms around (again, if it was already looking and has finished). */
+void psp_netplay_browse(void) {
+    if (sState == PSP_NP_OFF || sState == PSP_NP_ERROR || (sBrowse && sBrPhase == BR_IDLE)) {
+        if (sState == PSP_NP_OFF || sState == PSP_NP_ERROR) {
+            np_read_names();
+            sRetries = 0;
+            sRoomSet = PSP_NP_SET_DEFAULTS; /* (until the host's WELCOME says otherwise) */
+            np_status(PSP_NP_STARTING, "Starting...");
+        }
+        np_request(REQ_BROWSE);
+    }
+}
+
+int psp_netplay_rooms(PspNpRoom *out, int max, int *busy) {
+    int n, lock;
+    lock = sceKernelCpuSuspendIntr();
+    n = sRoomCount;
+    if (n > max) {
+        n = max;
+    }
+    if (n > 0) {
+        memcpy(out, sRooms, sizeof(sRooms[0]) * (size_t) n);
+    }
+    sceKernelCpuResumeIntr(lock);
+    if (busy) {
+        *busy = (sState == PSP_NP_STARTING) || (sBrowse && sBrPhase != BR_IDLE) || sReq == REQ_BROWSE;
+    }
+    return n;
+}
+
+void psp_netplay_join_room(int index) {
+    if (sBrowse && index >= 0 && index < sRoomCount) {
+        sJoinReqIdx = index;
+        np_request(REQ_JOINROOM);
+    }
+}
+
 void psp_netplay_leave(void) {
+    sRecovering = 0;
     if (sState != PSP_NP_OFF) {
+        sEndReason = PSP_NP_END_LEFT;
         np_status(PSP_NP_OFF, "");
         np_request(REQ_LEAVE);
     }
@@ -1142,6 +1514,45 @@ void psp_netplay_leave(void) {
 
 int psp_netplay_state(void) {
     return sState;
+}
+
+int psp_netplay_in_room(void) {
+    const int st = sState;
+    return st == PSP_NP_HOSTING || st == PSP_NP_JOINING || st == PSP_NP_CONNECTED || (sRecovering && st != PSP_NP_OFF);
+}
+
+int psp_np_room_setting(int which) {
+    /* (also while the room is still starting: the host can pick its file before the room is fully open, and its rules apply from the start) */
+    const uint32_t set = (psp_netplay_in_room() || sState == PSP_NP_STARTING) ? sRoomSet : PSP_NP_SET_DEFAULTS;
+    return (which >= 0 && which < PSP_NP_SET_COUNT) ? (int) ((set >> (4 * which)) & 15u) : 0;
+}
+
+int psp_netplay_is_host(void) {
+    return sHost;
+}
+
+/* The PSP Street (E1000) has no WLAN at all: no multiplayer there (the switch query cannot tell "no radio" from "switch off") */
+int psp_netplay_wlan_hw(void) {
+    static int hw = -1;
+    if (hw < 0) {
+        hw = (psp_dve_model() == 10) ? 0 : 1;
+    }
+    return hw;
+}
+
+int psp_netplay_wlan_on(void) {
+    return sceWlanGetSwitchState() != 0; /* (a negative value is an error of the query, not "off") */
+}
+
+const char *psp_netplay_peer_name(void) {
+    return sPeerName;
+}
+
+const char *psp_netplay_my_name(void) {
+    if (sMyName[0] == '\0') {
+        np_read_names();
+    }
+    return sMyName;
 }
 
 const char *psp_netplay_status(void) {
@@ -1185,7 +1596,7 @@ void psp_netplay_frame(void) {
         psp_netplay_merge_progress(tmp, len);
     }
     if (sState == PSP_NP_CONNECTED && (sHost || sOverride)) {
-        /* the other player: this player's pose goes out, the other one's comes in and is shown as a second Mario (Luigi if it is the client) */
+        /* the other player: this player's pose goes out, the other one's comes in and is shown as a second player (with its character's model) */
         PspNpPlayer me, it;
         int have, lock;
         const uint32_t now = sceKernelGetSystemTimeLow();
@@ -1201,16 +1612,24 @@ void psp_netplay_frame(void) {
             it = sStateIn;
         }
         sceKernelCpuResumeIntr(lock);
-        psp_np_game_apply(have ? &it : NULL, sHost);
-        psp_np_game_keep_local_luigi(!sHost);
-        /* names and notices (drawn by psp_np_hud_draw in game/psp_options.c) */
+        psp_np_game_apply(have ? &it : NULL);
+        if (have && !sHost && it.character == psp_options_np_character()) {
+            psp_options_np_character_bump(it.character); /* no two players are the same character: the host keeps it, the client takes the next free one */
+        }
+        psp_np_game_keep_local_char(psp_options_np_character()); /* (the character chosen on the Multiplayer page, as sm64coopdx: it can be changed at any time) */
+        /* names and notices (drawn by psp_np_hud_draw in game/psp_options.c); the name tag's colour (and the name, without a nickname) is the other
+         * player's character's, which it can change at any time */
+        if (have && it.character != sPeerChar) {
+            sPeerChar = it.character;
+            sPeerNameNew = 1;
+        }
         if (sPeerNameNew || !sGameActive) {
             char name[PSP_NP_NAME_BYTES];
             lock = sceKernelCpuSuspendIntr();
             memcpy(name, sPeerName, sizeof(name));
             sPeerNameNew = 0;
             sceKernelCpuResumeIntr(lock);
-            psp_np_hud_peer_name(name, sHost); /* (no name yet: "Luigi" / "Mario", whichever it plays as) */
+            psp_np_hud_peer_name(name, sPeerChar); /* (no name yet: the character it plays as) */
         }
         if (!sGameActive) {
             psp_np_hud_link(1);
@@ -1222,19 +1641,50 @@ void psp_netplay_frame(void) {
         sGameActive = 1;
     } else if (sGameActive) {
         psp_np_game_remove_remote();
-        psp_np_game_keep_local_luigi(0);
-        psp_np_hud_link(0);
+        if (!psp_netplay_in_room()) {
+            psp_np_game_keep_local_char(gPspSoloChar); /* (Mario, or Luigi: see gPspSoloChar) */
+        }
+        sPeerChar = 0;
+        psp_np_hud_link(psp_netplay_in_room() ? 0 : -1); /* (the room is over: its own notice replaces "<name> disconnected", as sm64coopdx) */
 #if PSP_NETPLAY_WORLD
         psp_np_world_reset();
 #endif
         sGameActive = 0;
     }
-    if (sOverride && sState != PSP_NP_CONNECTED) {
-        /* the room is over: back to this console's own save file (the one on the Memory Stick was never touched) */
-        sOverride = 0;
+    if (sSaveReady && sOverride && sState == PSP_NP_CONNECTED) {
+        /* the link came back after rebuilding itself: the host sent its save again, but this client kept playing with the first copy (it is not
+         * swapped in twice: that would undo what was done meanwhile). Both sides exchange their progress instead, so they agree again. */
         sSaveReady = 0;
-        save_file_load_all();
-        psp_netplay_refresh_hud();
+        psp_netplay_share_progress();
+    }
+    if (!sHost && sRecovering && sState != PSP_NP_CONNECTED && sceKernelGetSystemTimeLow() - sTRecoverStart >= NP_CLIENT_RECOVER_US) {
+        /* the client could not get the link back in time: the room is over for it (back to the file select, "Connection lost") */
+        sRecovering = 0;
+        sEndReason = PSP_NP_END_LOST;
+        np_status(PSP_NP_OFF, "");
+        np_request(REQ_LEAVE);
+    }
+    {
+        const int inRoom = psp_netplay_in_room();
+        if (sWasInRoom && !inRoom) {
+            /* the room is over (left, closed by the host, lost): a notice like sm64coopdx's, and the client, whose game was the host's save, goes back
+             * to the file select as in sm64coopdx (there, to its main menu) */
+            psp_np_hud_room_ended(sEndReason);
+            if (sOverride) {
+                psp_np_go_to_file_select();
+            }
+        }
+        sWasInRoom = inRoom;
+        if (sOverride && !inRoom) {
+            /* back to this console's own save file (the one on the Memory Stick was never touched) */
+            sOverride = 0;
+            sSaveReady = 0;
+            save_file_load_all();
+            psp_netplay_refresh_hud();
+        }
+    }
+    if (!sGameActive && !psp_netplay_in_room()) {
+        psp_np_game_keep_local_char(gPspSoloChar); /* single player: Mario, or Luigi when the file was chosen with L + R held (file_select.c) */
     }
 }
 

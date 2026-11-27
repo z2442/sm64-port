@@ -242,7 +242,8 @@ int smi_load_manifest(const smi_env *env, const char *path, smi_manifest *m) {
     nroms = rd_le32(b + 8);
     nents = rd_le32(b + 12);
     nmaps = rd_le32(b + 16);
-    if (memcmp(b, "SMAN", 4) != 0 || rd_le32(b + 4) != 1 || nroms == 0 || nroms > SMI_MAX_ROMS ||
+    /* version 2 is version 1 plus swap code 3 (see apply_map) */
+    if (memcmp(b, "SMAN", 4) != 0 || (rd_le32(b + 4) != 1 && rd_le32(b + 4) != 2) || nroms == 0 || nroms > SMI_MAX_ROMS ||
         (uint64_t) HEADER_SIZE + (uint64_t) nroms * ROMREC_SIZE + 40 + (uint64_t) nents * ENTRY_SIZE + nmaps != (uint64_t) size) {
         env->release(b);
         return SMI_E_MANIFEST;
@@ -547,6 +548,11 @@ static void apply_map(uint8_t *p, uint32_t len, const uint8_t *maps, uint32_t ma
             x[1] = t;
             t = x[2];
             x[2] = x[3];
+            x[3] = t;
+        } else if (code == 3) {
+            /* a 24-bit field under 8 bits of flags: the Shindou sample header word */
+            t = x[1];
+            x[1] = x[3];
             x[3] = t;
         }
     }

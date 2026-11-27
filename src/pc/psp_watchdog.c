@@ -200,7 +200,7 @@ static void wd_crash_install(void) {
     if (mod < 0) {
         return;
     }
-    fs_resolve_path(sCrashPath, sizeof(sCrashPath), "crash.txt");
+    snprintf(sCrashPath, sizeof(sCrashPath), "ms0:/crash.txt"); /* memory stick root, like the other logs: easy to find */
     ctx.phase = (const char *const volatile *) &gPspWdPhase;
     ctx.level = &gCurrLevelNum;
     ctx.area = &gCurrAreaIndex;
@@ -212,7 +212,7 @@ static void wd_crash_install(void) {
 void psp_watchdog_start(void) {
     SceUID th;
     wd_crash_install();
-    fs_resolve_path(sPath, sizeof(sPath), "freeze.txt");
+    snprintf(sPath, sizeof(sPath), "ms0:/freeze.txt"); /* memory stick root, like the other logs: easy to find */
     psp_watchdog_register("main", sceKernelGetThreadId());
     /* above the audio (0x1E / 0x20), the presentation (0x1D) and the main thread: it has to run no matter what they do */
     th = sceKernelCreateThread("sm64_watchdog", wd_thread, 0x11, 0x2000, PSP_THREAD_ATTR_USER, NULL);

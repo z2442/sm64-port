@@ -131,7 +131,7 @@ static s32 credits_load_hold_frames(UNUSED s32 fadeFrames) {
 }
 #endif
 
-#ifdef VERSION_JP
+#if defined(VERSION_JP) || defined(VERSION_SH) // (Shindou: the Japanese credits, with the voice actors)
 const char *credits01[] = { "1GAME DIRECTOR", "SHIGERU MIYAMOTO" };
 const char *credits02[] = { "2ASSISTANT DIRECTORS", "YOSHIAKI KOIZUMI", "TAKASHI TEZUKA" };
 const char *credits03[] = { "2SYSTEM PROGRAMMERS", "YASUNARI NISHIDA", "YOSHINORI TANIMOTO" };
@@ -143,6 +143,7 @@ const char *credits08[] = { "2COURSE DESIGNERS", "KENTA USUI", "NAOKI MORI" };
 const char *credits09[] = { "3COURSE DESIGNERS", "YOSHIKI HARUHANA", "MAKOTO MIYANAGA",
                             "KATSUHIKO KANNO" };
 const char *credits10[] = { "1SOUND COMPOSER", "KOJI KONDO" };
+#ifdef VERSION_JP
 const char *credits11[] = { "1SOUND EFFECTS", "YOJI INAGAKI" };
 const char *credits12[] = { "1SOUND PROGRAMMER", "HIDEAKI SHIMIZU" };
 const char *credits13[] = { "23D ANIMATORS", "YOSHIAKI KOIZUMI", "SATORU TAKIZAWA" };
@@ -150,6 +151,16 @@ const char *credits14[] = { "1CG DESIGNER", "MASANAO ARIMOTO" };
 const char *credits15[] = { "3TECHNICAL SUPPORT", "TAKAO SAWANO", "HIROHITO YOSHIMOTO", "HIROTO YADA" };
 const char *credits16[] = { "1TECHNICAL SUPPORT", "SGI. 64PROJECT STAFF" };
 const char *credits17[] = { "2PROGRESS MANAGEMENT", "KIMIYOSHI FUKUI", "KEIZO KATO" };
+#else
+// Shindou combines sound effects and sound programmer in order to make room for Mario voice and Peach voice
+const char *credits11[] = { "4SOUND EFFECTS", "SOUND PROGRAMMER", "YOJI INAGAKI", "HIDEAKI SHIMIZU" };
+const char *credits12[] = { "23D ANIMATORS", "YOSHIAKI KOIZUMI", "SATORU TAKIZAWA" };
+const char *credits13[] = { "1CG DESIGNER", "MASANAO ARIMOTO" };
+const char *credits14[] = { "3TECHNICAL SUPPORT", "TAKAO SAWANO", "HIROHITO YOSHIMOTO", "HIROTO YADA" };
+const char *credits15[] = { "1TECHNICAL SUPPORT", "SGI. 64PROJECT STAFF" };
+const char *credits16[] = { "2PROGRESS MANAGEMENT", "KIMIYOSHI FUKUI", "KEIZO KATO" };
+const char *credits17[] = { "4MARIO VOICE", "PEACH VOICE", "CHARLES MARTINET", "LESLIE SWAN" };
+#endif
 const char *credits18[] = { "3SPECIAL THANKS TO", "JYOHO KAIHATUBU", "ALL NINTENDO",
                             "MARIO CLUB STAFF" };
 const char *credits19[] = { "1PRODUCER", "SHIGERU MIYAMOTO" };
@@ -1297,8 +1308,51 @@ static s32 play_mode_unused(void) {
     return 0;
 }
 
+#ifdef TARGET_PSP
+/* Multiplayer: the client's room ended (it was playing the host's save): back to the file select, as sm64coopdx goes back to its main menu. Asked
+ * from the network code (any moment); done here, at the next frame of a level that is being played normally (not in the middle of a warp). */
+static int sPspToFileSelect;
+
+#if PSP_NETPLAY
+void psp_np_go_to_file_select(void) {
+    sPspToFileSelect = 1;
+}
+#endif
+
+/* The pause menu's "Exit to Title" (Options page): back to Mario's head, as after a Game Over but with his usual face (the level script's -2, the same
+ * screen the game starts on); from there START goes on to the file select. */
+void psp_exit_to_title(void) {
+    sPspToFileSelect = 2;
+}
+
+static void psp_np_file_select_step(void) {
+    int target;
+    if (!sPspToFileSelect || gCurrDemoInput != NULL || (sCurrPlayMode != PLAY_MODE_NORMAL && sCurrPlayMode != PLAY_MODE_PAUSED)) {
+        return;
+    }
+    target = (sPspToFileSelect == 2) ? -2 : -10;
+    sPspToFileSelect = 0;
+    if (sCurrPlayMode == PLAY_MODE_PAUSED) {
+        psp_close_pause_menu();
+        raise_background_noise(1);
+        gCameraMovementFlags &= ~CAM_MOVE_PAUSE_SCREEN;
+    }
+    if (get_dialog_id() != -1) {
+        reset_dialog_render_state(); /* (before the fade: it clears the transition) */
+    }
+    sWarpDest.type = WARP_TYPE_NOT_WARPING;
+    sDelayedWarpOp = WARP_OP_NONE;
+    fade_into_special_warp(target, 0); /* (levels/scripts.c: -10 = the file select, -2 = Mario's head) */
+    gSavedCourseNum = COURSE_NONE;
+}
+#endif
+
 s32 update_level(void) {
     s32 changeLevel;
+
+#ifdef TARGET_PSP
+    psp_np_file_select_step();
+#endif
 
     switch (sCurrPlayMode) {
         case PLAY_MODE_NORMAL:
@@ -1371,8 +1425,9 @@ s32 init_level(void) {
                 set_mario_action(gMarioState, ACT_IDLE, 0);
             } else if (gDebugLevelSelect == 0) {
                 if (gMarioState->action != ACT_UNINITIALIZED) {
-                    /* in a WLAN room nobody sits through Lakitu's opening on a file that is still empty (the host's file is shared) */
-                    if (save_file_exists(gCurrSaveFileNum - 1) || psp_netplay_state() == PSP_NP_CONNECTED) {
+                    /* in a WLAN room the host's Skip Intro Cutscene rule decides whether Lakitu's opening plays on a file that is still empty
+                     * (sm64coopdx's skipIntro) */
+                    if (save_file_exists(gCurrSaveFileNum - 1) || psp_np_room_setting(PSP_NP_SET_SKIPINTRO) /* (0 outside a room) */) {
                         set_mario_action(gMarioState, ACT_IDLE, 0);
                     } else {
                         set_mario_action(gMarioState, ACT_INTRO_CUTSCENE, 0);

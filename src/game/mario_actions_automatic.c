@@ -861,8 +861,8 @@ static struct Object *sBubble; /* the bubble around this player (bhvBubblePlayer
 
 s32 mario_can_bubble(struct MarioState *m) {
     float pos[3];
-    if (m != gMarioState || m->action == ACT_BUBBLED || m->numLives <= 0) {
-        return FALSE;
+    if (m != gMarioState || m->action == ACT_BUBBLED || m->numLives <= 0 || !psp_np_room_setting(PSP_NP_SET_BUBBLE)) {
+        return FALSE; /* (the room's Bubble On Death rule: off, a death is a normal death) */
     }
     return psp_np_world_rescuer(pos);
 }
@@ -873,18 +873,24 @@ void mario_set_bubbled(struct MarioState *m) {
     }
     sBubbleCounter = 20;
     drop_and_set_mario_action(m, ACT_BUBBLED, 0);
-    if (m->numLives > 0) {
-        m->numLives--;
-    }
+    /* (the life is lost only when the other player pops the bubble, mario_pop_bubble; if the bubble ends in a real death, that death's
+     * life is the one lost, when the player is back in the level: never two for one death) */
     m->healCounter = 0;
     m->hurtCounter = 31;
     gCamera->cutscene = 0;
     m->statusForCamera->action = m->action;
     m->statusForCamera->cameraEvent = 0;
     m->marioObj->activeFlags |= ACTIVE_FLAG_MOVE_THROUGH_GRATE;
+    /* (a death that had hidden the model, e.g. eaten by Bubba, act_eaten_by_bubba: the bubble and the player in it are shown) */
+    m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_ACTIVE;
+    m->squishTimer = 0;
+    vec3f_set(m->marioObj->header.gfx.scale, 1.0f, 1.0f, 1.0f); /* (squished flat by a ceiling, act_squished) */
 }
 
 static void mario_pop_bubble(struct MarioState *m) {
+    if (m->numLives > 0) {
+        m->numLives--; /* (the life this death costs, see mario_set_bubbled) */
+    }
     m->marioObj->activeFlags &= ~ACTIVE_FLAG_MOVE_THROUGH_GRATE;
     m->hurtCounter = 0;
     m->healCounter = 31;
@@ -985,7 +991,7 @@ static s32 act_bubbled(struct MarioState *m) {
     /* its bubble */
     if (sBubble == NULL || sBubble->behavior != segmented_to_virtual(bhvBubblePlayer) || sBubble->activeFlags == ACTIVE_FLAG_DEACTIVATED
         || sBubble->parentObj != m->marioObj) {
-        sBubble = spawn_object(m->marioObj, MODEL_BUBBLE, bhvBubblePlayer);
+        sBubble = spawn_object(m->marioObj, MODEL_BUBBLE_PLAYER, bhvBubblePlayer);
     }
 
     if (sBubbleCounter > 0) {

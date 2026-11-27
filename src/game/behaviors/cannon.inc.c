@@ -4,6 +4,9 @@ void bhv_cannon_base_unused_loop(void) {
     o->oPosY += o->oVelY;
 }
 
+/* PSP WLAN multiplayer: set while the cannon plays the other player's use of it (sm64coopdx oCannonPlayerIndex > 0). A field the cannon does not use. */
+#define oCannonRemote OBJECT_FIELD_S32(0x1D)
+
 /* PSP WLAN multiplayer: the other player is inside this cannon (sm64coopdx syncs the cannon: it is taken, and shown raised and aiming). Its Mario is not
  * shown while in a cannon, so this reads its latest pose instead of its model: where it is (up to ~700 above the cannon's home: the cannon rises ~340 out
  * of its hole and the player sits 350 above it) and where it aims (its pose's pitch / yaw, see psp_np_game_capture). */
@@ -112,6 +115,25 @@ void opened_cannon_act_5(void) {
 
 void opened_cannon_act_1(void) {
     UNUSED s32 unused;
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    if (o->oCannonRemote) {
+        /* (sm64coopdx opened_cannon_act_1 with another player inside) the cannon stays shown, aiming where that player aims: its yaw is the
+         * player's, and its pitch is the barrel's for that aim. The barrel's pitch counts from straight up (0) and the player's aim from level
+         * (act_in_cannon: 0 to 0x38E3 up): both are 0x2000 when the player starts aiming (opened_cannon_act_5). sm64coopdx uses
+         * 14563 - aim / 2, which matches at 0x2000 only; this is the exact one */
+        f32 remoteY;
+        s16 pitch, yaw;
+        if (cannon_remote_inside(&remoteY, &pitch, &yaw)) {
+            o->oMoveAnglePitch = 0x4000 - pitch;
+            o->oMoveAngleYaw = yaw;
+        } else {
+            o->oCannonRemote = 0; /* (it was shot out: back into the hole, as after this player's own shot) */
+            o->oAction = 2;
+        }
+        o->oCannonUnk10C = 0;
+        return;
+    }
+#endif
     cur_obj_become_intangible();
     cur_obj_disable_rendering();
     o->oCannonUnk10C = 0;
@@ -142,26 +164,28 @@ void bhv_cannon_base_loop(void) {
         o->oCannonUnkF8++;
     o->oInteractStatus = 0;
 #if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
-    /* sm64coopdx syncs the cannon: while the other player is inside this one, it is shown here aiming where that player aims (its console sends the aim in
-     * the angles of its pose, see psp_np_game_capture); when it leaves, the cannon is back at rest. (Only while it is idle here: this player's own use of
-     * the cannon goes first.) */
-    if (o->oAction == 0) {
-        f32 remoteY;
-        s16 pitch, yaw;
-        if (cannon_remote_inside(&remoteY, &pitch, &yaw)) {
-            o->oMoveAnglePitch = pitch;
-            o->oMoveAngleYaw = yaw;
-            /* raised out of its hole as the one it is in (opened_cannon_act_4: 5 a frame for 69 frames). Its Mario's position does not tell how
-             * far: the hidden model's position is not sent on while it is in the cannon */
-            o->oPosY = approach_f32(o->oPosY, o->oHomeY + 345.0f, 5.0f, 5.0f);
-            (void) remoteY;
-            cur_obj_enable_rendering();
-            cur_obj_become_intangible(); /* (sm64coopdx: taken, nobody else gets in; act_0 makes it tangible again when it is free) */
-            cur_obj_push_mario_away_from_cylinder(220.0f, 300.0f);
+    /* sm64coopdx syncs the cannon: when the other player gets into this one, it plays the same as for this player (it rises out of its hole, swings
+     * from side to side, tilts up), then aims where that player aims (opened_cannon_act_1). Taken meanwhile: nobody else gets in. */
+    if (o->oAction == 0 && !o->oCannonRemote && cannon_remote_inside(NULL, NULL, NULL)) {
+        o->oCannonRemote = 1;
+        o->oPosX = o->oHomeX;
+        o->oPosY = o->oHomeY;
+        o->oPosZ = o->oHomeZ;
+        o->oMoveAnglePitch = 0;
+        o->oMoveAngleYaw = (s16)(o->oBehParams2ndByte << 8);
+        o->oCannonUnkF4 = 0;
+        o->oAction = 4;
+    }
+    if (o->oCannonRemote) {
+        if (o->oAction != 1 && o->oAction != 4 && o->oAction != 5 && o->oAction != 6) {
+            o->oCannonRemote = 0;
+        } else if (o->oAction != 1 && !cannon_remote_inside(NULL, NULL, NULL)) {
+            o->oCannonRemote = 0; /* (it left before aiming, e.g. the other console went away) */
+            o->oAction = 2;
         } else {
-            o->oMoveAnglePitch = 0;
-            o->oMoveAngleYaw = (s16)(o->oBehParams2ndByte << 8);
-            o->oPosY = o->oHomeY; /* (free again: back in its hole) */
+            cur_obj_enable_rendering();
+            cur_obj_become_intangible();
+            cur_obj_push_mario_away_from_cylinder(220.0f, 300.0f);
         }
     }
 #endif

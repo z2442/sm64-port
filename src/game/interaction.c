@@ -25,6 +25,7 @@
 #include "thread6.h"
 #ifdef TARGET_PSP
 #include "pc/psp_netplay.h"
+#include "object_list_processor.h"
 #include "mario_actions_automatic.h"
 #endif
 
@@ -361,7 +362,8 @@ void mario_blow_off_cap(struct MarioState *m, f32 capSpeed) {
 
         m->flags &= ~(MARIO_NORMAL_CAP | MARIO_CAP_ON_HEAD);
 
-        capObject = spawn_object(m->marioObj, MODEL_MARIOS_CAP, bhvNormalCap);
+        capObject = spawn_object(m->marioObj, psp_np_cap_model(gPspLocalChar, MODEL_MARIOS_CAP), bhvNormalCap); /* (WLAN multiplayer: the cap of the player's character, as sm64coopdx) */
+        psp_np_cap_owner(capObject, gPspLocalChar);
 
         capObject->oPosY += (m->action & ACT_FLAG_SHORT_HITBOX) ? 120.0f : 180.0f;
         capObject->oForwardVel = capSpeed;
@@ -380,6 +382,11 @@ u32 mario_lose_cap_to_enemy(u32 arg) {
         save_file_set_flags(arg == 1 ? SAVE_FLAG_CAP_ON_KLEPTO : SAVE_FLAG_CAP_ON_UKIKI);
         gMarioState->flags &= ~(MARIO_NORMAL_CAP | MARIO_CAP_ON_HEAD);
         wasWearingCap = TRUE;
+#ifdef TARGET_PSP
+        if (gCurrentObject != NULL) {
+            gCurrentObject->unused1 = (u32) gPspLocalChar + 1; /* (WLAN multiplayer: the Klepto / Ukiki holds this player's character's cap, see psp_np_enemy_cap_char) */
+        }
+#endif
     }
 
     return wasWearingCap;
@@ -649,7 +656,12 @@ u32 determine_knockback_action(struct MarioState *m, UNUSED s32 arg) {
             }
         }
 
-        mag = scaler * (f32) PSP_PVP_KNOCKBACK_STRENGTH * sign;
+        {
+            /* the room's Knockback Strength rule (sm64coopdx: Weak 10, Normal 25, Too much 60) */
+            static const f32 sStrength[3] = { 10.0f, (f32) PSP_PVP_KNOCKBACK_STRENGTH, 60.0f };
+            const int k = psp_np_room_setting(PSP_NP_SET_KNOCKBACK);
+            mag = scaler * sStrength[(k >= 0 && k < 3) ? k : 1] * sign;
+        }
         m->forwardVel = mag;
         if (sign > 0.0f && terrainIndex == 1) {
             mag = -mag;
@@ -828,9 +840,22 @@ u32 interact_star_or_key(struct MarioState *m, UNUSED u32 interactType, struct O
     u32 starGrabAction = ACT_STAR_DANCE_EXIT;
     u32 noExit = (o->oInteractionSubtype & INT_SUBTYPE_NO_EXIT) != 0;
     u32 grandStar = (o->oInteractionSubtype & INT_SUBTYPE_GRAND_STAR) != 0;
+#if defined(TARGET_PSP) && PSP_NETPLAY
+    /* the room's On Star Collection rule (sm64coopdx's stayInLevelAfterStar): Stay in Level makes every star a "no exit" one, Non-Stop also skips the dance.
+     * Not in Bowser's levels (their keys and the Grand Star always end the level), and only in a room. */
+    const int starRule = (psp_netplay_in_room() && gCurrLevelNum != LEVEL_BOWSER_1 && gCurrLevelNum != LEVEL_BOWSER_2 && gCurrLevelNum != LEVEL_BOWSER_3)
+                             ? psp_np_room_setting(PSP_NP_SET_STAR) : 0;
+    if (starRule != 0) {
+        noExit = TRUE;
+    }
+#else
+    const int starRule = 0;
+#endif
 
     if (m->health >= 0x100) {
-        mario_stop_riding_and_holding(m);
+        if (starRule != 2) {
+            mario_stop_riding_and_holding(m);
+        }
 #ifdef VERSION_SH
         queue_rumble_data(5, 80);
 #endif
@@ -884,6 +909,10 @@ u32 interact_star_or_key(struct MarioState *m, UNUSED u32 interactType, struct O
 
         if (grandStar) {
             return set_mario_action(m, ACT_JUMBO_STAR_CUTSCENE, 0);
+        }
+        if (starRule == 2) {
+            save_file_do_save(gCurrSaveFileNum - 1); /* Non-Stop: no dance and no "save?" question, the star is saved right away and the game goes on */
+            return TRUE;
         }
 
         return set_mario_action(m, starGrabAction, noExit + 2 * grandStar);
@@ -1956,6 +1985,9 @@ static u8 psp_np_pvp_checks(const struct MarioState *attacker, const struct Mari
 
 static u8 psp_np_pvp_damage(const struct MarioState *attacker, u32 interaction) {
     (void) attacker;
+    if (psp_np_room_setting(PSP_NP_SET_INTERACT) != 2) {
+        return 0; /* Solid: the hit still knocks back, but it does not hurt (sm64coopdx: damage = 0 unless PLAYER_INTERACTIONS_PVP) */
+    }
     if (interaction & INT_GROUND_POUND_OR_TWIRL) {
         return 3;
     } else if (interaction & INT_KICK) {
@@ -1973,8 +2005,8 @@ static void psp_np_player_collision(struct MarioState *m) {
     f32 extentY, radius, relX, relZ, dist, relY;
     u32 interaction;
 
-    if (o == NULL || r == NULL || m != gMarioState || !psp_np_players_can_touch(m, r)) {
-        return;
+    if (o == NULL || r == NULL || m != gMarioState || !psp_np_players_can_touch(m, r) || psp_np_room_setting(PSP_NP_SET_INTERACT) == 0) {
+        return; /* (Non-solid: the players go through each other, sm64coopdx's PLAYER_INTERACTIONS_NONE) */
     }
     if ((m->action & ACT_GROUP_MASK) == ACT_GROUP_CUTSCENE || (r->action & ACT_GROUP_MASK) == ACT_GROUP_CUTSCENE || m->action == ACT_IN_CANNON
         || r->action == ACT_IN_CANNON || m->action == ACT_DEATH_EXIT_LAND || r->action == ACT_DEATH_EXIT_LAND || m->invincTimer > 0
@@ -2172,7 +2204,7 @@ static void psp_np_player_attacks(struct MarioState *m) {
     if (m == gMarioState) {
         psp_np_lag_store(m);
     }
-    if (r == NULL || psp_np_game_remote() == NULL || m != gMarioState || !psp_np_players_can_touch(m, r)) {
+    if (r == NULL || psp_np_game_remote() == NULL || m != gMarioState || !psp_np_players_can_touch(m, r) || psp_np_room_setting(PSP_NP_SET_INTERACT) == 0) {
         return;
     }
     psp_np_pvp(r, m);

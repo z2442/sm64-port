@@ -1,6 +1,6 @@
 /*
  * sm64Crash ("crash report module"): small kernel module that catches a CPU exception of the game (a crash: bad address, unaligned access,
- * break, ...) and writes "crash.txt" next to sm64config.txt / freeze.txt before going back to the system menu. It is the counterpart of the
+ * break, ...) and writes "crash.txt" in the memory stick root (ms0:/, next to freeze.txt) before going back to the system menu. It is the counterpart of the
  * freeze report (psp_watchdog.c): a freeze leaves the game running and the watchdog thread describes it, a crash stops the faulting thread
  * and only an exception handler can see where.
  *

@@ -72,12 +72,14 @@ void bhv_treasure_chest_bottom_loop(void) {
                             play_sound(SOUND_GENERAL2_RIGHT_ANSWER, gDefaultSoundArgs);
                             o->parentObj->oTreasureChestUnkF4++;
                             o->oAction = 1;
+                            psp_np_world_chests(o->parentObj, 1); /* (WLAN multiplayer: the other console gets the puzzle at once, sm64coopdx) */
                         } else {
                             o->parentObj->oTreasureChestUnkF4 = 1;
                             o->parentObj->oTreasureChestUnkF8 = 1;
                             o->oAction = 2;
                             cur_obj_become_tangible();
                             play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+                            psp_np_world_chests(o->parentObj, 2);
                         }
                     }
                 }

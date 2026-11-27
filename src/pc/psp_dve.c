@@ -54,6 +54,11 @@ static int sNativeTv;  /* the game booted with the console already in its native
 
 static void psp_dve_diag_load(void);
 
+int psp_dve_model(void) {
+    (void) psp_dve_probe(); /* (loads the module once, as the Options menu does) */
+    return sModel;
+}
+
 int psp_dve_probe(void) {
     char path[FS_MAX_PATH];
     if (sProbed) {

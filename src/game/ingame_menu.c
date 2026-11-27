@@ -93,7 +93,11 @@ u8 gDialogCharWidths[256] = { // TODO: Is there a way to auto generate this?
 #endif
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+#ifdef TARGET_PSP
+    0,  0,  0,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, /* 0xD3: the slash drawn for the port (bin/segment2.c) */
+#else
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+#endif
 #ifdef VERSION_EU
     7,  5, 10,  5,  9,  8,  4,  0,  0,  0,  0,  5,  5,  6,  5,  0,
 #else
@@ -1495,7 +1499,7 @@ u32 ensure_nonnegative(s16 value) {
     return value;
 }
 
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_JP // (Shindou keeps only the visible lines while scrolling, like US)
 void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog)
 #else
 void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog, s8 lowerBound)
@@ -1566,6 +1570,9 @@ void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog, s8 l
                 break;
             case DIALOG_CHAR_NEWLINE:
                 lineNum++;
+#ifdef VERSION_SH
+                mark = 0; // (Shindou)
+#endif
 #ifdef VERSION_EU
                 handle_dialog_scroll_page_state(lineNum, totalLines, &pageState, &xMatrix);
                 gDialogX = 0;
@@ -1686,6 +1693,9 @@ void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog, s8 l
 #endif
             default: // any other character
 #if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_SH
+                if (lineNum >= lowerBound && lineNum <= lowerBound + linesPerBox) {
+#endif
                 if (linePos != 0) {
                     create_dl_translation_matrix(MENU_MTX_NOPUSH, xMatrix * 10, 0, 0);
                 }
@@ -1700,6 +1710,9 @@ void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog, s8 l
                     gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
                     mark = 0;
                 }
+#ifdef VERSION_SH
+                }
+#endif
 #elif defined(VERSION_US)
                 if (lineNum >= lowerBound && lineNum <= lowerBound + linesPerBox) {
                     if (linePos || xMatrix != 1) {
@@ -1720,7 +1733,7 @@ void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog, s8 l
 #endif
         }
 
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_JP // (Shindou dropped this: its text breaks its lines itself)
         if (linePos == 12) {
             if (str[strIdx + 1] == DIALOG_CHAR_PERIOD) {
                 adjust_pos_and_print_period_char(&xMatrix, &linePos);
@@ -1982,7 +1995,7 @@ void render_dialog_entries(void) {
 #endif
     void **dialogTable;
     struct DialogEntry *dialog;
-#ifdef VERSION_US
+#if defined(VERSION_US) || defined(VERSION_SH)
     s8 lowerBound;
 #endif
 #ifdef VERSION_EU
@@ -2033,7 +2046,7 @@ void render_dialog_entries(void) {
                 gDialogBoxState = DIALOG_STATE_VERTICAL;
                 gDialogLineNum = 1;
             }
-#if !defined(VERSION_JP) && !defined(VERSION_SH)
+#ifndef VERSION_JP
             lowerBound = 1;
 #endif
             break;
@@ -2050,7 +2063,7 @@ void render_dialog_entries(void) {
                     play_sound(SOUND_MENU_MESSAGE_NEXT_PAGE, gDefaultSoundArgs);
                 }
             }
-#if !defined(VERSION_JP) && !defined(VERSION_SH)
+#ifndef VERSION_JP
             lowerBound = 1;
 #endif
             break;
@@ -2062,8 +2075,8 @@ void render_dialog_entries(void) {
                 gDialogBoxState = DIALOG_STATE_VERTICAL;
                 gDialogScrollOffsetY = 0;
             }
-#if !defined(VERSION_JP) && !defined(VERSION_SH)
-            lowerBound = (gDialogScrollOffsetY / 16) + 1;
+#ifndef VERSION_JP
+            lowerBound = (gDialogScrollOffsetY / DIAG_VAL1) + 1; // (16 on US/EU, 20 on Shindou)
 #endif
             break;
         case DIALOG_STATE_CLOSING:
@@ -2089,7 +2102,7 @@ void render_dialog_entries(void) {
                 gLastDialogPageStrPos = 0;
                 gDialogResponse = 0;
             }
-#if !defined(VERSION_JP) && !defined(VERSION_SH)
+#ifndef VERSION_JP
             lowerBound = 1;
 #endif
             break;
@@ -2120,7 +2133,7 @@ void render_dialog_entries(void) {
 #endif
                   ensure_nonnegative(240 + ((dialog->linesPerBox * 80) / DIAG_VAL4) - dialog->width));
 #endif
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_JP
     handle_dialog_text_and_pages(0, dialog);
 #else
     handle_dialog_text_and_pages(0, dialog, lowerBound);
@@ -2293,7 +2306,7 @@ void do_cutscene_handler(void) {
     gCutsceneMsgTimer++;
 }
 
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_JP // (Shindou shows the letter as long as US)
 #define PEACH_MESSAGE_TIMER 170
 #else
 #define PEACH_MESSAGE_TIMER 250
@@ -2341,7 +2354,7 @@ void print_peach_letter_message(void) {
     gDPSetEnvColor(gDisplayListHead++, 20, 20, 20, gCutsceneMsgFade);
 
     print_generic_string(STR_X, STR_Y, str);
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#ifdef VERSION_JP
     gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
 #endif
     gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
@@ -2591,8 +2604,8 @@ void render_pause_my_score_coins(void) {
     }
 #ifndef VERSION_JP
     else {
-#ifdef VERSION_US
-        print_generic_string(94, 157, &courseName[3]);
+#if defined(VERSION_US) || defined(VERSION_SH)
+        print_generic_string(94, 157, &courseName[3]); // (Shindou: like US)
 #elif defined(VERSION_EU)
         print_generic_string(get_str_x_pos_from_center(159, &courseName[3], 10.0f), 157, &courseName[3]);
 #endif
@@ -3029,10 +3042,14 @@ s16 render_pause_courses_and_castle(void) {
     return 0;
 }
 
-#if defined(VERSION_JP) || defined(VERSION_SH)
+#if defined(VERSION_JP)
 #define TXT_HISCORE_X 112
 #define TXT_HISCORE_Y 48
 #define TXT_CONGRATS_X 60
+#elif defined(VERSION_SH)
+#define TXT_HISCORE_X 118
+#define TXT_HISCORE_Y 48
+#define TXT_CONGRATS_X 70
 #else
 #define TXT_HISCORE_X 109
 #define TXT_HISCORE_Y 36

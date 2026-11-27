@@ -32,7 +32,14 @@ const GeoLayout klepto_geo[] = {
                               GEO_SCALE(0x00, 16384),
                               GEO_OPEN_NODE(),
                                  GEO_ASM(0, geo_offset_klepto_held_object),
+#if defined(TARGET_PSP) && PSP_NETPLAY /* (WLAN multiplayer: the cap of the player it took it from, as sm64coopdx's geo_mario_cap_display_list) */
+                                 GEO_TRANSLATE_ROTATE(LAYER_OPAQUE, 0, 100, 0, 180, 270, 0),
+                                 GEO_OPEN_NODE(),
+                                    GEO_ASM(0, geo_psp_enemy_cap),
+                                 GEO_CLOSE_NODE(),
+#else
                                  GEO_TRANSLATE_ROTATE_WITH_DL(LAYER_OPAQUE, 0, 100, 0, 180, 270, 0, mario_cap_seg3_dl_03022F48),
+#endif
                               GEO_CLOSE_NODE(),
                            GEO_CLOSE_NODE(),
                            GEO_NODE_START(),

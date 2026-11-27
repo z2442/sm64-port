@@ -1134,6 +1134,19 @@ static struct TextureHashmapNode *gfx_texture_cache_peek(const uint8_t *orig_add
 }
 #endif
 
+/* For a texture whose contents change from frame to frame at the same address (the Shindou title screen easter egg): its cache entries are
+ * dropped, so the next use imports it again. The old nodes stay unused until the cache is next cleared. */
+void gfx_texture_cache_forget(const void *addr) {
+    struct TextureHashmapNode *node = gfx_texture_cache.hashmap[((uintptr_t) addr >> 5) & 0x3ff];
+
+    while (node != NULL && node - gfx_texture_cache.pool < (int) gfx_texture_cache.pool_pos) {
+        if (node->texture_addr == (const uint8_t *) addr) {
+            node->texture_addr = (const uint8_t *) 1; /* matches no texture */
+        }
+        node = node->next;
+    }
+}
+
 static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, const uint8_t *orig_addr, uint32_t fmt, uint32_t siz) {
     size_t hash = (uintptr_t)orig_addr;
     hash = (hash >> 5) & 0x3ff;
@@ -3269,7 +3282,20 @@ static void gfx_sp_quad_flip_2d(void) {
     gfx_scegu_draw_quad_2d((float *)&q[0]);
 }
 
+/* PSP: the mirror room's reflection is drawn with a flipped matrix, so its front faces come out as back faces. geo_mirror_mario_backface_culling (mario_misc.c)
+ * turns this unused geometry bit on around the reflection; while it is on, every model's own culling changes are mirrored too (CULL_BACK <-> CULL_FRONT).
+ * Without it, a material that turns back-face culling on again (the extra characters' models do, after their double-sided parts) left both culls on and
+ * the rest of the reflection vanished. */
+#define G_PSP_MIRROR 0x00000008
+static uint32_t gfx_cull_swap(uint32_t m) {
+    return (m & ~G_CULL_BOTH) | ((m & G_CULL_BACK) ? G_CULL_FRONT : 0) | ((m & G_CULL_FRONT) ? G_CULL_BACK : 0);
+}
+
 static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
+    if ((rsp.geometry_mode & G_PSP_MIRROR) && !((clear | set) & G_PSP_MIRROR)) {
+        clear = gfx_cull_swap(clear);
+        set = gfx_cull_swap(set);
+    }
     rsp.geometry_mode &= ~clear;
     rsp.geometry_mode |= set;
     gfx_mark_tri_pipeline_dirty();
@@ -4387,7 +4413,10 @@ static unsigned int sProfSyncCur, sProfVblCur, sProfAccSync, sProfAccVbl;
 #include <pspiofilemgr.h>
 extern short gCurrLevelNum;
 extern short gCurrAreaIndex;
-static char sProfLogBuf[16384];
+#ifndef PSP_PROFILE_LOG
+#define PSP_PROFILE_LOG 0 /* 1 = allows writing ms0:/sm64_profile.txt with the FPS counter (for measuring only); 0 = final version, never writes or times */
+#endif
+static char sProfLogBuf[PSP_PROFILE_LOG ? 16384 : 16];
 unsigned int gPspLp[32]; /* logic profile: see pc/psp_lprof.h */
 unsigned int gPspLc[16];
 static unsigned int sProfLate, sProfLateLog, sProfLateEmit, sProfLateSync;

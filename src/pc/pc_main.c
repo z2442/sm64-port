@@ -36,6 +36,7 @@
 #include "psp_dve.h"
 #include "psp_netplay.h"
 #include "psp_watchdog.h"
+#include "psp_powerlog.h"
 #endif
 
 #include "compat.h"
@@ -198,23 +199,32 @@ static int psp_exit_callback(UNUSED int arg1, UNUSED int arg2, UNUSED void *comm
 }
 
 static int psp_power_callback(UNUSED int unknown, int flags, UNUSED void *common) {
+    psp_plog("power notice flags %08X", (unsigned) flags);
     if (flags & (PSP_POWER_CB_SUSPENDING | PSP_POWER_CB_POWER_SWITCH | PSP_POWER_CB_STANDBY)) {
         if (!(flags & (PSP_POWER_CB_RESUMING | PSP_POWER_CB_RESUME_COMPLETE))) {
             /* The order matters: the system does not wait for this thread, so what must be done before sleeping goes first and the slow things last.
              * 1) the ME (it must not be left running our loop); 2) the video (GE drained, TV back to the console screen); 3) the WLAN room (up to ~3 s,
              * but only if there is one). */
+            psp_plog_suspending();
             psp_me_power_event(1);
+            psp_plog("  ME stopped for the sleep");
         }
         gfx_scegu_power_event(1);
+        psp_plog("  video stopped");
         if (!(flags & (PSP_POWER_CB_RESUMING | PSP_POWER_CB_RESUME_COMPLETE))) {
             (void) psp_netplay_suspend(); /* the WLAN does not survive sleep: the room is left */
+            psp_plog("  WLAN closed");
         }
     }
     if (flags & (PSP_POWER_CB_RESUME_COMPLETE | PSP_POWER_CB_RESUMING)) {
         gfx_scegu_power_event(0);
+        psp_plog("  video resumed");
+        psp_plog_resumed(); /* (also here: if RESUME_COMPLETE never came, the samples and the file would still happen) */
     }
     if (flags & PSP_POWER_CB_RESUME_COMPLETE) {
         psp_me_power_event(0); /* the ME is started again (if it stopped properly before sleeping) */
+        psp_plog("  ME resume done");
+        psp_plog_resumed();
     }
     return 0;
 }
@@ -374,7 +384,16 @@ void main_func(const char *argv0) {
     psp_setup_exit_callback();
 #endif
 
+#ifdef TARGET_PSP
+    /* 1.5 MB (it was 2.9 MB, twice the N64's): without the N64's segments, what a level keeps in it is its objects, graph nodes and collision.
+     * The most measured (the castle's inside, with the other player) was ~420 KB. The freed memory is what lets the other characters' voices fit
+     * in a PSP-1000. */
+    /* +128 KB (0x1A0000): the title screen's Mario head also takes from it the 600 KB the N64 lent it from the Z-buffer and frame buffers (they are
+     * not in the game any more, see level_script.c). With the head the pool had ~600 KB free; levels leave over 1 MB free. */
+    static u32 pool[0x1A0000 / sizeof(u32)];
+#else
     static u32 pool[0x165000/8 / 4 * sizeof(void *) * 4];
+#endif
     main_pool_init(pool, pool + sizeof(pool) / sizeof(pool[0]));
     gEffectsMemoryPool = mem_pool_init(0x4000, MEMORY_POOL_LEFT);
 
@@ -383,6 +402,7 @@ void main_func(const char *argv0) {
     atexit(save_config);
 #ifdef TARGET_PSP
     psp_watchdog_start(); /* freeze report (freeze.txt): only writes if the game stops finishing frames */
+    psp_plog_start();     /* sleep measurement (sm64_power.txt): only with PSP_POWERLOG=1 */
     {
         extern int gPspOptTv; /* psp_options.c: TV Output (0 Off / 1 240p / 2 480p) */
         (void) psp_dve_boot_mode(gPspOptTv); /* decides BEFORE starting the video (switches VRAM to 4 MB if there is TV) */

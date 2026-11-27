@@ -40,6 +40,9 @@ void bhv_manta_ray_init(void) {
 void manta_ray_move(void) {
     s16 sp1E;
     s32 sp18;
+#ifdef AVOID_UB
+    sp18 = 0;
+#endif
 
     sp1E = o->header.gfx.unk38.animFrame;
     gCurrentObject->oPathedStartWaypoint = (struct Waypoint *) sMantaRayTraj;

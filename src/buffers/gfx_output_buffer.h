@@ -3,7 +3,9 @@
 
 #include <PR/ultratypes.h>
 
-#ifdef VERSION_EU
+#ifdef TARGET_PSP
+extern u64 gGfxSPTaskOutputBuffer[16]; /* (the RSP's output FIFO: the PSP renderer does not use it, game_init.c only stores its address) */
+#elif defined(VERSION_EU)
 extern u64 gGfxSPTaskOutputBuffer[0x2fc0];
 #else
 extern u64 gGfxSPTaskOutputBuffer[0x3e00];

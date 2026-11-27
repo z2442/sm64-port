@@ -24,6 +24,19 @@ void bhv_ship_part_3_loop(void) {
     s16 sp1E = o->oFaceAnglePitch;
     s16 sp1C = o->oFaceAngleRoll;
     cur_obj_set_pos_to_home_with_debug();
+#if defined(TARGET_PSP) && PSP_NETPLAY && PSP_NETPLAY_WORLD
+    /* (WLAN multiplayer) the ship's look (bhvShipPart3, four parts) rocks with its collision (bhvInSunkenShip3): only the collision's rocking is
+     * kept in step with the other console, so a console that entered the level at another moment had the look rocking out of step with the
+     * floor it stands on. The collision is updated before the look in a frame (OBJ_LIST_SURFACE goes before OBJ_LIST_DEFAULT): its value
+     * before this frame's step is taken, and the step below makes them equal. */
+    if (o->behavior == segmented_to_virtual(bhvShipPart3) && psp_netplay_state() == PSP_NP_CONNECTED) {
+        struct Object *collision = cur_obj_nearest_object_with_behavior(bhvInSunkenShip3);
+        if (collision != NULL) {
+            o->oShipPart3UnkF4 = collision->oShipPart3UnkF4 - 0x100;
+            o->oShipPart3UnkF8 = collision->oShipPart3UnkF8;
+        }
+    }
+#endif
     o->oShipPart3UnkF4 += 0x100;
     o->oFaceAnglePitch = sins(o->oShipPart3UnkF4) * 1024.0f;
     o->oFaceAngleRoll = sins(o->oShipPart3UnkF8) * 1024.0f;

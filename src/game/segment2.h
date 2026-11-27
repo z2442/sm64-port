@@ -44,6 +44,9 @@ extern u8 seg2_painting_mesh_neighbor_tris[];
 extern u8* main_hud_lut[58];
 extern Gfx dl_hud_img_load_tex_block[];
 extern const u8 texture_hud_char_luigi_head[];
+#ifdef TARGET_PSP
+const u8 *psp_char_head(int character); /* (PSP_CHAR_*: NULL for Mario) */
+#endif
 extern Gfx dl_hud_img_begin[];
 extern Gfx dl_hud_img_end[];
 extern void *main_font_lut[];

@@ -25,15 +25,17 @@ extern u8 gAudioSPTaskYieldBuffer[]; // ucode yield data ptr; only used in JP
 
 struct SPTask *create_next_audio_frame_task(void);
 void play_sound(s32 soundBits, f32 *pos);
-/* PSP WLAN multiplayer: Luigi's voice and the other player's voice (see external.c) */
-extern u8 gPspLuigiVoice;
+/* PSP WLAN multiplayer: the characters' voices and the other player's voice (see external.c). The characters, in sm64coopdx's order (CT_*) */
+enum { PSP_CHAR_MARIO, PSP_CHAR_LUIGI, PSP_CHAR_TOAD /* Blue Toad */, PSP_CHAR_TOAD_YELLOW, PSP_CHAR_WALUIGI, PSP_CHAR_WARIO, PSP_CHAR_COUNT };
+extern u8 gPspLocalChar;
+extern u8 gPspSoloChar; /* the character outside a multiplayer room: Mario, or Luigi when a file was chosen holding L + R (file_select.c) */
 extern u8 gPspVoiceNoRemap;
 extern u32 gPspVoiceLast;
 extern u8 gPspVoiceSeq;
 extern u32 gPspSfxRing[4];
 extern u8 gPspSfxSeq;
 void psp_play_remote_sfx(u32 soundBits, f32 *pos);
-void psp_play_remote_voice(u32 soundBits, int luigi, f32 *pos);
+void psp_play_remote_voice(u32 soundBits, int character, f32 *pos);
 void audio_signal_game_loop_tick(void);
 void sequence_player_fade_out(u8 player, u16 fadeTimer);
 void fade_volume_scale(u8 player, u8 targetScale, u16 fadeTimer);

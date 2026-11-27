@@ -17,6 +17,8 @@ et sur le portage PSP de [z2442](https://github.com/z2442/sm64-port).
 - Tous les réglages sont dans **un seul fichier texte lisible**, `sm64config.txt`, que vous pouvez aussi modifier à la main.
 - La progression est sauvegardée sur le Memory Stick comme un jeu PSP normal.
 - **Quatre versions à partir du même code** : US, JP, EU (anglais, français et allemand, avec la mise en page PAL adaptée à l'écran 16:9 de la PSP) et Shindou (expérimentale). Voir [Versions prises en charge](#versions-prises-en-charge).
+- **Multijoueur WLAN à 2 joueurs** (ad hoc de la PSP, sans routeur ni internet), dans le style de sm64coopdx, avec Mario, Luigi, Toad bleu, Toad jaune, Waluigi et Wario. Voir [Multijoueur (WLAN)](#multijoueur-wlan).
+- **Jouer avec Luigi en solo** : maintenez **L + R** en choisissant la sauvegarde (comme dans New Super Mario Bros. DS). De retour à l'écran titre, c'est de nouveau Mario.
 
 > **Ce dépôt ne contient pas les données du jeu.** Il vous faut **votre propre copie de la ROM de Super Mario 64** de la version souhaitée,
 > que le processus de compilation transforme en version PSP. Aucune ROM n'est incluse et aucune ne sera fournie.
@@ -48,7 +50,7 @@ et sur le portage PSP de [z2442](https://github.com/z2442/sm64-port).
 
 La seule chose à installer sur le PC est Docker Desktop. Tout le reste (compilateur, Python, bibliothèques) se trouve dans un conteneur Docker créé par le script de compilation.
 
-**PSP-1000 (24 Mo de RAM) :** le jeu est conçu pour tenir dans la mémoire d'une PSP-1000 ; il démarre et fonctionne dans PPSSPP configuré en modèle 24 Mo avec environ 2 Mo de tas disponibles. Il **n'a pas encore été testé sur une vraie PSP-1000** : considérez-le comme expérimental sur ce modèle. La sortie TV n'est pas disponible sur PSP-1000.
+**PSP-1000 (24 Mo de RAM) :** le jeu est conçu pour tenir dans la mémoire d'une PSP-1000 ; il démarre et fonctionne dans PPSSPP configuré en modèle 24 Mo (y compris une partie multijoueur à deux avec deux consoles configurées ainsi). Il **n'a pas encore été testé sur une vraie PSP-1000** : considérez-le comme expérimental sur ce modèle. La sortie TV n'est pas disponible sur PSP-1000.
 
 ### Versions prises en charge
 
@@ -57,13 +59,13 @@ La seule chose à installer sur le PC est Docker Desktop. Tout le reste (compila
 | **US** (États-Unis) | `baserom.us.z64` | `9bef1128717f958171a4afac3ed78ee2bb4e86ce` | Version principale, la plus testée. |
 | **JP** (Japon) | `baserom.jp.z64` | `8a20a5c83d6ceb0f0506cfc9fa20d8f438cafe51` | Compile ; moins testée. |
 | **EU** (Europe) | `baserom.eu.z64` | `4ac5721683d0e0b6bbb561b58a71740845dceea9` | Anglais, français et allemand. Testée sur PSP et PPSSPP. |
-| **SH** (Shindou, Japon 1997) | `baserom.sh.z64` **et** `baserom.jp.z64` | `3f319ae697533a255a1003d09202379d78d5a2e0` (SH) | **Expérimentale.** Les graphismes et le jeu viennent de la ROM SH, mais le son vient encore de la ROM JP : l'audio n'est donc pas encore celui de la vraie version Shindou. |
+| **SH** (Shindou, Japon 1997) | `baserom.sh.z64` | `3f319ae697533a255a1003d09202379d78d5a2e0` | **Expérimentale.** Tout vient de la ROM SH, son compris, joué par le moteur sonore Shindou. |
 
 Chaque compilation est un jeu à part : la version que vous compilez est celle que vous obtenez. Renommez votre ROM exactement comme indiqué (tout en minuscules).
 
 **Limitations connues**
 
-- La version Shindou nécessite **les deux** ROM (SH et JP) et utilise les données sonores et le moteur audio japonais (le moteur sonore Shindou d'origine n'est pas encore porté). La vibration n'est pas disponible (la PSP n'a pas de moteur de vibration).
+- La vibration n'est pas disponible dans la version Shindou (la PSP n'a pas de moteur de vibration).
 - Toutes les versions partagent le même dossier et le même nom de fichier de sauvegarde (`PSP\SAVEDATA\SM64PORT\sm64_save_file.bin`). La compatibilité des sauvegardes entre versions n'est pas garantie : **sauvegardez ce fichier avant de passer à une autre version**.
 
 ---
@@ -117,7 +119,6 @@ Le plus simple, sans programme supplémentaire :
 
 1. Copiez votre ROM dans le dossier du projet, **à côté du fichier `Makefile`**.
 2. Renommez-la exactement en **`baserom.<version>.z64`** (tout en minuscules), où `<version>` vaut `us`, `jp`, `eu` ou `sh` : par exemple `baserom.us.z64`.
-   La version Shindou nécessite deux fichiers : `baserom.sh.z64` et `baserom.jp.z64`.
 
 Le dossier doit maintenant contenir, entre autres : `Makefile`, `build_psp.ps1`, `Dockerfile.psp`, `src` et votre ROM (`baserom.us.z64`, par exemple).
 
@@ -194,7 +195,7 @@ Le jeu est la paire de fichiers **`EBOOT.PBP`** et **`SM64.PRX`** dans **`build\
 Si une release est publiée pour votre version (GitHub → *Releases*), vous n'avez rien à compiler ni Docker à installer. La release ne contient aucune donnée du jeu : elle se prépare toute seule à partir de **votre propre ROM** au premier lancement.
 
 1. Téléchargez le zip de votre version (`SM64-PSP-us.zip`, `-jp`, `-eu` ou `-sh`), extrayez-le et copiez le dossier **`PSP`** à la racine de votre Memory Stick (fusionnez les dossiers si on vous le demande).
-2. Placez votre propre ROM dans `PSP\GAME\SM64_<VERSION>\data\` (n'importe quel nom de fichier ; `.z64`, `.v64` ou `.n64`). La version Shindou nécessite la ROM SH et la ROM JP.
+2. Placez votre propre ROM dans `PSP\GAME\SM64_<VERSION>\data\` (n'importe quel nom de fichier ; `.z64`, `.v64` ou `.n64`).
 3. Lancez **Super Mario 64** depuis le XMB. La première fois, il vérifie votre ROM et construit le jeu (une barre de progression s'affiche et cela peut prendre un moment), puis il démarre. Les fois suivantes, il démarre directement ; la ROM, `SM64.template.prx` et `manifest.bin` ne sont alors plus nécessaires et peuvent être supprimés.
 
 L'installateur affiche ses messages dans la langue de votre PSP (anglais, français, allemand, espagnol, italien ou japonais). S'il indique que la ROM est absente, vérifiez que c'est bien la ROM originale de 8 Mo de cette version (SHA-1 dans le [tableau ci-dessus](#versions-prises-en-charge)). L'installateur a été testé sur une vraie PSP-3000 ; les retours d'autres modèles (surtout la PSP-1000) sont les bienvenus.
@@ -229,34 +230,51 @@ Vous pouvez tout modifier dans le menu d'options.
 ### Le menu d'options
 
 1. Appuyez sur **Start** pour mettre le jeu en pause.
-2. Appuyez sur **R** (l'écran de pause affiche « **R Options** » en bas à droite).
+2. Appuyez sur **R** (l'écran de pause affiche « **R: Options** » en bas à droite).
 
 | Boutons | Action |
 |---|---|
 | Croix directionnelle / stick **haut–bas** | Passer d'une option à l'autre |
-| Croix directionnelle **gauche–droite** ou **✕** | Changer la valeur / entrer dans une page |
-| **□** ou **○** | Retour |
+| Croix directionnelle **gauche–droite** ou **A** | Changer la valeur / entrer dans une page |
+| **B** | Retour |
 | **Start** ou **R** | Fermer le menu (et tout enregistrer) |
+
+A, B, R et Start sont les boutons du jeu : le menu suit vos réglages de commandes (par défaut A est **✕** et B est **□**).
 
 **Pages**
 
 - **Graphics** — FPS Limit (30 / 60), Frame Pacing (*Keep FPS* / *Keep Speed*), Object Distance et Far Distance (100 %–300 %), Object Culling (*Original* / *Vertical*), FPS Counter, Show Sound CPU, **TV Settings** (sous-page, câble vidéo requis), Reset to Defaults.
 - **Audio** — Music Volume et Effects Volume, de 0 à 100 (100 = volume d'origine du jeu), et Sound Mode : Stereo, Mono ou Headset. Le Sound Mode est le même réglage que celui de l'écran de sélection de fichier (il est enregistré dans la sauvegarde : le changer à un endroit le change aux deux).
-- **Controls** — choisissez un bouton et appuyez sur **✕** ; l'écran affiche « Press a button » : appuyez sur le bouton PSP voulu (il attend environ 5 secondes).
+- **Controls** — choisissez un bouton et appuyez sur **A** ; l'écran affiche « Press a button » : appuyez sur le bouton PSP voulu (il attend environ 5 secondes).
   Si ce bouton servait déjà à une autre action, les deux sont échangés. Également : Stick Deadzone et Reset to Defaults.
+- **Exit to Title** (dernière ligne de la première page) — revient à la tête de Mario, l'écran de démarrage du jeu. Appuyez sur **A** une fois puis encore pour confirmer. Grisé dans une partie multijoueur (quittez d'abord la partie).
 
 (Le menu est en anglais.)
 
+### Multijoueur (WLAN)
+
+Deux PSP peuvent jouer ensemble via la connexion sans fil de la PSP (ad hoc : sans routeur ni internet), dans le style de sm64coopdx : chaque joueur se déplace librement et peut être dans un niveau différent.
+
+1. Activez l'**interrupteur WLAN** sur les deux consoles (s'il est coupé, le menu ne s'ouvre pas). La **PSP Street (E1000)** n'a pas de WLAN : le menu Multijoueur n'y apparaît pas.
+2. Sur l'écran de sélection de fichier, appuyez sur **SELECT** pour ouvrir le menu **Multijoueur**. Choisissez-y votre **Personnage** : Mario, Luigi, Toad bleu, Toad jaune, Waluigi ou Wario (deux joueurs ne peuvent pas prendre le même). Votre nom est le pseudo de la PSP.
+3. Un joueur choisit **Créer une partie**, règle les règles de la partie (étiquettes de nom, interaction entre joueurs, recul, à la prise d'une étoile, bulle à la mort, passer l'intro) puis choisit le fichier de sauvegarde.
+4. L'autre joueur choisit **Rejoindre** et prend la partie dans la liste (elle affiche le pseudo de l'hôte et les joueurs).
+
+- Jusqu'à **2 joueurs**. Le multijoueur tourne toujours à 30 FPS.
+- La partie utilise le **fichier de sauvegarde de l'hôte** : la progression y est enregistrée. Le client joue sur une copie en mémoire, et ses propres sauvegardes ne changent pas.
+- **Les deux joueurs doivent avoir la même version (US / JP / EU / SH) et la même release.** Une partie d'une autre version ou release apparaît comme *Autre version* et ne peut pas être rejointe.
+- En jeu, **Start → R: Options → Multijoueur** affiche les règles de la partie (lecture seule) et propose **Quitter la partie**. Si la connexion est perdue ou si l'hôte ferme la partie, le client revient à la sélection de fichier avec un message.
+
 ### Où tout est enregistré
 
-Tout est stocké sur le Memory Stick dans `PSP\SAVEDATA\SM64PORT\` :
+Tout est stocké sur le Memory Stick dans `PSP\SAVEDATA\SM64PORT\`, sauf les deux rapports, qui vont à la racine du Memory Stick :
 
 | Fichier | Contenu |
 |---|---|
 | `sm64_save_file.bin` | Votre progression (étoiles, pièces…) |
 | `sm64config.txt` | Tous vos réglages (graphismes, audio, commandes) en texte brut |
-| `freeze.txt` | Seulement après un blocage : un petit rapport de ce que faisait le jeu (voir Dépannage) |
-| `crash.txt` | Seulement après un plantage : où le jeu s'est arrêté (voir Dépannage) |
+| `ms0:/freeze.txt` | Seulement après un blocage : un petit rapport de ce que faisait le jeu (voir Dépannage) |
+| `ms0:/crash.txt` | Seulement après un plantage : où le jeu s'est arrêté (voir Dépannage) |
 
 `sm64config.txt` s'ouvre avec le Bloc-notes. Chaque ligne est de la forme `nom = valeur`. Pour repartir de zéro, supprimez le fichier (ou utilisez *Reset to Defaults*).
 
@@ -279,7 +297,7 @@ Lancez le script exactement ainsi : `powershell -ExecutionPolicy Bypass -File .\
 
 **`Failed to open baserom.us.z64!`** (ou la même chose avec `jp`, `eu`, `sh`)
 La ROM n'est pas au bon endroit ou n'a pas le bon nom. Elle doit se trouver **à côté de `Makefile`** et s'appeler exactement `baserom.<version>.z64`
-(avec les extensions visibles, vérifiez que ce n'est pas `baserom.us.z64.z64`). Pour Shindou il faut `baserom.sh.z64` **et** `baserom.jp.z64`.
+(avec les extensions visibles, vérifiez que ce n'est pas `baserom.us.z64.z64`).
 
 **`baserom.us.z64 has the wrong hash!`** (idem avec `jp`, `eu` ou `sh`)
 Ce n'est pas la ROM de cette version, ou elle est dans un autre format. Refaites l'[Étape 1](#étape-1--vérifiez-votre-rom).
@@ -301,7 +319,7 @@ Vérifiez que les chemins sont exactement `PSP\GAME\SM64\EBOOT.PBP` et `PSP\GAME
 Relancez le jeu : si la TV a été activée et n'a pas tenu environ 5 secondes, le jeu remet TV Output sur *Off* au lancement suivant et utilise l'écran de la PSP.
 
 **Le jeu se fige**
-Si le jeu cesse d'afficher des images pendant environ 4 secondes, un petit chien de garde écrit `freeze.txt` dans `PSP\SAVEDATA\SM64PORT\` (et le réécrit toutes les 4 s tant que le blocage dure, jusqu'à 12 s). Il indique où se trouvait le thread principal, ce qu'attend chaque thread, l'état du GPU et du processeur audio, le niveau / l'action de Mario, ainsi que le niveau et la tension de la batterie. Joignez ce fichier à votre issue. Si la console se bloque au point qu'aucun code ne s'exécute, aucun fichier ne peut être écrit : dans ce cas, l'*absence* de `freeze.txt` est elle-même une information utile.
+Si le jeu cesse d'afficher des images pendant environ 4 secondes, un petit chien de garde écrit `freeze.txt` à la racine du Memory Stick (et le réécrit toutes les 4 s tant que le blocage dure, jusqu'à 12 s). Il indique où se trouvait le thread principal, ce qu'attend chaque thread, l'état du GPU et du processeur audio, le niveau / l'action de Mario, ainsi que le niveau et la tension de la batterie. Joignez ce fichier à votre issue. Si la console se bloque au point qu'aucun code ne s'exécute, aucun fichier ne peut être écrit : dans ce cas, l'*absence* de `freeze.txt` est elle-même une information utile.
 
 Si le jeu plante (il revient tout seul au menu du système), il écrit d'abord `crash.txt` dans le même dossier : l'erreur, le code du jeu où elle s'est produite et les adresses de code sur la pile de ce thread. Joignez-le aussi, en précisant la version compilée (les adresses n'ont de sens qu'avec cette compilation).
 
@@ -360,13 +378,14 @@ Les pull requests sont les bienvenues. Pour les changements importants, ouvrez d
 - **Le portage d'Ocarina of Time de z2442 (oot-PSP) et Daedalus** — le module auxiliaire de sortie TV (`psp/dvemgr`) est adapté de celui du portage OoT, qui suit lui-même la méthode de sortie vidéo de l'émulateur N64 Daedalus pour PSP.
 - **ghurone / Sonic-R-PSP** — les idées de l'arène de sommets en cache et de laisser le GE faire le découpage latéral, ainsi que l'indice sur les options du compilateur, viennent de leur portage de Sonic R pour PSP.
 - **beckerd ([psp_mk64_portable](https://github.com/beckerd/psp_mk64_portable)) et JustKidding23 ([Ocarina-of-Time-PSP](https://github.com/JustKidding23/Ocarina-of-Time-PSP), basé sur [z2442/oot-PSP](https://github.com/z2442/oot-PSP))** — l'idée de ne distribuer aucune donnée du jeu et de la construire sur la PSP, à partir de la ROM du joueur, au premier lancement vient de ces deux portages PSP (Mario Kart 64 et Ocarina of Time). L'installateur de ce dépôt (`psp/installer/`) est une implémentation distincte : il reconstruit `SM64.PRX` à partir d'un modèle et d'un manifeste.
-- **sm64coopdx / sm64ex-coop** — référence pour la conception de la synchronisation du multijoueur (désactivé dans cette version) et source des ressources de Luigi adaptées pour ce portage : modèle et textures, tête du HUD, banques sonores et échantillons vocaux. Les voix de Luigi y sont attribuées à Andrat. sm64coopdx s'appuie sur sm64ex-coop (djoslin0 et contributeurs) et DynOS (PeachyPeach). Ces ressources appartiennent à leurs auteurs respectifs.
-- **Claude (Anthropic)** — assistant d'IA qui a écrit ou aidé à écrire la majeure partie des changements de code récents de ce portage : l'adaptation à 60 fps et la cadence d'images, les optimisations de rendu et du GE, le menu d'options, la prise en charge des versions JP/EU/SH et la documentation.
+- **sm64coopdx / sm64ex-coop** — référence pour la conception du multijoueur (synchronisation, menus, messages, réglages de la partie) et source des ressources des personnages adaptées pour ce portage (Luigi, Toad, Waluigi et Wario) : modèles et textures, têtes du HUD, banques sonores et échantillons vocaux. Les voix y sont attribuées à Andrat (Luigi, aussi utilisée pour Waluigi), Dark the Eagle (Wario) et Ninten_King_64 (Toad). sm64coopdx s'appuie sur sm64ex-coop (djoslin0 et contributeurs) et DynOS (PeachyPeach). Ces ressources appartiennent à leurs auteurs respectifs et ne sont pas couvertes par la licence de ce projet ; elles sont incluses parce que le multijoueur en a besoin. sm64coopdx ne publie pas de licence pour elles : si vous êtes l'un de leurs auteurs et souhaitez qu'elles soient retirées ou créditées autrement, ouvrez une issue.
+- **Ship of Harkinian (HarbourMasters)** — la version C du microcode audio N64 plus récent utilisé par le moteur sonore Shindou (`src/sh/audio/mixer_sh.c`) est adaptée de son `mixer.c`, lui-même issu du mixeur de sm64-port.
+- **Claude (Anthropic)** — assistant d'IA qui a écrit ou aidé à écrire la majeure partie des changements de code récents de ce portage : l'adaptation à 60 fps et la cadence d'images, les optimisations de rendu et du GE, le menu d'options, la prise en charge des versions JP/EU/SH, le multijoueur WLAN, l'installateur sans PC et la documentation.
 - Toutes les autres personnes qui ont contribué au projet PSP et toutes celles qui figurent dans l'historique Git de ce dépôt (`git shortlog -sn`).
 
 **Outils utilisés**
 
 - **pspdev** (PSPSDK et chaîne d'outils PSP) pour compiler, et **PPSSPP** pour tester.
 
-Les données propres au jeu (modèles, textures, musique, sons) ne sont **pas** distribuées ici : elles sont extraites de la ROM que vous fournissez.
+Les données propres au jeu (modèles, textures, musique, sons) ne sont **pas** distribuées ici : elles sont extraites de la ROM que vous fournissez. Les seules ressources de ce type présentes dans le dépôt et les releases sont les personnages supplémentaires du multijoueur repris de sm64coopdx (voir ci-dessus).
 Le dépôt inclut en revanche quelques fichiers dérivés de Nintendo dont la PSP a besoin pour afficher le jeu dans son menu (`psp/EBOOT/` : icône, image de fond et son). Ils ne sont pas couverts par la licence de ce projet et appartiennent à leurs propriétaires ; si vous êtes titulaire des droits et souhaitez leur retrait, ouvrez une issue.

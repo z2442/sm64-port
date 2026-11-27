@@ -1387,7 +1387,9 @@ void sequence_channel_process_script(struct SequenceChannel *seqChannel) {
 #else
                             state->depth++, state->stack[state->depth - 1] = state->pc;
 #endif
-                            sp5A = thingy[value][1] + (thingy[value][0] << 8);
+                            /* PSP: the index is unsigned. The voice channel's table goes past 0x7F (the other characters' voices, see
+                             * PSP_TOAD_VOICE_OFFSET in external.c), and a sound id of 0x80 or more read as a negative s8 jumped to garbage */
+                            sp5A = thingy[(u8) value][1] + (thingy[(u8) value][0] << 8);
                             state->pc = seqPlayer->seqData + sp5A;
                         }
                         break;

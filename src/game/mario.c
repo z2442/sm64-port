@@ -5,6 +5,7 @@
 #include "area.h"
 #include "audio/data.h"
 #include "audio/external.h"
+#include "pc/psp_netplay.h"
 #include "behavior_actions.h"
 #include "behavior_data.h"
 #include "camera.h"
@@ -1898,7 +1899,8 @@ void init_mario(void) {
     vec3s_set(gMarioState->marioObj->header.gfx.angle, 0, gMarioState->faceAngle[1], 0);
 
     if (save_file_get_cap_pos(capPos)) {
-        capObject = spawn_object(gMarioState->marioObj, MODEL_MARIOS_CAP, bhvNormalCap);
+        capObject = spawn_object(gMarioState->marioObj, psp_np_cap_model(gPspLocalChar, MODEL_MARIOS_CAP), bhvNormalCap); /* (the cap of the player's character) */
+        psp_np_cap_owner(capObject, gPspLocalChar);
 
         capObject->oPosX = capPos[0];
         capObject->oPosY = capPos[1];
